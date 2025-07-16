@@ -225,6 +225,34 @@ const ComponentTestTool = () => {
         </div>
       </GridWindow>
 
+      {/* Test rectangular GridWindow - 3x2 size */}
+      <GridWindow
+        x={5}
+        y={3}
+        w={3}
+        h={2}
+        variant="rectangular"
+        tooltip="Rectangular window"
+        theme={theme}
+      >
+        {/* Static content for rectangular window demo */}
+        <div className="absolute inset-4 flex items-center justify-center">
+          <div
+            className="text-2xl font-bold"
+            style={{
+              color: isUnicornMode
+                ? "#7c3aed"
+                : isDarkMode
+                  ? "#60a5fa"
+                  : "#1e40af",
+              textShadow: "0 1px 2px rgba(0,0,0,0.3)",
+            }}
+          >
+            β γ δ
+          </div>
+        </div>
+      </GridWindow>
+
       {/* Values display */}
       <div
         className={`absolute ${theme.text} text-sm`}

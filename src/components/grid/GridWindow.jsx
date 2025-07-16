@@ -26,7 +26,7 @@ const GridWindow = ({
     if (variant === "circular") {
       return "circle(45% at 50% 50%)";
     } else {
-      return "inset(10% 10% 10% 10% round 8px)";
+      return "inset(3% 3% 3% 3% round 8px)";
     }
   };
 
@@ -139,6 +139,31 @@ const GridWindow = ({
               : isDarkMode
                 ? `inset 0 0 20px rgba(255,255,255,0.1)`
                 : `inset 0 0 15px rgba(0,0,0,0.2)`, // Dark inset shadow for Light mode
+          }}
+        />
+      )}
+
+      {/* Rectangular window frame highlight */}
+      {variant === "rectangular" && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            border: isUnicornMode
+              ? "2px solid rgba(251,207,232,0.5)"
+              : isDarkMode
+                ? "2px solid rgba(255,255,255,0.2)"
+                : "2px solid rgba(0,0,0,0.3)", // Dark frame for Light mode
+            top: "50%",
+            left: "50%",
+            width: "94%",
+            height: "94%",
+            transform: "translate(-50%, -50%)",
+            borderRadius: "8px",
+            boxShadow: isUnicornMode
+              ? `inset 0 0 15px rgba(236,72,153,0.2)`
+              : isDarkMode
+                ? `inset 0 0 15px rgba(255,255,255,0.1)`
+                : `inset 0 0 10px rgba(0,0,0,0.2)`, // Dark inset shadow for Light mode
           }}
         />
       )}
