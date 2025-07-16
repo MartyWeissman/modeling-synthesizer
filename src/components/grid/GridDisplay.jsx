@@ -44,7 +44,7 @@ const GridDisplay = ({
       case "numeric":
         return {
           textColor: isDarkMode ? "text-green-400" : "text-green-600",
-          bgColor: isDarkMode ? "rgba(0,0,0,0.8)" : "rgba(0,0,0,0.9)",
+          bgColor: isDarkMode ? "rgba(0,0,0,0.8)" : "rgba(255,255,255,0.9)",
           fontFamily: "font-mono",
           fontWeight: "font-bold",
         };

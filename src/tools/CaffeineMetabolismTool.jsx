@@ -6,6 +6,8 @@ import {
   GridStaircase,
   GridLabel,
   GridGraph,
+  GridSlider,
+  GridDisplay,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
@@ -21,8 +23,8 @@ const CaffeineMetabolismTool = () => {
   const [dose3Time, setDose3Time] = useState("4:00 PM");
   const [dose3Level, setDose3Level] = useState(1); // 40mg
 
-  // Metabolic rate (default 0.2 for 3.5 hour half-life)
-  const [metabolicRate] = useState(0.2);
+  // Metabolic rate (controlled by slider, default 0.2 for 3.5 hour half-life)
+  const [metabolicRate, setMetabolicRate] = useState(0.2);
 
   // Calculated values
   const [currentLevel, setCurrentLevel] = useState(0);
@@ -221,8 +223,8 @@ const CaffeineMetabolismTool = () => {
   return (
     <ToolContainer
       title="Caffeine Metabolism Simulator"
-      canvasWidth={10}
-      canvasHeight={3}
+      canvasWidth={11}
+      canvasHeight={4}
     >
       {/* Row 0: Dose 1 */}
       <GridLabel
@@ -334,6 +336,69 @@ const CaffeineMetabolismTool = () => {
         xRange={[0, 72]}
         yRange={[0, 320]}
         tooltip="Caffeine in bloodstream"
+        theme={theme}
+      />
+
+      {/* Row 3: Bottom labels and controls */}
+      <GridLabel
+        x={1}
+        y={3}
+        w={1}
+        h={1}
+        text="Daily caffeine:"
+        fontSize="large"
+        textAlign="left"
+        tooltip="Total daily caffeine intake"
+        theme={theme}
+      />
+
+      <GridDisplay
+        x={2}
+        y={3}
+        w={1}
+        h={1}
+        value={`${doseLevelToMg(dose1Level) + doseLevelToMg(dose2Level) + doseLevelToMg(dose3Level)}mg`}
+        variant="numeric"
+        align="center"
+        fontSize="sm"
+        tooltip={`Total daily caffeine: ${doseLevelToMg(dose1Level) + doseLevelToMg(dose2Level) + doseLevelToMg(dose3Level)}mg`}
+        theme={theme}
+      />
+
+      <GridLabel
+        x={9}
+        y={3}
+        w={1}
+        h={1}
+        text="Metabolic rate:"
+        fontSize="large"
+        textAlign="left"
+        tooltip="Metabolic Rate"
+        theme={theme}
+      />
+
+      {/* Metabolic Rate Slider */}
+      <GridSlider
+        x={10}
+        y={0}
+        value={metabolicRate * 200} // Convert 0.0-0.5 to 0-100 scale
+        onChange={(value) => setMetabolicRate(value / 200)} // Convert back to 0.0-0.5
+        variant="unipolar"
+        tooltip="Metabolic rate (0.0 to 0.5)"
+        theme={theme}
+      />
+
+      {/* Metabolic Rate Display */}
+      <GridDisplay
+        x={10}
+        y={3}
+        w={1}
+        h={1}
+        value={metabolicRate.toFixed(2)}
+        variant="numeric"
+        align="center"
+        fontSize="sm"
+        tooltip={`Current metabolic rate: ${metabolicRate.toFixed(1)}`}
         theme={theme}
       />
     </ToolContainer>

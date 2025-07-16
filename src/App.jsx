@@ -15,7 +15,6 @@ const ThemeSelector = () => {
 
   return (
     <div className="flex gap-2 items-center mb-4">
-      <span className="text-sm font-medium">Theme:</span>
       {Object.keys(themes).map((themeKey) => (
         <button
           key={themeKey}
@@ -107,7 +106,7 @@ const AppContent = () => {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h1 className={`text-3xl font-bold ${theme.text}`}>
-              Math Tools Suite
+              Modeling Synthesizer
             </h1>
             <ThemeSelector />
           </div>

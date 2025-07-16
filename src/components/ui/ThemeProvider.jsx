@@ -5,7 +5,7 @@ import { themes } from "../../themes";
 import { ThemeContext } from "../../contexts/ThemeContext";
 
 export const ThemeProvider = ({ children }) => {
-  const [currentTheme, setCurrentTheme] = useState("minimal");
+  const [currentTheme, setCurrentTheme] = useState("light");
 
   const theme = themes[currentTheme];
 
