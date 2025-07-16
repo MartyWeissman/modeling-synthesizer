@@ -11,6 +11,7 @@ const GridStaircase = ({
   onChange, // Callback when level changes
   maxLevel = 5, // Maximum level (default 5 for 6 steps: 0-5)
   showValue = true, // Show numeric value at bottom
+  customLevels = null, // Array of custom level values [0, 40, 80, 120, 160, 200]
 
   // Standard props
   tooltip,
@@ -82,6 +83,7 @@ const GridStaircase = ({
             style={{
               width: "100%",
               height: "100%",
+              paddingTop: "5px", // Lower the staircase by 5px
             }}
             onClick={(e) => {
               // Handle more forgiving click for level 0
@@ -180,7 +182,7 @@ const GridStaircase = ({
               paddingTop: "1px", // Move text down 1 pixel
             }}
           >
-            {value}
+            {customLevels ? customLevels[value] : value}
           </div>
         )}
       </div>
