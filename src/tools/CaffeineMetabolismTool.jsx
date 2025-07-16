@@ -231,6 +231,7 @@ const CaffeineMetabolismTool = () => {
         w={1}
         h={1}
         text="Dose 1"
+        fontSize="large"
         tooltip="Dose 1"
         theme={theme}
       />
@@ -249,7 +250,7 @@ const CaffeineMetabolismTool = () => {
         y={0}
         value={dose1Level}
         onChange={setDose1Level}
-        customLevels={[0, 40, 80, 120, 160, 200]}
+        customLevels={["0mg", "40mg", "80mg", "120mg", "160mg", "200mg"]}
         tooltip={`Dose 1: ${doseLevelToMg(dose1Level)}mg`}
         theme={theme}
       />
@@ -261,6 +262,7 @@ const CaffeineMetabolismTool = () => {
         w={1}
         h={1}
         text="Dose 2"
+        fontSize="large"
         tooltip="Dose 2"
         theme={theme}
       />
@@ -279,7 +281,7 @@ const CaffeineMetabolismTool = () => {
         y={1}
         value={dose2Level}
         onChange={setDose2Level}
-        customLevels={[0, 40, 80, 120, 160, 200]}
+        customLevels={["0mg", "40mg", "80mg", "120mg", "160mg", "200mg"]}
         tooltip={`Dose 2: ${doseLevelToMg(dose2Level)}mg`}
         theme={theme}
       />
@@ -291,6 +293,7 @@ const CaffeineMetabolismTool = () => {
         w={1}
         h={1}
         text="Dose 3"
+        fontSize="large"
         tooltip="Dose 3"
         theme={theme}
       />
@@ -309,7 +312,7 @@ const CaffeineMetabolismTool = () => {
         y={2}
         value={dose3Level}
         onChange={setDose3Level}
-        customLevels={[0, 40, 80, 120, 160, 200]}
+        customLevels={["0mg", "40mg", "80mg", "120mg", "160mg", "200mg"]}
         tooltip={`Dose 3: ${doseLevelToMg(dose3Level)}mg`}
         theme={theme}
       />

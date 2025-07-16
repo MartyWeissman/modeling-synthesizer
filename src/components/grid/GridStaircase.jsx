@@ -175,7 +175,7 @@ const GridStaircase = ({
           <div
             className={`
               flex items-center justify-center
-              ${theme.text} text-xs font-bold
+              ${theme.text} text-xs font-normal
             `}
             style={{
               height: "25px",
