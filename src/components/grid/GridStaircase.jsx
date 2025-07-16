@@ -31,7 +31,8 @@ const GridStaircase = ({
   const stepGap = 2;
   const totalSteps = maxLevel + 1; // 0-5 = 6 steps
   const totalWidth = stepWidth * totalSteps + stepGap * (totalSteps - 1);
-  const startX = (70 - totalWidth) / 2; // Center the stairs in 70px width
+  const containerWidth = 70;
+  const startX = (containerWidth - totalWidth) / 2; // Center the stairs in container
 
   for (let i = 0; i <= maxLevel; i++) {
     const stepHeight = i === 0 ? 2 : i * 12; // Step 0 is just a line, others are 12px per level
@@ -75,13 +76,12 @@ const GridStaircase = ({
       <div className="w-full h-full flex flex-col">
         {/* Staircase area - top 3/4 (75px) */}
         <div className="relative flex-1" style={{ height: "75px" }}>
-          {/* Staircase container - centered 70px wide area */}
+          {/* Staircase container - centered */}
           <div
-            className="absolute left-1/2 transform -translate-x-1/2"
+            className="absolute inset-0 flex items-center justify-center"
             style={{
-              width: "70px",
-              height: "60px",
-              top: "7.5px", // Center vertically in the 75px area
+              width: "100%",
+              height: "100%",
             }}
             onClick={(e) => {
               // Handle more forgiving click for level 0
@@ -97,7 +97,7 @@ const GridStaircase = ({
               // Let individual step clicks handle other levels
             }}
           >
-            <svg width="70" height="60" className="absolute inset-0">
+            <svg width="70" height="60" className="block">
               {steps.map((step) => (
                 <g key={step.level}>
                   {/* Main step with fill */}
