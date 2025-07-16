@@ -1,6 +1,6 @@
 # Modeling Synthesizer
 
-A React + Vite application with Tailwind CSS for styling.
+A React + Vite application with Tailwind CSS for styling and mathematical modeling tools.
 
 ## Development
 
