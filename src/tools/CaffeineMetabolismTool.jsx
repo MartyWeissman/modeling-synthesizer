@@ -52,20 +52,31 @@ const CaffeineMetabolismTool = () => {
     return 0;
   };
 
-  // Generate full 24-hour time series
+  // Generate 72-hour (3-day) time series with daily dose repetition
   const generateTimeSeries = useCallback(() => {
-    const doses = [
+    const dailyDoses = [
       { timeHours: parseTimeToHours(dose1Time), mg: doseLevelToMg(dose1Level) },
       { timeHours: parseTimeToHours(dose2Time), mg: doseLevelToMg(dose2Level) },
       { timeHours: parseTimeToHours(dose3Time), mg: doseLevelToMg(dose3Level) },
     ];
 
+    // Create 3 days worth of doses
+    const doses = [];
+    for (let day = 0; day < 3; day++) {
+      dailyDoses.forEach((dose) => {
+        doses.push({
+          timeHours: dose.timeHours + day * 24,
+          mg: dose.mg,
+        });
+      });
+    }
+
     const dataPoints = [];
     const timeStep = 0.25; // 15-minute intervals
     let maxLevel = 0;
 
-    // Generate 24 hours of data
-    for (let t = 0; t <= 24; t += timeStep) {
+    // Generate 72 hours of data
+    for (let t = 0; t <= 72; t += timeStep) {
       let totalLevel = 0;
 
       doses.forEach((dose) => {
@@ -148,44 +159,21 @@ const CaffeineMetabolismTool = () => {
       // Clear canvas
       ctx.clearRect(0, 0, width, height);
 
-      // Find max level for scaling
-      const maxLevel = Math.max(...timeSeriesData.map((d) => d.level), 1);
-      const padding = 20;
-      const graphWidth = width - 2 * padding;
-      const graphHeight = height - 2 * padding;
-
-      // Draw grid lines
-      ctx.strokeStyle = theme.component.includes("gray-700")
-        ? "#6b7280"
-        : "#d1d5db";
-      ctx.lineWidth = 0.5;
-
-      // Vertical grid lines (every 4 hours)
-      for (let hour = 4; hour < 24; hour += 4) {
-        const x = padding + (hour / 24) * graphWidth;
-        ctx.beginPath();
-        ctx.moveTo(x, padding);
-        ctx.lineTo(x, height - padding);
-        ctx.stroke();
-      }
-
-      // Horizontal grid lines
-      for (let i = 1; i < 4; i++) {
-        const y = padding + (i / 4) * graphHeight;
-        ctx.beginPath();
-        ctx.moveTo(padding, y);
-        ctx.lineTo(width - padding, y);
-        ctx.stroke();
-      }
+      // Use fixed max level to match Y-axis (0-320mg for headroom)
+      const maxLevel = 320;
+      // No padding needed - canvas is already positioned within axis bounds
+      const graphWidth = width;
+      const graphHeight = height;
 
       // Draw caffeine curve
-      ctx.strokeStyle = "#ef4444"; // Red for caffeine
+      ctx.strokeStyle = "#4682b4"; // Steelblue for caffeine
       ctx.lineWidth = 2;
       ctx.beginPath();
 
       timeSeriesData.forEach((point, index) => {
-        const x = padding + (point.time / 24) * graphWidth;
-        const y = height - padding - (point.level / maxLevel) * graphHeight;
+        // Use direct canvas coordinates - no Y-axis flip needed
+        const x = (point.time / 72) * graphWidth;
+        const y = graphHeight - (point.level / 320) * graphHeight;
 
         if (index === 0) {
           ctx.moveTo(x, y);
@@ -195,33 +183,6 @@ const CaffeineMetabolismTool = () => {
       });
 
       ctx.stroke();
-
-      // Mark dose times
-      ctx.fillStyle = "#3b82f6"; // Blue for dose markers
-      const doses = [
-        { time: parseTimeToHours(dose1Time), mg: doseLevelToMg(dose1Level) },
-        { time: parseTimeToHours(dose2Time), mg: doseLevelToMg(dose2Level) },
-        { time: parseTimeToHours(dose3Time), mg: doseLevelToMg(dose3Level) },
-      ];
-
-      doses.forEach((dose) => {
-        if (dose.mg > 0) {
-          const x = padding + (dose.time / 24) * graphWidth;
-
-          ctx.beginPath();
-          ctx.arc(x, height - padding, 3, 0, 2 * Math.PI);
-          ctx.fill();
-
-          // Label with dose amount
-          ctx.fillStyle = theme.component.includes("gray-700")
-            ? "#ffffff"
-            : "#000000";
-          ctx.font = "9px sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText(`${dose.mg}mg`, x, height - padding + 12);
-          ctx.fillStyle = "#3b82f6";
-        }
-      });
     }, 200);
   }, [
     timeSeriesData,
@@ -360,7 +321,15 @@ const CaffeineMetabolismTool = () => {
         w={7}
         h={3}
         xLabel="time"
-        yLabel="Caffeine(mg)"
+        yLabel="caffeine"
+        xUnit="hours"
+        yUnit="mg"
+        variant="time-series-static"
+        xAxisPosition="bottom"
+        xTicks={[12, 24, 36, 48, 60, 72]}
+        yTicks={[0, 100, 200, 300]}
+        xRange={[0, 72]}
+        yRange={[0, 320]}
         tooltip="Caffeine in bloodstream"
         theme={theme}
       />

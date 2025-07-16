@@ -12,6 +12,14 @@ const GridGraph = ({
   h,
   xLabel = "tuna",
   yLabel = "sharks",
+  xUnit = "", // e.g., "hours", "seconds"
+  yUnit = "", // e.g., "mg", "units"
+  variant = "default", // "default", "time-series-static", "time-series-dynamic"
+  xAxisPosition = "bottom", // "bottom", "center"
+  xTicks = [], // Array of tick positions for x-axis
+  yTicks = [], // Array of tick positions for y-axis
+  xRange = [0, 1], // [min, max] for x-axis
+  yRange = [0, 1], // [min, max] for y-axis
   tooltip,
   theme,
   children,
@@ -32,10 +40,177 @@ const GridGraph = ({
   const graphWidth = totalWidth - padding * 2;
   const graphHeight = totalHeight - padding * 2;
 
-  // Axis positioning with 25px padding
-  const axisPadding = 25;
-  const axisWidth = graphWidth - 2 * axisPadding;
-  const axisHeight = graphHeight - 2 * axisPadding;
+  // Calculate dynamic padding based on tick labels
+  const calculatePadding = () => {
+    // Y-axis padding - depends on longest tick label
+    const maxYTickLength = Math.max(
+      ...yTicks.map((tick) => tick.toString().length),
+    );
+    const yTickWidth = Math.max(25, maxYTickLength * 6 + 10); // 6px per character + 10px margin
+    const yAxisLabelWidth = 20; // Additional space for rotated y-axis label
+
+    // X-axis padding - needs space for tick labels + axis label
+    const xTickHeight = 15; // Space for tick labels
+    const xAxisLabelHeight = 20; // Space for axis label
+
+    return {
+      left: yTickWidth + yAxisLabelWidth,
+      right: 15,
+      top: 15,
+      bottom: xTickHeight + xAxisLabelHeight,
+    };
+  };
+
+  const dynamicPadding = calculatePadding();
+  const axisWidth = graphWidth - dynamicPadding.left - dynamicPadding.right;
+  const axisHeight = graphHeight - dynamicPadding.top - dynamicPadding.bottom;
+
+  // Format axis labels with units
+  const formatAxisLabel = (label, unit) => {
+    if (unit) {
+      return `${label} (${unit})`;
+    }
+    return label;
+  };
+
+  // Convert data coordinates to pixel coordinates
+  const dataToPixel = (value, range, pixelRange) => {
+    const [dataMin, dataMax] = range;
+    const [pixelMin, pixelMax] = pixelRange;
+    return (
+      pixelMin +
+      ((value - dataMin) / (dataMax - dataMin)) * (pixelMax - pixelMin)
+    );
+  };
+
+  // Render tick marks and labels
+  const renderTicks = () => {
+    const ticks = [];
+
+    // X-axis ticks
+    xTicks.forEach((tickValue, index) => {
+      const xPos = dataToPixel(tickValue, xRange, [0, axisWidth]);
+
+      // Major tick line
+      ticks.push(
+        <div
+          key={`x-tick-${index}`}
+          className="absolute"
+          style={{
+            left: `${dynamicPadding.left + xPos}px`,
+            bottom: `${dynamicPadding.bottom - 5}px`,
+            width: "1px",
+            height: "10px",
+            backgroundColor: axisColor,
+          }}
+        />,
+      );
+
+      // Tick label
+      ticks.push(
+        <div
+          key={`x-tick-label-${index}`}
+          className={`absolute ${textColor}`}
+          style={{
+            left: `${dynamicPadding.left + xPos - 15}px`,
+            bottom: `${dynamicPadding.bottom - 17}px`,
+            width: "30px",
+            textAlign: "center",
+            fontSize: "11px",
+            fontFamily:
+              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            fontWeight: "500",
+          }}
+        >
+          {tickValue}
+        </div>,
+      );
+
+      // Grid line extending upward
+      if (
+        variant === "time-series-static" ||
+        variant === "time-series-dynamic"
+      ) {
+        ticks.push(
+          <div
+            key={`x-grid-${index}`}
+            className="absolute"
+            style={{
+              left: `${dynamicPadding.left + xPos}px`,
+              bottom: `${dynamicPadding.bottom + 1}px`,
+              width: "1px",
+              height: `${axisHeight - 1}px`,
+              backgroundColor: isDarkMode ? "#4b5563" : "#d1d5db",
+              opacity: 0.5,
+            }}
+          />,
+        );
+      }
+    });
+
+    // Y-axis ticks
+    yTicks.forEach((tickValue, index) => {
+      const yPos = dataToPixel(tickValue, yRange, [0, axisHeight]);
+
+      // Major tick line
+      ticks.push(
+        <div
+          key={`y-tick-${index}`}
+          className="absolute"
+          style={{
+            left: `${dynamicPadding.left - 5}px`,
+            bottom: `${dynamicPadding.bottom + yPos}px`,
+            width: "10px",
+            height: "1px",
+            backgroundColor: axisColor,
+          }}
+        />,
+      );
+
+      // Tick label
+      ticks.push(
+        <div
+          key={`y-tick-label-${index}`}
+          className={`absolute ${textColor}`}
+          style={{
+            left: `${dynamicPadding.left - 41}px`,
+            bottom: `${dynamicPadding.bottom + yPos - 7}px`,
+            width: "35px",
+            textAlign: "right",
+            fontSize: "11px",
+            fontFamily:
+              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            fontWeight: "500",
+          }}
+        >
+          {tickValue}
+        </div>,
+      );
+
+      // Grid line extending rightward
+      if (
+        variant === "time-series-static" ||
+        variant === "time-series-dynamic"
+      ) {
+        ticks.push(
+          <div
+            key={`y-grid-${index}`}
+            className="absolute"
+            style={{
+              left: `${dynamicPadding.left + 1}px`,
+              bottom: `${dynamicPadding.bottom + yPos}px`,
+              width: `${axisWidth - 1}px`,
+              height: "1px",
+              backgroundColor: isDarkMode ? "#4b5563" : "#d1d5db",
+              opacity: 0.5,
+            }}
+          />,
+        );
+      }
+    });
+
+    return ticks;
+  };
 
   return (
     <GridComponent
@@ -66,21 +241,23 @@ const GridGraph = ({
           backgroundColor: graphBg,
           border: "1px solid rgba(0,0,0,0.2)",
           boxShadow: "inset 0 1px 3px rgba(0,0,0,0.1)",
-          padding: `${axisPadding}px`,
+          padding: `${dynamicPadding.top}px ${dynamicPadding.right}px ${dynamicPadding.bottom}px ${dynamicPadding.left}px`,
         }}
       >
         {/* Graph content area with proper padding */}
         <div
           className="absolute inset-0"
-          style={{ padding: `${axisPadding}px` }}
+          style={{
+            padding: `${dynamicPadding.top}px ${dynamicPadding.right}px ${dynamicPadding.bottom}px ${dynamicPadding.left}px`,
+          }}
         >
           {/* Canvas for plotting - positioned within axes bounds */}
           <canvas
             ref={canvasRef}
             className="absolute"
             style={{
-              left: `${axisPadding + 1}px`, // Start just after y-axis
-              top: `${axisPadding}px`, // Start at top
+              left: `${dynamicPadding.left + 1}px`, // Start just after y-axis
+              bottom: `${dynamicPadding.bottom + 1}px`, // Use bottom positioning like axis ticks
               width: `${axisWidth - 1}px`, // End just before arrow
               height: `${axisHeight - 1}px`, // End just above x-axis
               pointerEvents: "none", // Let mouse events pass through to container
@@ -93,8 +270,8 @@ const GridGraph = ({
           <div
             className="absolute"
             style={{
-              left: `${axisPadding}px`,
-              bottom: `${axisPadding}px`,
+              left: `${dynamicPadding.left}px`,
+              bottom: `${dynamicPadding.bottom}px`,
               width: `${axisWidth}px`,
               height: "1px",
               backgroundColor: axisColor,
@@ -105,8 +282,8 @@ const GridGraph = ({
           <div
             className="absolute"
             style={{
-              left: `${axisPadding + axisWidth - 7}px`,
-              bottom: `${axisPadding - 1.5}px`, // Your discovered 1.5px offset
+              left: `${dynamicPadding.left + axisWidth - 7}px`,
+              bottom: `${dynamicPadding.bottom - 1.5}px`, // Your discovered 1.5px offset
               width: 0,
               height: 0,
               borderLeft: "7px solid " + axisColor,
@@ -119,8 +296,8 @@ const GridGraph = ({
           <div
             className="absolute"
             style={{
-              left: `${axisPadding}px`,
-              bottom: `${axisPadding + 1}px`, // Start 1px above x-axis
+              left: `${dynamicPadding.left}px`,
+              bottom: `${dynamicPadding.bottom + 1}px`, // Start 1px above x-axis
               width: "1px",
               height: `${axisHeight}px`,
               backgroundColor: axisColor,
@@ -131,8 +308,8 @@ const GridGraph = ({
           <div
             className="absolute"
             style={{
-              left: `${axisPadding - 1.5}px`, // Your discovered 1.5px offset
-              top: `${axisPadding - 7}px`,
+              left: `${dynamicPadding.left - 1.5}px`, // Your discovered 1.5px offset
+              top: `${dynamicPadding.top - 7}px`,
               width: 0,
               height: 0,
               borderBottom: "7px solid " + axisColor,
@@ -141,37 +318,49 @@ const GridGraph = ({
             }}
           />
 
-          {/* X-axis label - properly centered in bottom padding area */}
+          {/* Render ticks and grid lines */}
+          {renderTicks()}
+
+          {/* X-axis label - in dedicated bottom region */}
           <div
-            className={`absolute text-sm font-medium ${textColor}`}
+            className={`absolute ${textColor}`}
             style={{
-              left: `${axisPadding}px`,
+              left: `${dynamicPadding.left}px`,
               bottom: "0px",
               width: `${axisWidth}px`,
-              height: `${axisPadding}px`,
+              height: "20px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
+              fontSize: "13px",
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              fontWeight: "400",
             }}
           >
-            {xLabel}
+            {formatAxisLabel(xLabel, xUnit)}
           </div>
 
-          {/* Y-axis label - properly centered in left padding area */}
+          {/* Y-axis label - in dedicated left region */}
           <div
-            className={`absolute text-sm font-medium ${textColor}`}
+            className={`absolute ${textColor}`}
             style={{
               left: "0px",
-              top: `${axisPadding}px`,
-              width: `${axisPadding}px`,
+              top: `${dynamicPadding.top}px`,
+              width: "20px",
               height: `${axisHeight}px`,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               transform: "rotate(-90deg)",
+              fontSize: "13px",
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              fontWeight: "400",
+              whiteSpace: "nowrap",
             }}
           >
-            {yLabel}
+            {formatAxisLabel(yLabel, yUnit)}
           </div>
 
           {/* Custom graph content can go here */}
