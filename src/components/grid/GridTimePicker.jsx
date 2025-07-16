@@ -246,13 +246,13 @@ const GridTimePicker = ({
               <div className="flex flex-col gap-0.5">
                 <button
                   className={`w-3 h-3 flex items-center justify-center text-xs ${isUnicornMode ? "text-purple-800" : theme.text} hover:opacity-70`}
-                  onClick={() => adjustMinute(1)}
+                  onClick={() => adjustHour(1)}
                 >
                   ▲
                 </button>
                 <button
                   className={`w-3 h-3 flex items-center justify-center text-xs ${isUnicornMode ? "text-purple-800" : theme.text} hover:opacity-70`}
-                  onClick={() => adjustMinute(-1)}
+                  onClick={() => adjustHour(-1)}
                 >
                   ▼
                 </button>
