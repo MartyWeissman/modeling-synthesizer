@@ -19,6 +19,7 @@ const GridStaircase = ({
 }) => {
   // Determine theme and texture
   const isDarkMode = theme.component.includes("gray-700");
+  const isUnicornMode = theme.text.includes("purple-800");
   const currentTexture = isDarkMode ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE;
 
   // Handle step click
@@ -62,16 +63,28 @@ const GridStaircase = ({
       className="p-1.5 cursor-pointer select-none"
       style={{
         // Outer frame with texture
-        background: `url(${currentTexture})`,
-        backgroundSize: "64px 64px",
-        boxShadow: `
-          inset 0 1px 0 0 rgba(255,255,255,0.1),
-          inset 1px 0 0 0 rgba(255,255,255,0.05),
-          inset 0 -1px 0 0 rgba(0,0,0,0.1),
-          inset -1px 0 0 0 rgba(0,0,0,0.05),
-          0 2px 4px rgba(0,0,0,0.1)
-        `,
-        border: "1px solid rgba(0,0,0,0.1)",
+        background: isUnicornMode
+          ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
+          : `url(${currentTexture})`,
+        backgroundSize: "cover, 64px 64px",
+        boxShadow: isUnicornMode
+          ? `
+              inset 0 1px 0 0 rgba(255,255,255,0.3),
+              inset 1px 0 0 0 rgba(255,255,255,0.2),
+              inset 0 -1px 0 0 rgba(236,72,153,0.1),
+              inset -1px 0 0 0 rgba(236,72,153,0.1),
+              0 2px 8px rgba(236,72,153,0.2)
+            `
+          : `
+              inset 0 1px 0 0 rgba(255,255,255,0.1),
+              inset 1px 0 0 0 rgba(255,255,255,0.05),
+              inset 0 -1px 0 0 rgba(0,0,0,0.1),
+              inset -1px 0 0 0 rgba(0,0,0,0.05),
+              0 2px 4px rgba(0,0,0,0.1)
+            `,
+        border: isUnicornMode
+          ? "1px solid rgba(236,72,153,0.3)"
+          : "1px solid rgba(0,0,0,0.1)",
       }}
     >
       <div className="w-full h-full flex flex-col">
@@ -110,12 +123,16 @@ const GridStaircase = ({
                     height={step.height}
                     fill={
                       step.isActive
-                        ? isDarkMode
-                          ? "#10b981"
-                          : "#059669" // Green when active
-                        : isDarkMode
-                          ? "#4b5563"
-                          : "#6b7280" // Neutral when inactive
+                        ? isUnicornMode
+                          ? "#65a30d" // Lime green for unicorn theme
+                          : isDarkMode
+                            ? "#10b981"
+                            : "#059669" // Green when active
+                        : isUnicornMode
+                          ? "#581c87" // Dark purple for unicorn theme
+                          : isDarkMode
+                            ? "#4b5563"
+                            : "#6b7280" // Neutral when inactive
                     }
                     className="cursor-pointer transition-colors duration-150 hover:brightness-110"
                     onClick={(e) => {
@@ -133,7 +150,13 @@ const GridStaircase = ({
                         y1={step.y}
                         x2={step.x + step.width}
                         y2={step.y}
-                        stroke={isDarkMode ? "#1f2937" : "#4b5563"}
+                        stroke={
+                          isUnicornMode
+                            ? "#7c3aed"
+                            : isDarkMode
+                              ? "#1f2937"
+                              : "#4b5563"
+                        }
                         strokeWidth="1"
                       />
                       <line
@@ -141,7 +164,13 @@ const GridStaircase = ({
                         y1={step.y}
                         x2={step.x}
                         y2={step.y + step.height}
-                        stroke={isDarkMode ? "#1f2937" : "#4b5563"}
+                        stroke={
+                          isUnicornMode
+                            ? "#7c3aed"
+                            : isDarkMode
+                              ? "#1f2937"
+                              : "#4b5563"
+                        }
                         strokeWidth="1"
                       />
 
@@ -151,7 +180,13 @@ const GridStaircase = ({
                         y1={step.y + step.height}
                         x2={step.x + step.width}
                         y2={step.y + step.height}
-                        stroke={isDarkMode ? "#9ca3af" : "#e5e7eb"}
+                        stroke={
+                          isUnicornMode
+                            ? "#a3e635"
+                            : isDarkMode
+                              ? "#9ca3af"
+                              : "#e5e7eb"
+                        }
                         strokeWidth="1"
                       />
                       <line
@@ -159,7 +194,13 @@ const GridStaircase = ({
                         y1={step.y}
                         x2={step.x + step.width}
                         y2={step.y + step.height}
-                        stroke={isDarkMode ? "#9ca3af" : "#e5e7eb"}
+                        stroke={
+                          isUnicornMode
+                            ? "#a3e635"
+                            : isDarkMode
+                              ? "#9ca3af"
+                              : "#e5e7eb"
+                        }
                         strokeWidth="1"
                       />
                     </g>

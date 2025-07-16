@@ -26,6 +26,7 @@ const GridButton = ({
 
   // Determine theme and texture
   const isDarkMode = theme.component.includes("gray-700");
+  const isUnicornMode = theme.text.includes("purple-800");
   const currentTexture = isDarkMode ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE;
 
   // For toggle buttons, use the active prop; for momentary, use internal pressed state
@@ -54,6 +55,14 @@ const GridButton = ({
 
   // Get variant-specific styles
   const getVariantStyles = () => {
+    if (isUnicornMode) {
+      return {
+        textClass: "text-purple-800 text-lg font-bold",
+        activeGradient:
+          "linear-gradient(135deg, rgba(236,72,153,0.6) 0%, rgba(147,51,234,0.6) 50%, rgba(59,130,246,0.6) 100%)",
+      };
+    }
+
     switch (variant) {
       case "number":
         return {
@@ -119,12 +128,14 @@ const GridButton = ({
       }}
     >
       <div
-        className={`w-full h-full rounded-full flex items-center justify-center transition-all duration-150 ${theme.text} ${variantStyles.textClass}`}
+        className={`w-full h-full rounded-full flex items-center justify-center transition-all duration-150 ${isUnicornMode ? variantStyles.textClass : theme.text}`}
         style={{
           background: isPressed
             ? `${variantStyles.activeGradient}, url(${currentTexture})`
-            : `url(${currentTexture})`,
-          backgroundSize: isPressed ? "cover, 64px 64px" : "64px 64px",
+            : isUnicornMode
+              ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
+              : `url(${currentTexture})`,
+          backgroundSize: isPressed ? "cover, 64px 64px" : "cover, 64px 64px",
           backgroundBlendMode: isPressed ? "multiply, normal" : "normal",
           boxShadow: isPressed
             ? `

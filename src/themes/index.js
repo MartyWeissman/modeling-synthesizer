@@ -27,6 +27,21 @@ export const themes = {
     textSecondary: "text-gray-300",
     shadow: "shadow-sm shadow-black/50",
   },
+  unicorn: {
+    bg: "bg-gradient-to-br from-pink-50 to-purple-50",
+    container: "bg-gradient-to-br from-pink-100 to-purple-100",
+    component: "bg-gradient-to-br from-white to-pink-50 border-pink-200",
+    componentActive:
+      "bg-gradient-to-br from-pink-100 to-purple-100 border-purple-300",
+    componentHover:
+      "hover:bg-gradient-to-br hover:from-pink-50 hover:to-purple-50",
+    screen: "bg-gradient-to-br from-purple-900 to-pink-900 text-yellow-300",
+    knobTrack: "bg-gradient-to-r from-pink-200 to-purple-200",
+    knobHandle: "bg-gradient-to-r from-yellow-300 to-pink-300",
+    text: "text-purple-800",
+    textSecondary: "text-purple-600",
+    shadow: "shadow-lg shadow-pink-200/50",
+  },
 };
 
 export const CELL_SIZE = 100;

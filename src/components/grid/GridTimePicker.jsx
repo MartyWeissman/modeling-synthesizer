@@ -23,6 +23,7 @@ const GridTimePicker = ({
 
   // Determine theme and texture
   const isDarkMode = theme.component.includes("gray-700");
+  const isUnicornMode = theme.text.includes("purple-800");
   const currentTexture = isDarkMode ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE;
 
   // Parse initial value
@@ -194,29 +195,49 @@ const GridTimePicker = ({
         theme={theme}
         className="p-1.5 select-none"
         style={{
-          // Outer frame with texture
-          background: `url(${currentTexture})`,
-          backgroundSize: "64px 64px",
-          boxShadow: `
-            inset 0 1px 0 0 rgba(255,255,255,0.1),
-            inset 1px 0 0 0 rgba(255,255,255,0.05),
-            inset 0 -1px 0 0 rgba(0,0,0,0.1),
-            inset -1px 0 0 0 rgba(0,0,0,0.05),
-            0 2px 4px rgba(0,0,0,0.1)
-          `,
-          border: "1px solid rgba(0,0,0,0.1)",
+          background: isUnicornMode
+            ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
+            : `url(${currentTexture})`,
+          backgroundSize: "cover, 64px 64px",
+          boxShadow: isUnicornMode
+            ? `
+                inset 0 1px 0 0 rgba(255,255,255,0.3),
+                inset 1px 0 0 0 rgba(255,255,255,0.2),
+                inset 0 -1px 0 0 rgba(236,72,153,0.1),
+                inset -1px 0 0 0 rgba(236,72,153,0.1),
+                0 2px 8px rgba(236,72,153,0.2)
+              `
+            : `
+                inset 0 1px 0 0 rgba(255,255,255,0.1),
+                inset 1px 0 0 0 rgba(255,255,255,0.05),
+                inset 0 -1px 0 0 rgba(0,0,0,0.1),
+                inset -1px 0 0 0 rgba(0,0,0,0.05),
+                0 2px 4px rgba(0,0,0,0.1)
+              `,
+          border: isUnicornMode
+            ? "1px solid rgba(236,72,153,0.2)"
+            : "1px solid rgba(0,0,0,0.1)",
         }}
       >
         <div
           className="w-full h-full rounded-sm flex items-center justify-center relative"
           style={{
-            background: `url(${currentTexture})`,
-            backgroundSize: "64px 64px",
-            boxShadow: `
-              inset 2px 2px 4px rgba(0,0,0,0.15),
-              inset -1px -1px 2px rgba(255,255,255,0.1)
-            `,
-            border: "1px solid rgba(0,0,0,0.05)",
+            background: isUnicornMode
+              ? `linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(251,207,232,0.2) 100%), url(${currentTexture})`
+              : `url(${currentTexture})`,
+            backgroundSize: "cover, 64px 64px",
+            boxShadow: isUnicornMode
+              ? `
+                  inset 2px 2px 4px rgba(236,72,153,0.1),
+                  inset -1px -1px 2px rgba(255,255,255,0.3)
+                `
+              : `
+                  inset 2px 2px 4px rgba(0,0,0,0.15),
+                  inset -1px -1px 2px rgba(255,255,255,0.1)
+                `,
+            border: isUnicornMode
+              ? "1px solid rgba(236,72,153,0.2)"
+              : "1px solid rgba(0,0,0,0.05)",
           }}
         >
           {/* Up arrow for hour */}
@@ -224,14 +245,14 @@ const GridTimePicker = ({
             <div className="absolute left-1 top-1/2 transform -translate-y-1/2">
               <div className="flex flex-col gap-0.5">
                 <button
-                  className={`w-3 h-3 flex items-center justify-center text-xs ${theme.text} hover:opacity-70`}
-                  onClick={() => adjustHour(1)}
+                  className={`w-3 h-3 flex items-center justify-center text-xs ${isUnicornMode ? "text-purple-800" : theme.text} hover:opacity-70`}
+                  onClick={() => adjustMinute(1)}
                 >
                   ▲
                 </button>
                 <button
-                  className={`w-3 h-3 flex items-center justify-center text-xs ${theme.text} hover:opacity-70`}
-                  onClick={() => adjustHour(-1)}
+                  className={`w-3 h-3 flex items-center justify-center text-xs ${isUnicornMode ? "text-purple-800" : theme.text} hover:opacity-70`}
+                  onClick={() => adjustMinute(-1)}
                 >
                   ▼
                 </button>

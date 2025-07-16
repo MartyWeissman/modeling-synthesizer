@@ -16,6 +16,7 @@ const GridSlider = ({
   const [isDragging, setIsDragging] = useState(false);
   const sliderRef = useRef(null);
   const isDarkMode = theme.component.includes("gray-700");
+  const isUnicornMode = theme.text.includes("purple-800");
   const currentTexture = isDarkMode ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE;
 
   // Linear interpolation between two colors
@@ -62,6 +63,37 @@ const GridSlider = ({
     }
   };
 
+  // Get unicorn rainbow color
+  const getUnicornColor = (value) => {
+    const factor = value / 100; // 0 to 1
+
+    if (factor <= 0.16) {
+      // Pink to Purple
+      const localFactor = factor / 0.16;
+      return lerpColor([236, 72, 153], [147, 51, 234], localFactor);
+    } else if (factor <= 0.33) {
+      // Purple to Blue
+      const localFactor = (factor - 0.16) / 0.17;
+      return lerpColor([147, 51, 234], [59, 130, 246], localFactor);
+    } else if (factor <= 0.5) {
+      // Blue to Teal
+      const localFactor = (factor - 0.33) / 0.17;
+      return lerpColor([59, 130, 246], [20, 184, 166], localFactor);
+    } else if (factor <= 0.66) {
+      // Teal to Green
+      const localFactor = (factor - 0.5) / 0.16;
+      return lerpColor([20, 184, 166], [34, 197, 94], localFactor);
+    } else if (factor <= 0.83) {
+      // Green to Yellow
+      const localFactor = (factor - 0.66) / 0.17;
+      return lerpColor([34, 197, 94], [234, 179, 8], localFactor);
+    } else {
+      // Yellow to Orange
+      const localFactor = (factor - 0.83) / 0.17;
+      return lerpColor([234, 179, 8], [249, 115, 22], localFactor);
+    }
+  };
+
   // Calculate slider position based on variant
   const getSliderPosition = () => {
     if (variant === "bipolar") {
@@ -80,7 +112,9 @@ const GridSlider = ({
       const intensity = (Math.abs(value) / 100) * 0.5; // Max 50% intensity
       return `0 0 ${intensity * 20}px rgba(${color[0]}, ${color[1]}, ${color[2]}, ${intensity})`;
     } else {
-      const color = getYlOrRedColor(value);
+      const color = isUnicornMode
+        ? getUnicornColor(value)
+        : getYlOrRedColor(value);
       const intensity = (value / 100) * 0.5; // Max 50% intensity
       return `0 0 ${intensity * 20}px rgba(${color[0]}, ${color[1]}, ${color[2]}, ${intensity})`;
     }
@@ -99,8 +133,10 @@ const GridSlider = ({
         rgba(${Math.round(color[0] * 0.8)}, ${Math.round(color[1] * 0.8)}, ${Math.round(color[2] * 0.8)}, ${0.4 + intensity * 0.4}) 100%),
         url(${lightTexture})`;
     } else {
-      // Unipolar - always apply YlOrRed gradient with light texture
-      const color = getYlOrRedColor(value);
+      // Unipolar - use unicorn colors if in unicorn mode, otherwise YlOrRed
+      const color = isUnicornMode
+        ? getUnicornColor(value)
+        : getYlOrRedColor(value);
       const intensity = (value / 100) * 0.6; // Max 60% intensity
       return `linear-gradient(135deg,
         rgba(${color[0]}, ${color[1]}, ${color[2]}, ${0.3 + intensity * 0.5}) 0%,

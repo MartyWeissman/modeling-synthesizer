@@ -16,11 +16,15 @@ const ToolContainer = ({
 }) => {
   const { theme } = useTheme();
   const isDarkMode = theme.component.includes("gray-700");
+  const isUnicornMode = theme.text.includes("purple-800");
   const currentTexture = isDarkMode ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE;
 
   // Get slightly darker color for beveled top
   const getBeveledTopTexture = () => {
-    if (isDarkMode) {
+    if (isUnicornMode) {
+      // Pale pink for unicorn theme
+      return generateNoiseTexture(false, 0.95); // Very light for unicorn
+    } else if (isDarkMode) {
       // Darker version for dark theme
       return generateNoiseTexture(true, 0.85); // 85% of base brightness
     } else {
@@ -45,32 +49,51 @@ const ToolContainer = ({
   return (
     <div className="flex justify-center">
       <div
-        className={`rounded-xl ${theme.shadow} border-2 border-gray-400`}
+        className={`rounded-xl ${theme.shadow} border-2 ${isUnicornMode ? "border-pink-300" : "border-gray-400"}`}
         style={{
           width: `${containerWidth}px`,
           height: `${containerHeight}px`,
-          background: `url(${currentTexture})`,
-          backgroundSize: "64px 64px",
-          boxShadow: `
-            inset 0 1px 0 0 rgba(255,255,255,0.1),
-            inset 1px 0 0 0 rgba(255,255,255,0.05),
-            inset 0 -1px 0 0 rgba(0,0,0,0.1),
-            inset -1px 0 0 0 rgba(0,0,0,0.05),
-            0 4px 8px rgba(0,0,0,0.15)
-          `,
+          background: isUnicornMode
+            ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 100%), url(${currentTexture})`
+            : `url(${currentTexture})`,
+          backgroundSize: "cover, 64px 64px",
+          boxShadow: isUnicornMode
+            ? `
+                inset 0 1px 0 0 rgba(255,255,255,0.3),
+                inset 1px 0 0 0 rgba(255,255,255,0.2),
+                inset 0 -1px 0 0 rgba(236,72,153,0.1),
+                inset -1px 0 0 0 rgba(236,72,153,0.1),
+                0 4px 16px rgba(236,72,153,0.2)
+              `
+            : `
+                inset 0 1px 0 0 rgba(255,255,255,0.1),
+                inset 1px 0 0 0 rgba(255,255,255,0.05),
+                inset 0 -1px 0 0 rgba(0,0,0,0.1),
+                inset -1px 0 0 0 rgba(0,0,0,0.05),
+                0 4px 8px rgba(0,0,0,0.15)
+              `,
         }}
       >
         {/* Beveled top panel */}
         <div
           className="w-full h-12 rounded-t-xl flex items-center justify-between px-6"
           style={{
-            background: `url(${beveledTexture})`,
-            backgroundSize: "64px 64px",
-            boxShadow: `
-            inset 0 -2px 4px rgba(0,0,0,0.1),
-            inset 0 1px 2px rgba(255,255,255,0.1)
-          `,
-            borderBottom: "1px solid rgba(0,0,0,0.2)",
+            background: isUnicornMode
+              ? `linear-gradient(135deg, rgba(251,207,232,0.8) 0%, rgba(196,181,253,0.6) 100%), url(${beveledTexture})`
+              : `url(${beveledTexture})`,
+            backgroundSize: "cover, 64px 64px",
+            boxShadow: isUnicornMode
+              ? `
+                  inset 0 -2px 4px rgba(236,72,153,0.2),
+                  inset 0 1px 2px rgba(255,255,255,0.4)
+                `
+              : `
+                  inset 0 -2px 4px rgba(0,0,0,0.1),
+                  inset 0 1px 2px rgba(255,255,255,0.1)
+                `,
+            borderBottom: isUnicornMode
+              ? "1px solid rgba(236,72,153,0.3)"
+              : "1px solid rgba(0,0,0,0.2)",
           }}
         >
           {/* Tool title */}

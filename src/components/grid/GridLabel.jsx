@@ -20,6 +20,7 @@ const GridLabel = ({
 }) => {
   // Determine theme and texture
   const isDarkMode = theme.component.includes("gray-700");
+  const isUnicornMode = theme.text.includes("purple-800");
   const currentTexture = isDarkMode ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE;
 
   // Calculate font size based on component size and text length
@@ -99,17 +100,28 @@ const GridLabel = ({
       theme={theme}
       className="p-1 select-none overflow-hidden"
       style={{
-        // Outer frame with texture
-        background: `url(${currentTexture})`,
-        backgroundSize: "64px 64px",
-        boxShadow: `
-          inset 0 1px 0 0 rgba(255,255,255,0.1),
-          inset 1px 0 0 0 rgba(255,255,255,0.05),
-          inset 0 -1px 0 0 rgba(0,0,0,0.1),
-          inset -1px 0 0 0 rgba(0,0,0,0.05),
-          0 1px 2px rgba(0,0,0,0.1)
-        `,
-        border: "1px solid rgba(0,0,0,0.1)",
+        background: isUnicornMode
+          ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
+          : `url(${currentTexture})`,
+        backgroundSize: "cover, 64px 64px",
+        boxShadow: isUnicornMode
+          ? `
+              inset 0 1px 0 0 rgba(255,255,255,0.3),
+              inset 1px 0 0 0 rgba(255,255,255,0.2),
+              inset 0 -1px 0 0 rgba(236,72,153,0.1),
+              inset -1px 0 0 0 rgba(236,72,153,0.1),
+              0 2px 8px rgba(236,72,153,0.2)
+            `
+          : `
+              inset 0 1px 0 0 rgba(255,255,255,0.1),
+              inset 1px 0 0 0 rgba(255,255,255,0.05),
+              inset 0 -1px 0 0 rgba(0,0,0,0.1),
+              inset -1px 0 0 0 rgba(0,0,0,0.05),
+              0 2px 4px rgba(0,0,0,0.1)
+            `,
+        border: isUnicornMode
+          ? "1px solid rgba(236,72,153,0.2)"
+          : "1px solid rgba(0,0,0,0.1)",
       }}
     >
       <div
@@ -123,10 +135,16 @@ const GridLabel = ({
             className="font-medium leading-tight"
             style={{
               fontSize: calculateFontSize(),
-              color: isDarkMode ? "#e5e7eb" : "#374151",
-              textShadow: isDarkMode
-                ? "0 1px 0 rgba(0,0,0,0.8), 0 -1px 0 rgba(255,255,255,0.1)"
-                : "0 1px 0 rgba(255,255,255,0.8), 0 -1px 0 rgba(0,0,0,0.1)",
+              color: isUnicornMode
+                ? "#581c87"
+                : isDarkMode
+                  ? "#e5e7eb"
+                  : "#374151",
+              textShadow: isUnicornMode
+                ? "0 1px 0 rgba(255,255,255,0.8), 0 -1px 0 rgba(236,72,153,0.2)"
+                : isDarkMode
+                  ? "0 1px 0 rgba(0,0,0,0.8), 0 -1px 0 rgba(255,255,255,0.1)"
+                  : "0 1px 0 rgba(255,255,255,0.8), 0 -1px 0 rgba(0,0,0,0.1)",
               wordWrap: "break-word",
               hyphens: "auto",
               maxWidth: "100%",

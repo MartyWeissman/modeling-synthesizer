@@ -25,6 +25,7 @@ const GridDisplay = ({
 }) => {
   // Determine theme and texture
   const isDarkMode = theme.component.includes("gray-700");
+  const isUnicornMode = theme.text.includes("purple-800");
   const currentTexture = isDarkMode ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE;
 
   // Fixed border dimensions
@@ -43,32 +44,64 @@ const GridDisplay = ({
     switch (variant) {
       case "numeric":
         return {
-          textColor: isDarkMode ? "text-green-400" : "text-green-600",
-          bgColor: isDarkMode ? "rgba(0,0,0,0.8)" : "rgba(255,255,255,0.9)",
+          textColor: isUnicornMode
+            ? "text-purple-800"
+            : isDarkMode
+              ? "text-green-400"
+              : "text-green-600",
+          bgColor: isUnicornMode
+            ? "linear-gradient(135deg, rgba(253, 230, 138, 0.9) 0%, rgba(236, 72, 153, 0.1) 100%)"
+            : isDarkMode
+              ? "rgba(0,0,0,0.8)"
+              : "rgba(255,255,255,0.9)",
           fontFamily: "font-mono",
           fontWeight: "font-bold",
         };
 
       case "alpha":
         return {
-          textColor: isDarkMode ? "text-blue-400" : "text-blue-600",
-          bgColor: isDarkMode ? "rgba(0,0,0,0.8)" : "rgba(0,0,0,0.9)",
+          textColor: isUnicornMode
+            ? "text-purple-700"
+            : isDarkMode
+              ? "text-blue-400"
+              : "text-blue-600",
+          bgColor: isUnicornMode
+            ? "linear-gradient(135deg, rgba(196, 181, 253, 0.8) 0%, rgba(219, 234, 254, 0.8) 100%)"
+            : isDarkMode
+              ? "rgba(0,0,0,0.8)"
+              : "rgba(0,0,0,0.9)",
           fontFamily: "font-sans",
           fontWeight: "font-semibold",
         };
 
       case "status":
         return {
-          textColor: isDarkMode ? "text-orange-400" : "text-orange-600",
-          bgColor: isDarkMode ? "rgba(0,0,0,0.8)" : "rgba(0,0,0,0.9)",
+          textColor: isUnicornMode
+            ? "text-pink-700"
+            : isDarkMode
+              ? "text-orange-400"
+              : "text-orange-600",
+          bgColor: isUnicornMode
+            ? "linear-gradient(135deg, rgba(251, 207, 232, 0.8) 0%, rgba(254, 215, 170, 0.8) 100%)"
+            : isDarkMode
+              ? "rgba(0,0,0,0.8)"
+              : "rgba(0,0,0,0.9)",
           fontFamily: "font-sans",
           fontWeight: "font-medium",
         };
 
       default:
         return {
-          textColor: isDarkMode ? "text-gray-200" : "text-gray-800",
-          bgColor: isDarkMode ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.9)",
+          textColor: isUnicornMode
+            ? "text-purple-800"
+            : isDarkMode
+              ? "text-gray-200"
+              : "text-gray-800",
+          bgColor: isUnicornMode
+            ? "linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(251, 207, 232, 0.3) 100%)"
+            : isDarkMode
+              ? "rgba(0,0,0,0.6)"
+              : "rgba(255,255,255,0.9)",
           fontFamily: "font-sans",
           fontWeight: "font-medium",
         };
@@ -112,16 +145,28 @@ const GridDisplay = ({
       className=""
       style={{
         // Fixed outer frame with texture - this never changes size
-        background: `url(${currentTexture})`,
-        backgroundSize: "64px 64px",
-        boxShadow: `
-          inset 0 1px 0 0 rgba(255,255,255,0.1),
-          inset 1px 0 0 0 rgba(255,255,255,0.05),
-          inset 0 -1px 0 0 rgba(0,0,0,0.1),
-          inset -1px 0 0 0 rgba(0,0,0,0.05),
-          0 2px 4px rgba(0,0,0,0.1)
-        `,
-        border: "1px solid rgba(0,0,0,0.2)",
+        background: isUnicornMode
+          ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
+          : `url(${currentTexture})`,
+        backgroundSize: "cover, 64px 64px",
+        boxShadow: isUnicornMode
+          ? `
+              inset 0 1px 0 0 rgba(255,255,255,0.3),
+              inset 1px 0 0 0 rgba(255,255,255,0.2),
+              inset 0 -1px 0 0 rgba(236,72,153,0.1),
+              inset -1px 0 0 0 rgba(236,72,153,0.1),
+              0 2px 8px rgba(236,72,153,0.2)
+            `
+          : `
+              inset 0 1px 0 0 rgba(255,255,255,0.1),
+              inset 1px 0 0 0 rgba(255,255,255,0.05),
+              inset 0 -1px 0 0 rgba(0,0,0,0.1),
+              inset -1px 0 0 0 rgba(0,0,0,0.05),
+              0 2px 4px rgba(0,0,0,0.1)
+            `,
+        border: isUnicornMode
+          ? "1px solid rgba(236,72,153,0.3)"
+          : "1px solid rgba(0,0,0,0.2)",
       }}
     >
       {/* Fixed 8px border area - never resizes */}
