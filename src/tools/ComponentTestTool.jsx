@@ -1,6 +1,6 @@
 // src/tools/ComponentTestTool.jsx
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   GridButton,
   GridSlider,
@@ -8,6 +8,7 @@ import {
   GridDisplay,
   GridStaircase,
   GridTimePicker,
+  GridWindow,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
@@ -19,6 +20,62 @@ const ComponentTestTool = () => {
   const [toggleState, setToggleState] = useState(false);
   const [staircaseLevel, setStaircaseLevel] = useState(2);
   const [selectedTime, setSelectedTime] = useState("9:30 AM");
+
+  // Swimming alpha animation state
+  const [animationPosition, setAnimationPosition] = useState({ x: 50, y: 50 });
+  const [animationDirection, setAnimationDirection] = useState({
+    dx: 2,
+    dy: 1.5,
+  });
+  const animationRef = useRef(null);
+  const isDarkMode = theme.component.includes("gray-700");
+  const isUnicornMode = theme.text.includes("purple-800");
+
+  // Swimming alpha animation
+  useEffect(() => {
+    const animate = () => {
+      setAnimationPosition((prev) => {
+        const newPos = { ...prev };
+        const newDir = { ...animationDirection };
+
+        // Update position
+        newPos.x += newDir.dx;
+        newPos.y += newDir.dy;
+
+        // Bounce off circular boundary (45% radius)
+        const centerX = 50;
+        const centerY = 50;
+        const radius = 42; // Slightly smaller than window radius
+        const distance = Math.sqrt(
+          Math.pow(newPos.x - centerX, 2) + Math.pow(newPos.y - centerY, 2),
+        );
+
+        if (distance > radius) {
+          // Reflect off circular boundary
+          const angle = Math.atan2(newPos.y - centerY, newPos.x - centerX);
+          newDir.dx = -Math.cos(angle) * Math.abs(newDir.dx);
+          newDir.dy = -Math.sin(angle) * Math.abs(newDir.dy);
+
+          // Move back inside
+          newPos.x = centerX + Math.cos(angle) * radius;
+          newPos.y = centerY + Math.sin(angle) * radius;
+        }
+
+        setAnimationDirection(newDir);
+        return newPos;
+      });
+
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [animationDirection]);
 
   return (
     <ToolContainer title="Component Test">
@@ -135,6 +192,38 @@ const ComponentTestTool = () => {
         tooltip="Test graph area"
         theme={theme}
       />
+
+      {/* Test GridWindow with swimming alpha animation - 2x2 size */}
+      <GridWindow
+        x={8}
+        y={1}
+        w={2}
+        h={2}
+        variant="circular"
+        tooltip="Window with swimming alpha"
+        theme={theme}
+      >
+        {/* Swimming alpha animation */}
+        <div
+          className="absolute transition-none pointer-events-none"
+          style={{
+            left: `${animationPosition.x}%`,
+            top: `${animationPosition.y}%`,
+            transform: "translate(-50%, -50%)",
+            fontSize: "24px",
+            fontWeight: "bold",
+            color: isUnicornMode
+              ? "#7c3aed"
+              : isDarkMode
+                ? "#60a5fa"
+                : "#1e40af",
+            textShadow: "0 1px 2px rgba(0,0,0,0.3)",
+            userSelect: "none",
+          }}
+        >
+          α
+        </div>
+      </GridWindow>
 
       {/* Values display */}
       <div

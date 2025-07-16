@@ -11,3 +11,4 @@ export { default as GridGraph } from "./GridGraph";
 export { default as GridStaircase } from "./GridStaircase";
 export { default as GridTimePicker } from "./GridTimePicker";
 export { default as GridLabel } from "./GridLabel";
+export { default as GridWindow } from "./GridWindow";
