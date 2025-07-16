@@ -5,6 +5,7 @@ import { ThemeProvider } from "./components/ui/ThemeProvider";
 import { useTheme } from "./hooks/useTheme";
 import { CaffeineMetabolismTool } from "./tools";
 import { ComponentTestTool } from "./tools";
+import { GridLabelTest } from "./tools";
 import VisualToolBuilder from "./tools/VisualToolBuilder";
 import MiniatureTest from "./tools/MiniatureTest";
 
@@ -71,6 +72,11 @@ const AppContent = () => {
       id: "test",
       name: "Component Test",
       component: ComponentTestTool,
+    },
+    {
+      id: "label-test",
+      name: "GridLabel Test",
+      component: GridLabelTest,
     },
     {
       id: "builder",

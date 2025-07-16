@@ -2,7 +2,7 @@
 
 import React from "react";
 import MiniatureComponent from "./MiniatureComponent";
-import { GridDisplay, GridGraph } from "../../components/grid";
+import { GridDisplay, GridGraph, GridLabel } from "../../components/grid";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
 
 export const componentTypes = {
@@ -79,11 +79,19 @@ export const componentTypes = {
           height: "60px",
           overflow: "hidden",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          alignItems: "flex-start",
+          justifyContent: "flex-start",
         }}
       >
-        <div style={{ transform: "scale(0.6)", transformOrigin: "center" }}>
+        <div
+          style={{
+            transform: "scale(0.6)",
+            transformOrigin: "top left",
+            width: "200px",
+            height: "100px",
+            pointerEvents: "none",
+          }}
+        >
           <GridDisplay
             x={0}
             y={0}
@@ -236,8 +244,8 @@ export const componentTypes = {
       },
     },
   },
-  blank: {
-    name: "Blank Area",
+  label: {
+    name: "Label",
     defaultSize: { w: 1, h: 1 },
     resizable: true,
     color: "#808080",
@@ -246,51 +254,61 @@ export const componentTypes = {
         style={{
           width: "60px",
           height: "60px",
+          overflow: "hidden",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          alignItems: "flex-start",
+          justifyContent: "flex-start",
         }}
       >
         <div
-          className="rounded"
           style={{
-            width: "60px",
-            height: "60px",
-            background: `url(${theme.component.includes("gray-700") ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE})`,
-            backgroundSize: `${64 * 0.6}px ${64 * 0.6}px`,
-            boxShadow: `
-              inset 0 1px 0 0 rgba(255,255,255,0.1),
-              inset 1px 0 0 0 rgba(255,255,255,0.05),
-              inset 0 -1px 0 0 rgba(0,0,0,0.1),
-              inset -1px 0 0 0 rgba(0,0,0,0.05),
-              0 2px 4px rgba(0,0,0,0.1)
-            `,
-            border: "1px solid rgba(0,0,0,0.1)",
+            transform: "scale(0.6)",
+            transformOrigin: "top left",
+            width: "100px",
+            height: "100px",
+            pointerEvents: "none",
           }}
-        />
+        >
+          <GridLabel x={0} y={0} w={1} h={1} text="Label" theme={theme} />
+        </div>
       </div>
     ),
     gridIcon: (theme, props, w = 1, h = 1) => (
-      <div
-        className="w-full h-full rounded"
-        style={{
-          background: `url(${theme.component.includes("gray-700") ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE})`,
-          backgroundSize: "64px 64px",
-          boxShadow: `
-            inset 0 1px 0 0 rgba(255,255,255,0.1),
-            inset 1px 0 0 0 rgba(255,255,255,0.05),
-            inset 0 -1px 0 0 rgba(0,0,0,0.1),
-            inset -1px 0 0 0 rgba(0,0,0,0.05),
-            0 2px 4px rgba(0,0,0,0.1)
-          `,
-          border: "1px solid rgba(0,0,0,0.1)",
-        }}
+      <GridLabel
+        x={0}
+        y={0}
+        w={w}
+        h={h}
+        text={props.text || "Label"}
+        fontSize={props.fontSize || "auto"}
+        textAlign={props.textAlign || "center"}
+        verticalAlign={props.verticalAlign || "middle"}
+        theme={theme}
       />
     ),
     properties: {
+      text: { type: "text", default: "Label", label: "Label Text" },
+      fontSize: {
+        type: "select",
+        options: ["auto", "small", "medium", "large"],
+        default: "auto",
+        label: "Font Size",
+      },
+      textAlign: {
+        type: "select",
+        options: ["left", "center", "right"],
+        default: "center",
+        label: "Text Alignment",
+      },
+      verticalAlign: {
+        type: "select",
+        options: ["top", "middle", "bottom"],
+        default: "middle",
+        label: "Vertical Alignment",
+      },
       description: {
         type: "text",
-        default: "Empty space for layout organization",
+        default: "Static text label for interface organization",
         label: "Description",
       },
     },

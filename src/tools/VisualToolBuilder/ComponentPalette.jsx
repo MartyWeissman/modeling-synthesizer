@@ -130,8 +130,8 @@ const ComponentPalette = ({ theme, onDragStart }) => {
         return;
       }
 
-      // Special handling for blank component - place at x=2, y=1
-      if (type === "blank") {
+      // Special handling for label component - place at x=2, y=1
+      if (type === "label") {
         if (isPositionAvailable(2, 1, w, h)) {
           positions.push({
             type,

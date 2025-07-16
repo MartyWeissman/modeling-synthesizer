@@ -2,10 +2,9 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  GridButton,
   GridTimePicker,
   GridStaircase,
-  GridDisplay,
+  GridLabel,
   GridGraph,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
@@ -258,21 +257,19 @@ const CaffeineMetabolismTool = () => {
     }
   }, [isAutoUpdate, generateTimeSeries]);
 
-  // Handle simulate button press
-  const handleSimulate = () => {
-    generateTimeSeries();
-  };
-
   return (
-    <ToolContainer title="Caffeine Dashboard" canvasWidth={10} canvasHeight={5}>
+    <ToolContainer
+      title="Caffeine Metabolism Simulator"
+      canvasWidth={10}
+      canvasHeight={3}
+    >
       {/* Row 0: Dose 1 */}
-      <GridDisplay
+      <GridLabel
         x={0}
         y={0}
         w={1}
         h={1}
-        value="Dose 1"
-        variant="default"
+        text="Dose 1"
         tooltip="Dose 1"
         theme={theme}
       />
@@ -297,13 +294,12 @@ const CaffeineMetabolismTool = () => {
       />
 
       {/* Row 1: Dose 2 */}
-      <GridDisplay
+      <GridLabel
         x={0}
         y={1}
         w={1}
         h={1}
-        value="Dose 2"
-        variant="default"
+        text="Dose 2"
         tooltip="Dose 2"
         theme={theme}
       />
@@ -328,13 +324,12 @@ const CaffeineMetabolismTool = () => {
       />
 
       {/* Row 2: Dose 3 */}
-      <GridDisplay
+      <GridLabel
         x={0}
         y={2}
         w={1}
         h={1}
-        value="Dose 3"
-        variant="default"
+        text="Dose 3"
         tooltip="Dose 3"
         theme={theme}
       />
@@ -369,19 +364,6 @@ const CaffeineMetabolismTool = () => {
         tooltip="Caffeine in bloodstream"
         theme={theme}
       />
-
-      {/* Row 3: Simulate Button */}
-      <GridButton
-        x={1}
-        y={3}
-        type="momentary"
-        variant="default"
-        onPress={handleSimulate}
-        tooltip="Simulate caffeine metabolism"
-        theme={theme}
-      >
-        Simulate
-      </GridButton>
     </ToolContainer>
   );
 };

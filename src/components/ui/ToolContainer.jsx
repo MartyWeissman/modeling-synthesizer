@@ -35,7 +35,7 @@ const ToolContainer = ({
   const CELL_SIZE = 100;
   const PADDING = 50;
   const TOP_PANEL_HEIGHT = 48; // 12 * 4 = 48px (h-12)
-  const BOTTOM_PADDING = 25;
+  const BOTTOM_PADDING = 40;
 
   const gridWidth = canvasWidth * CELL_SIZE;
   const gridHeight = canvasHeight * CELL_SIZE;
@@ -74,7 +74,12 @@ const ToolContainer = ({
           }}
         >
           {/* Tool title */}
-          <h1 className={`text-lg font-light ${theme.text}`}>{title}</h1>
+          <h1
+            className={`text-xl font-medium ${theme.text}`}
+            style={{ fontFamily: "'Dancing Script', cursive" }}
+          >
+            {title}
+          </h1>
 
           {/* Remove the entire right controls section */}
         </div>
@@ -85,7 +90,7 @@ const ToolContainer = ({
           style={{
             width: `${gridWidth}px`,
             height: `${gridHeight}px`,
-            margin: "25px auto",
+            margin: "15px auto 25px auto",
             overflow: "hidden",
           }}
         >
