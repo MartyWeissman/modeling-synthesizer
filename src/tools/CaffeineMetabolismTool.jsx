@@ -326,7 +326,7 @@ const CaffeineMetabolismTool = () => {
         value={metabolicRate * 200} // Convert 0.0-0.5 to 0-100 scale
         onChange={(value) => setMetabolicRate(value / 200)} // Convert back to 0.0-0.5
         variant="unipolar"
-        label={`Metabolic rate {mu} = ${metabolicRate.toFixed(2)} mg/hr`}
+        label={`Metabolic rate {mu} = ${metabolicRate.toFixed(2)} hr⁻¹`}
         tooltip={`Metabolic rate: ${metabolicRate.toFixed(2)} (0.0 to 0.5)`}
         theme={theme}
       />
