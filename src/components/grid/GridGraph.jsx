@@ -3,6 +3,7 @@
 import React, { useRef } from "react";
 import GridComponent from "./GridComponent";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
+import { getFontStyle } from "../../utils/typography";
 import { CELL_SIZE } from "../../themes";
 
 const GridGraph = ({
@@ -118,9 +119,7 @@ const GridGraph = ({
             width: "30px",
             textAlign: "center",
             fontSize: "11px",
-            fontFamily:
-              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-            fontWeight: "500",
+            ...getFontStyle("mono", "500"),
           }}
         >
           {tickValue}
@@ -179,9 +178,7 @@ const GridGraph = ({
             width: "35px",
             textAlign: "right",
             fontSize: "11px",
-            fontFamily:
-              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-            fontWeight: "500",
+            ...getFontStyle("mono", "500"),
           }}
         >
           {tickValue}
@@ -346,9 +343,8 @@ const GridGraph = ({
               alignItems: "center",
               justifyContent: "center",
               fontSize: "13px",
-              fontFamily:
-                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-              fontWeight: "400",
+              ...getFontStyle("mono", "500"),
+              color: theme.text?.includes("gray-100") ? "#ffffff" : "#000000",
             }}
           >
             {formatAxisLabel(xLabel, xUnit)}
@@ -367,9 +363,8 @@ const GridGraph = ({
               justifyContent: "center",
               transform: "rotate(-90deg)",
               fontSize: "13px",
-              fontFamily:
-                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-              fontWeight: "400",
+              ...getFontStyle("mono", "500"),
+              color: theme.text?.includes("gray-100") ? "#ffffff" : "#000000",
               whiteSpace: "nowrap",
             }}
           >

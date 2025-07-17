@@ -3,6 +3,7 @@
 import React from "react";
 import GridComponent from "./GridComponent";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
+import { getFontStyle } from "../../utils/typography";
 import { CELL_SIZE } from "../../themes";
 
 const GridDisplay = ({
@@ -54,8 +55,7 @@ const GridDisplay = ({
             : isDarkMode
               ? "rgba(0,0,0,0.8)"
               : "rgba(255,255,255,0.9)",
-          fontFamily: "font-mono",
-          fontWeight: "font-bold",
+          ...getFontStyle("mono", "bold"),
         };
 
       case "alpha":
@@ -70,8 +70,7 @@ const GridDisplay = ({
             : isDarkMode
               ? "rgba(0,0,0,0.8)"
               : "rgba(0,0,0,0.9)",
-          fontFamily: "font-sans",
-          fontWeight: "font-semibold",
+          ...getFontStyle("sans", "600"),
         };
 
       case "status":
@@ -80,14 +79,13 @@ const GridDisplay = ({
             ? "text-pink-700"
             : isDarkMode
               ? "text-orange-400"
-              : "text-orange-600",
+              : "text-gray-800",
           bgColor: isUnicornMode
             ? "linear-gradient(135deg, rgba(251, 207, 232, 0.8) 0%, rgba(254, 215, 170, 0.8) 100%)"
             : isDarkMode
               ? "rgba(0,0,0,0.8)"
-              : "rgba(0,0,0,0.9)",
-          fontFamily: "font-sans",
-          fontWeight: "font-medium",
+              : "rgba(255,255,255,0.95)",
+          ...getFontStyle("sans", "500"),
         };
 
       default:
@@ -102,8 +100,7 @@ const GridDisplay = ({
             : isDarkMode
               ? "rgba(0,0,0,0.6)"
               : "rgba(255,255,255,0.9)",
-          fontFamily: "font-sans",
-          fontWeight: "font-medium",
+          ...getFontStyle("sans", "500"),
         };
     }
   };

@@ -138,7 +138,9 @@ const GridTimePicker = ({
         e.preventDefault();
         if (activeField === "hour") adjustHour(-1);
         else if (activeField === "minute") adjustMinute(-1);
-        else if (activeField === "period") togglePeriod();
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        if (activeField === "period") togglePeriod();
       } else if (e.key === "Escape") {
         setActiveField(null);
       } else if (activeField === "hour" && /^[1-9]$/.test(e.key)) {
@@ -240,9 +242,12 @@ const GridTimePicker = ({
               : "1px solid rgba(0,0,0,0.05)",
           }}
         >
-          {/* Up arrow for hour */}
+          {/* Up/down arrows for hour */}
           {activeField === "hour" && (
-            <div className="absolute left-1 top-1/2 transform -translate-y-1/2">
+            <div
+              className="absolute left-1"
+              style={{ top: "calc(50% - 20px)" }}
+            >
               <div className="flex flex-col gap-0.5">
                 <button
                   className={`w-3 h-3 flex items-center justify-center text-xs ${isUnicornMode ? "text-purple-800" : theme.text} hover:opacity-70`}
@@ -260,25 +265,44 @@ const GridTimePicker = ({
             </div>
           )}
 
-          {/* Up arrow for minute/period */}
-          {(activeField === "minute" || activeField === "period") && (
-            <div className="absolute right-1 top-1/2 transform -translate-y-1/2">
+          {/* Up/down arrows for minute */}
+          {activeField === "minute" && (
+            <div
+              className="absolute right-1"
+              style={{ top: "calc(50% - 20px)" }}
+            >
               <div className="flex flex-col gap-0.5">
                 <button
                   className={`w-3 h-3 flex items-center justify-center text-xs ${theme.text} hover:opacity-70`}
-                  onClick={() =>
-                    activeField === "minute" ? adjustMinute(1) : togglePeriod()
-                  }
+                  onClick={() => adjustMinute(1)}
                 >
                   ▲
                 </button>
                 <button
                   className={`w-3 h-3 flex items-center justify-center text-xs ${theme.text} hover:opacity-70`}
-                  onClick={() =>
-                    activeField === "minute" ? adjustMinute(-1) : togglePeriod()
-                  }
+                  onClick={() => adjustMinute(-1)}
                 >
                   ▼
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Left/right arrows for AM/PM */}
+          {activeField === "period" && (
+            <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2">
+              <div className="flex gap-1">
+                <button
+                  className={`w-3 h-3 flex items-center justify-center text-xs ${theme.text} hover:opacity-70`}
+                  onClick={() => togglePeriod()}
+                >
+                  ◀
+                </button>
+                <button
+                  className={`w-3 h-3 flex items-center justify-center text-xs ${theme.text} hover:opacity-70`}
+                  onClick={() => togglePeriod()}
+                >
+                  ▶
                 </button>
               </div>
             </div>

@@ -3,6 +3,7 @@
 import React from "react";
 import GridComponent from "./GridComponent";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
+import { formatMathText, getFontStyle } from "../../utils/typography";
 
 const GridLabel = ({
   x,
@@ -13,6 +14,7 @@ const GridLabel = ({
   fontSize = "auto", // "auto", "small", "medium", "large", or number in px
   textAlign = "center", // "left", "center", "right"
   verticalAlign = "middle", // "top", "middle", "bottom"
+  formulaMode = false, // Enable italic variables for mathematical formulas
 
   // Standard props
   tooltip,
@@ -30,13 +32,13 @@ const GridLabel = ({
 
       switch (fontSize) {
         case "small":
-          return "10px";
+          return "17px";
         case "medium":
-          return "12px";
+          return "20px";
         case "large":
-          return "16px";
+          return "27px";
         default:
-          return "12px";
+          return "20px";
       }
     }
 
@@ -151,7 +153,27 @@ const GridLabel = ({
               textAlign: textAlign,
             }}
           >
-            {text}
+            {formatMathText(text, formulaMode).map((segment, index) => (
+              <span
+                key={index}
+                style={
+                  segment.type === "greek"
+                    ? getFontStyle("greek", "500")
+                    : segment.type === "variable"
+                      ? getFontStyle("sans", "500")
+                      : getFontStyle("sans", "500")
+                }
+                className={
+                  segment.type === "greek"
+                    ? "italic"
+                    : segment.type === "variable"
+                      ? "italic"
+                      : ""
+                }
+              >
+                {segment.text}
+              </span>
+            ))}
           </div>
         )}
       </div>

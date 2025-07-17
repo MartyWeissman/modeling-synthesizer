@@ -6,7 +6,7 @@ import {
   GridStaircase,
   GridLabel,
   GridGraph,
-  GridSlider,
+  GridSliderHorizontal,
   GridDisplay,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
@@ -27,10 +27,7 @@ const CaffeineMetabolismTool = () => {
   const [metabolicRate, setMetabolicRate] = useState(0.2);
 
   // Calculated values
-  const [currentLevel, setCurrentLevel] = useState(0);
-  const [peakLevel, setPeakLevel] = useState(0);
   const [timeSeriesData, setTimeSeriesData] = useState([]);
-  const [isAutoUpdate, setIsAutoUpdate] = useState(false);
 
   // Convert dose level (0-5) to mg
   const doseLevelToMg = (level) => {
@@ -75,7 +72,6 @@ const CaffeineMetabolismTool = () => {
 
     const dataPoints = [];
     const timeStep = 0.25; // 15-minute intervals
-    let maxLevel = 0;
 
     // Generate 72 hours of data
     for (let t = 0; t <= 72; t += timeStep) {
@@ -95,21 +91,9 @@ const CaffeineMetabolismTool = () => {
       });
 
       dataPoints.push({ time: t, level: totalLevel });
-      maxLevel = Math.max(maxLevel, totalLevel);
     }
 
-    setPeakLevel(Math.round(maxLevel));
     setTimeSeriesData(dataPoints);
-
-    // Update current level based on current time of day
-    const now = new Date();
-    const currentHour = now.getHours() + now.getMinutes() / 60;
-    const currentData = dataPoints.find(
-      (point) => Math.abs(point.time - currentHour) < 0.25,
-    );
-    if (currentData) {
-      setCurrentLevel(Math.round(currentData.level));
-    }
   }, [
     dose1Time,
     dose1Level,
@@ -186,16 +170,7 @@ const CaffeineMetabolismTool = () => {
 
       ctx.stroke();
     }, 200);
-  }, [
-    timeSeriesData,
-    theme,
-    dose1Time,
-    dose1Level,
-    dose2Time,
-    dose2Level,
-    dose3Time,
-    dose3Level,
-  ]);
+  }, [timeSeriesData, theme]);
 
   // Auto-update and regenerate time series
   useEffect(() => {
@@ -209,21 +184,10 @@ const CaffeineMetabolismTool = () => {
     }
   }, [timeSeriesData, drawTimeSeries]);
 
-  // Auto-update current level
-  useEffect(() => {
-    if (isAutoUpdate) {
-      const interval = setInterval(() => {
-        generateTimeSeries(); // This updates current level too
-      }, 60000); // Update every minute
-
-      return () => clearInterval(interval);
-    }
-  }, [isAutoUpdate, generateTimeSeries]);
-
   return (
     <ToolContainer
       title="Caffeine Metabolism Simulator"
-      canvasWidth={11}
+      canvasWidth={10}
       canvasHeight={4}
     >
       {/* Row 0: Dose 1 */}
@@ -233,7 +197,7 @@ const CaffeineMetabolismTool = () => {
         w={1}
         h={1}
         text="Dose 1"
-        fontSize="large"
+        fontSize="medium"
         tooltip="Dose 1"
         theme={theme}
       />
@@ -264,7 +228,7 @@ const CaffeineMetabolismTool = () => {
         w={1}
         h={1}
         text="Dose 2"
-        fontSize="large"
+        fontSize="medium"
         tooltip="Dose 2"
         theme={theme}
       />
@@ -295,7 +259,7 @@ const CaffeineMetabolismTool = () => {
         w={1}
         h={1}
         text="Dose 3"
-        fontSize="large"
+        fontSize="medium"
         tooltip="Dose 3"
         theme={theme}
       />
@@ -340,65 +304,44 @@ const CaffeineMetabolismTool = () => {
       />
 
       {/* Row 3: Bottom labels and controls */}
-      <GridLabel
+      <GridDisplay
         x={1}
         y={3}
-        w={1}
+        w={2}
         h={1}
-        text="Daily caffeine:"
-        fontSize="large"
-        textAlign="left"
-        tooltip="Total daily caffeine intake"
-        theme={theme}
-      />
-
-      <GridDisplay
-        x={2}
-        y={3}
-        w={1}
-        h={1}
-        value={`${doseLevelToMg(dose1Level) + doseLevelToMg(dose2Level) + doseLevelToMg(dose3Level)}mg`}
-        variant="numeric"
+        value={`Daily\ncaffeine\n${doseLevelToMg(dose1Level) + doseLevelToMg(dose2Level) + doseLevelToMg(dose3Level)}mg`}
+        variant="status"
         align="center"
-        fontSize="sm"
+        fontSize="xs"
         tooltip={`Total daily caffeine: ${doseLevelToMg(dose1Level) + doseLevelToMg(dose2Level) + doseLevelToMg(dose3Level)}mg`}
         theme={theme}
       />
 
-      <GridLabel
-        x={9}
+      {/* Metabolic Rate Horizontal Slider */}
+      <GridSliderHorizontal
+        x={7}
         y={3}
-        w={1}
+        w={3}
         h={1}
-        text="Metabolic rate:"
-        fontSize="large"
-        textAlign="left"
-        tooltip="Metabolic Rate"
-        theme={theme}
-      />
-
-      {/* Metabolic Rate Slider */}
-      <GridSlider
-        x={10}
-        y={0}
         value={metabolicRate * 200} // Convert 0.0-0.5 to 0-100 scale
         onChange={(value) => setMetabolicRate(value / 200)} // Convert back to 0.0-0.5
         variant="unipolar"
-        tooltip="Metabolic rate (0.0 to 0.5)"
+        label={`Metabolic rate {mu} = ${metabolicRate.toFixed(2)} mg/hr`}
+        tooltip={`Metabolic rate: ${metabolicRate.toFixed(2)} (0.0 to 0.5)`}
         theme={theme}
       />
 
-      {/* Metabolic Rate Display */}
-      <GridDisplay
-        x={10}
+      {/* Differential Equation Formula */}
+      <GridLabel
+        x={4}
         y={3}
-        w={1}
+        w={2}
         h={1}
-        value={metabolicRate.toFixed(2)}
-        variant="numeric"
-        align="center"
-        fontSize="sm"
-        tooltip={`Current metabolic rate: ${metabolicRate.toFixed(1)}`}
+        text="C' = [intake] - {mu} C"
+        fontSize="medium"
+        textAlign="center"
+        formulaMode={true}
+        tooltip="Differential equation for caffeine metabolism"
         theme={theme}
       />
     </ToolContainer>
