@@ -3,6 +3,7 @@
 export { default as CaffeineMetabolismTool } from "./CaffeineMetabolismTool";
 export { default as ComponentTestTool } from "./ComponentTestTool";
 export { default as GridLabelTest } from "./GridLabelTest";
+export { default as SharkTunaInteractionTool } from "./SharkTunaInteractionTool";
 
 // Future tools can be added here:
 // export { default as FunctionGrapherTool } from './FunctionGrapherTool';

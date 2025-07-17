@@ -6,8 +6,8 @@ import { useTheme } from "./hooks/useTheme";
 import { CaffeineMetabolismTool } from "./tools";
 import { ComponentTestTool } from "./tools";
 import { GridLabelTest } from "./tools";
+import { SharkTunaInteractionTool } from "./tools";
 import VisualToolBuilder from "./tools/VisualToolBuilder";
-import MiniatureTest from "./tools/MiniatureTest";
 
 // Theme selector component
 const ThemeSelector = () => {
@@ -83,9 +83,9 @@ const AppContent = () => {
       component: VisualToolBuilder,
     },
     {
-      id: "miniature-test",
-      name: "Miniature Test",
-      component: MiniatureTest,
+      id: "shark-tuna",
+      name: "Shark-Tuna Interactions",
+      component: SharkTunaInteractionTool,
     },
   ];
   // Future tools can be added here:
