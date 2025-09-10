@@ -7,6 +7,8 @@ import { CaffeineMetabolismTool } from "./tools";
 import { ComponentTestTool } from "./tools";
 import { GridLabelTest } from "./tools";
 import { SharkTunaInteractionTool } from "./tools";
+import { SharkTunaTrajectoryTool } from "./tools";
+
 import VisualToolBuilder from "./tools/VisualToolBuilder";
 
 // Theme selector component
@@ -86,6 +88,11 @@ const AppContent = () => {
       id: "shark-tuna",
       name: "Shark-Tuna Interactions",
       component: SharkTunaInteractionTool,
+    },
+    {
+      id: "shark-tuna-trajectory",
+      name: "Shark-Tuna Trajectories",
+      component: SharkTunaTrajectoryTool,
     },
   ];
   // Future tools can be added here:

@@ -13,3 +13,5 @@ export { default as GridStaircase } from "./GridStaircase";
 export { default as GridTimePicker } from "./GridTimePicker";
 export { default as GridLabel } from "./GridLabel";
 export { default as GridWindow } from "./GridWindow";
+export { default as GridVectorField } from "./GridVectorField";
+export { default as GridTimeSeries } from "./GridTimeSeries";
