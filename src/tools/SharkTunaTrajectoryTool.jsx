@@ -117,15 +117,18 @@ const SharkTunaTrajectoryTool = () => {
       const plotHeight = height - paddingTop - paddingBottom;
 
       // Calculate vector field dynamically
-      const gridSize = 12;
+      // 16x16 grid at coordinates 2,5,8,...,47
+      const gridCoords = [
+        2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 47,
+      ];
       ctx.strokeStyle = "rgba(150, 150, 150, 0.7)";
       ctx.fillStyle = "rgba(150, 150, 150, 0.7)";
       ctx.lineWidth = 1;
 
-      for (let i = 0; i <= gridSize; i++) {
-        for (let j = 0; j <= gridSize; j++) {
-          const s = smin + (i / gridSize) * (smax - smin);
-          const t = tmin + (j / gridSize) * (tmax - tmin);
+      for (let i = 0; i < gridCoords.length; i++) {
+        for (let j = 0; j < gridCoords.length; j++) {
+          const s = gridCoords[i];
+          const t = gridCoords[j];
 
           // Only draw vectors in the state space (S >= 0, T >= 0)
           if (s < 0 || t < 0) continue;
@@ -142,7 +145,7 @@ const SharkTunaTrajectoryTool = () => {
           // Map to plot area coordinates
           const canvasX = paddingLeft + (s / smax) * plotWidth;
           const canvasY = paddingTop + plotHeight - (t / tmax) * plotHeight;
-          const arrowLength = 8;
+          const arrowLength = 18;
           const endX = canvasX + normalizedDx * arrowLength;
           const endY = canvasY - normalizedDy * arrowLength;
 
@@ -151,20 +154,18 @@ const SharkTunaTrajectoryTool = () => {
           ctx.lineTo(endX, endY);
           ctx.stroke();
 
-          const angle = Math.atan2(-normalizedDy, normalizedDx);
-          const headSize = 3;
+          // Arrowhead - using old simulation style
+          const angle = Math.atan2(endY - canvasY, endX - canvasX);
+          ctx.save();
+          ctx.translate(endX, endY);
+          ctx.rotate(angle);
           ctx.beginPath();
-          ctx.moveTo(endX, endY);
-          ctx.lineTo(
-            endX - headSize * Math.cos(angle - Math.PI / 6),
-            endY + headSize * Math.sin(angle - Math.PI / 6),
-          );
-          ctx.lineTo(
-            endX - headSize * Math.cos(angle + Math.PI / 6),
-            endY + headSize * Math.sin(angle + Math.PI / 6),
-          );
+          ctx.moveTo(0, 0);
+          ctx.lineTo(-6, -2);
+          ctx.lineTo(-6, 2);
           ctx.closePath();
           ctx.fill();
+          ctx.restore();
         }
       }
 
@@ -623,7 +624,7 @@ const SharkTunaTrajectoryTool = () => {
         value={uiParams.p * 1000}
         onChange={(value) => updateParam("p", value / 1000)}
         variant="unipolar"
-        label={`Predation Rate (p): ${uiParams.p.toFixed(4)}`}
+        label={`Predation Coefficient (p): ${uiParams.p.toFixed(4)}`}
         theme={theme}
       />
 
