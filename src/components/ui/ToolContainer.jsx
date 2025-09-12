@@ -9,7 +9,7 @@ import {
 } from "../../themes/textures";
 
 const ToolContainer = React.memo(
-  ({ title, children, canvasWidth = 10, canvasHeight = 5 }) => {
+  ({ title, children, canvasWidth = 10, canvasHeight = 5, onReset }) => {
     const { theme } = useTheme();
     const isDarkMode = theme.component.includes("gray-700");
     const isUnicornMode = theme.text.includes("purple-800");
@@ -89,7 +89,22 @@ const ToolContainer = React.memo(
               {title}
             </h1>
 
-            {/* Remove the entire right controls section */}
+            {/* Reset button */}
+            {onReset && (
+              <button
+                onClick={onReset}
+                className={`px-3 py-1 text-sm font-medium rounded ${
+                  isUnicornMode
+                    ? "bg-pink-100 hover:bg-pink-200 text-pink-800 border border-pink-300"
+                    : isDarkMode
+                      ? "bg-gray-600 hover:bg-gray-500 text-gray-100 border border-gray-500"
+                      : "bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300"
+                } transition-colors duration-150`}
+                title="Reset all parameters to defaults"
+              >
+                Reset
+              </button>
+            )}
           </div>
 
           {/* Main content area */}

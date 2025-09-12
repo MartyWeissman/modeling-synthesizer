@@ -12,6 +12,10 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import GridDebugOverlay, {
+  GridDebugControls,
+} from "../components/dev/GridDebugOverlay";
+import { useGridDebug } from "../hooks/useGridDebug";
 
 const ComponentTestTool = () => {
   const { theme } = useTheme();
@@ -20,6 +24,28 @@ const ComponentTestTool = () => {
   const [toggleState, setToggleState] = useState(false);
   const [staircaseLevel, setStaircaseLevel] = useState(2);
   const [selectedTime, setSelectedTime] = useState("9:30 AM");
+
+  // Grid layout debugging - define the component layout
+  const gridComponents = [
+    { x: 0, y: 0, w: 1, h: 1, name: "Number Btn", type: "button" },
+    { x: 1, y: 0, w: 1, h: 1, name: "Toggle Btn", type: "button" },
+    { x: 2, y: 0, w: 1, h: 1, name: "Default Btn", type: "button" },
+    { x: 3, y: 0, w: 1, h: 1, name: "Staircase", type: "staircase" },
+    { x: 4, y: 0, w: 1, h: 3, name: "Bipolar Slider", type: "slider" },
+    { x: 5, y: 0, w: 1, h: 3, name: "Unipolar Slider", type: "slider" },
+    { x: 6, y: 0, w: 2, h: 1, name: "Display 1", type: "display" },
+    { x: 8, y: 0, w: 1, h: 1, name: "TimePicker", type: "timePicker" },
+    { x: 6, y: 1, w: 2, h: 1, name: "Display 2", type: "display" },
+    { x: 0, y: 1, w: 4, h: 3, name: "Main Graph", type: "graph" },
+    { x: 8, y: 1, w: 2, h: 2, name: "Circular Window", type: "window" },
+    { x: 5, y: 3, w: 3, h: 2, name: "Rect Window", type: "window" },
+  ];
+
+  // Initialize grid debugging
+  const gridDebug = useGridDebug(gridComponents, 10, 5, {
+    enableAutoDebug: false,
+    debugTitle: "ComponentTestTool",
+  });
 
   // Swimming alpha animation state
   const [animationPosition, setAnimationPosition] = useState({ x: 50, y: 50 });
@@ -79,6 +105,18 @@ const ComponentTestTool = () => {
 
   return (
     <ToolContainer title="Component Test">
+      {/* Grid Debug Overlay */}
+      <GridDebugOverlay
+        components={gridComponents}
+        canvasWidth={10}
+        canvasHeight={5}
+        show={gridDebug.debugControls.visible}
+        showGrid={gridDebug.debugControls.showGrid}
+        showBounds={gridDebug.debugControls.showBounds}
+        showOverlaps={gridDebug.debugControls.showOverlaps}
+        showLabels={gridDebug.debugControls.showLabels}
+      />
+
       {/* Test Buttons */}
       <GridButton
         x={0}
@@ -262,6 +300,31 @@ const ComponentTestTool = () => {
         {toggleState ? "ON" : "OFF"} | Staircase: {staircaseLevel} | Time:{" "}
         {selectedTime}
       </div>
+
+      {/* Layout info display */}
+      <div
+        className={`absolute ${theme.text} text-xs`}
+        style={{ left: "0px", top: "440px" }}
+      >
+        Layout: {gridDebug.isValid ? "✅ Valid" : "❌ Invalid"} | Components:{" "}
+        {gridDebug.componentCount} | Utilization: {gridDebug.utilization}% |
+        {gridDebug.hasOverlaps && ` ⚠️ ${gridDebug.overlaps.length} overlaps`}
+        {gridDebug.isValid && !gridDebug.hasOverlaps && " 🎉 Perfect!"}
+      </div>
+
+      {/* Grid Debug Controls */}
+      <GridDebugControls
+        show={gridDebug.debugControls.visible}
+        onToggleShow={gridDebug.debugControls.toggleVisible}
+        showGrid={gridDebug.debugControls.showGrid}
+        onToggleGrid={gridDebug.debugControls.toggleGrid}
+        showBounds={gridDebug.debugControls.showBounds}
+        onToggleBounds={gridDebug.debugControls.toggleBounds}
+        showOverlaps={gridDebug.debugControls.showOverlaps}
+        onToggleOverlaps={gridDebug.debugControls.toggleOverlaps}
+        showLabels={gridDebug.debugControls.showLabels}
+        onToggleLabels={gridDebug.debugControls.toggleLabels}
+      />
     </ToolContainer>
   );
 };

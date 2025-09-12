@@ -84,6 +84,25 @@ After deployment, your site will be available at:
 - `npm run lint` - Run ESLint
 - `npm run deploy` - Deploy to GitHub Pages (manual)
 
+## Development Mode
+
+The application has two modes:
+
+### Student Mode (Default)
+- Accessible at the main URL
+- Shows only student-facing modeling tools:
+  - Caffeine Metabolism
+  - Shark-Tuna Interactions  
+  - Shark-Tuna Trajectories
+
+### Development Mode
+- Accessible by adding `?dev=true` to the URL
+- Shows all tools including development utilities:
+  - Component Test Tool
+  - GridLabel Test
+  - Visual Tool Builder
+- Includes a link to switch back to student view
+
 ## Tech Stack
 
 - React 19

@@ -315,7 +315,7 @@ const GridSliderHorizontal = React.memo(
               <div
                 className="absolute w-6 h-6 rounded-full pointer-events-none"
                 style={{
-                  left: `${16 + (sliderPosition / 100) * trackWidth - 12}px`, // -12 for knob radius
+                  left: `${16 + (sliderPosition / 100) * (trackWidth - 24) + 12 - 12}px`, // Align knob center with track ends
                   top: "50%",
                   background: getKnobColor(),
                   backgroundSize: "cover, 32px 32px",

@@ -1,6 +1,6 @@
 // src/App.jsx
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ThemeProvider } from "./components/ui/ThemeProvider";
 import { useTheme } from "./hooks/useTheme";
 import { CaffeineMetabolismTool } from "./tools";
@@ -8,6 +8,7 @@ import { ComponentTestTool } from "./tools";
 import { GridLabelTest } from "./tools";
 import { SharkTunaInteractionTool } from "./tools";
 import { SharkTunaTrajectoryTool } from "./tools";
+import { InsulinGlucoseTool } from "./tools";
 
 import VisualToolBuilder from "./tools/VisualToolBuilder";
 
@@ -62,13 +63,40 @@ const ToolSelector = ({ currentTool, setCurrentTool, availableTools }) => {
 const AppContent = () => {
   const { theme } = useTheme();
   const [currentTool, setCurrentTool] = useState("caffeine");
+  const [devMode, setDevMode] = useState(false);
 
-  const availableTools = [
+  // Check for dev mode on component mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    setDevMode(urlParams.get("dev") === "true");
+  }, []);
+
+  // Student-facing tools
+  const studentTools = [
     {
       id: "caffeine",
       name: "Caffeine Metabolism",
       component: CaffeineMetabolismTool,
     },
+    {
+      id: "shark-tuna",
+      name: "Shark-Tuna Interactions",
+      component: SharkTunaInteractionTool,
+    },
+    {
+      id: "shark-tuna-trajectory",
+      name: "Shark-Tuna Trajectories",
+      component: SharkTunaTrajectoryTool,
+    },
+    {
+      id: "insulin-glucose",
+      name: "Insulin-Glucose Regulation",
+      component: InsulinGlucoseTool,
+    },
+  ];
+
+  // Development tools
+  const devTools = [
     {
       id: "test",
       name: "Component Test",
@@ -84,17 +112,13 @@ const AppContent = () => {
       name: "Visual Tool Builder",
       component: VisualToolBuilder,
     },
-    {
-      id: "shark-tuna",
-      name: "Shark-Tuna Interactions",
-      component: SharkTunaInteractionTool,
-    },
-    {
-      id: "shark-tuna-trajectory",
-      name: "Shark-Tuna Trajectories",
-      component: SharkTunaTrajectoryTool,
-    },
   ];
+
+  // Select available tools based on mode
+  const availableTools = devMode
+    ? [...studentTools, ...devTools]
+    : studentTools;
+
   // Future tools can be added here:
   // {
   //   id: 'function-grapher',
@@ -113,9 +137,33 @@ const AppContent = () => {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h1 className={`text-3xl font-bold ${theme.text}`}>
-              Modeling Synthesizer
+              Modeling Synthesizer{" "}
+              {devMode && (
+                <span className="text-sm font-normal opacity-60">
+                  (Dev Mode)
+                </span>
+              )}
             </h1>
-            <ThemeSelector />
+            <div className="flex items-center gap-4">
+              <ThemeSelector />
+              {devMode && (
+                <a
+                  href="?"
+                  className="text-sm text-blue-600 hover:text-blue-800 underline"
+                >
+                  Student View
+                </a>
+              )}
+              {!devMode && (
+                <a
+                  href="?dev=true"
+                  className="text-xs text-gray-300 hover:text-gray-500 no-underline opacity-50 hover:opacity-100 transition-opacity"
+                  title="Development tools for building new modeling tools"
+                >
+                  dev
+                </a>
+              )}
+            </div>
           </div>
 
           {/* Tool Selection */}

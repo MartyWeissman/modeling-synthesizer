@@ -9,6 +9,7 @@ export { default as GridScreen } from "./GridScreen";
 export { default as GridInput } from "./GridInput";
 export { default as GridDisplay } from "./GridDisplay";
 export { default as GridGraph } from "./GridGraph";
+export { default as GridGraphDualY } from "./GridGraphDualY";
 export { default as GridStaircase } from "./GridStaircase";
 export { default as GridTimePicker } from "./GridTimePicker";
 export { default as GridLabel } from "./GridLabel";

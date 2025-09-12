@@ -5,6 +5,7 @@ export { default as ComponentTestTool } from "./ComponentTestTool";
 export { default as GridLabelTest } from "./GridLabelTest";
 export { default as SharkTunaInteractionTool } from "./SharkTunaInteractionTool";
 export { default as SharkTunaTrajectoryTool } from "./SharkTunaTrajectoryTool";
+export { default as InsulinGlucoseTool } from "./InsulinGlucoseTool";
 
 // Future tools can be added here:
 // export { default as FunctionGrapherTool } from './FunctionGrapherTool';

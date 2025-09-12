@@ -151,29 +151,67 @@ const GridLabel = ({
               hyphens: "auto",
               maxWidth: "100%",
               textAlign: textAlign,
+              whiteSpace: "pre-line", // Allow \n to create line breaks
             }}
           >
-            {formatMathText(text, formulaMode).map((segment, index) => (
-              <span
-                key={index}
-                style={
-                  segment.type === "greek"
-                    ? getFontStyle("greek", "500")
-                    : segment.type === "variable"
-                      ? getFontStyle("sans", "500")
-                      : getFontStyle("sans", "500")
-                }
-                className={
-                  segment.type === "greek"
-                    ? "italic"
-                    : segment.type === "variable"
-                      ? "italic"
-                      : ""
-                }
-              >
-                {segment.text}
-              </span>
-            ))}
+            {text.includes("|")
+              ? // Handle multi-line text by splitting on pipe character
+                text.split("|").map((line, lineIndex) => (
+                  <div
+                    key={lineIndex}
+                    style={{
+                      lineHeight: "1.2",
+                      marginBottom:
+                        lineIndex < text.split("|").length - 1 ? "4px" : "0",
+                    }}
+                  >
+                    {formatMathText(line, formulaMode).map(
+                      (segment, segIndex) => (
+                        <span
+                          key={segIndex}
+                          style={
+                            segment.type === "greek"
+                              ? getFontStyle("greek", "500")
+                              : segment.type === "variable"
+                                ? getFontStyle("sans", "500")
+                                : getFontStyle("sans", "500")
+                          }
+                          className={
+                            segment.type === "greek"
+                              ? "italic"
+                              : segment.type === "variable"
+                                ? "italic"
+                                : ""
+                          }
+                        >
+                          {segment.text}
+                        </span>
+                      ),
+                    )}
+                  </div>
+                ))
+              : // Single line text - original behavior
+                formatMathText(text, formulaMode).map((segment, index) => (
+                  <span
+                    key={index}
+                    style={
+                      segment.type === "greek"
+                        ? getFontStyle("greek", "500")
+                        : segment.type === "variable"
+                          ? getFontStyle("sans", "500")
+                          : getFontStyle("sans", "500")
+                    }
+                    className={
+                      segment.type === "greek"
+                        ? "italic"
+                        : segment.type === "variable"
+                          ? "italic"
+                          : ""
+                    }
+                  >
+                    {segment.text}
+                  </span>
+                ))}
           </div>
         )}
       </div>
