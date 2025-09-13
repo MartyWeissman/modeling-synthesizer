@@ -10,7 +10,9 @@ import {
 
 const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
   const { theme, currentTheme } = useTheme();
-  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedLab, setSelectedLab] = useState("all");
+  const [selectedTopic, setSelectedTopic] = useState("all");
+  const [selectedType, setSelectedType] = useState("all");
 
   // Generate categories dynamically from centralized metadata
   const topicCategories = generateTopicCategories();
@@ -22,23 +24,27 @@ const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
   const labKeys = Object.keys(labCategories);
 
   const getFilteredTools = () => {
-    if (selectedCategory === "all") return availableTools;
+    return availableTools.filter((tool) => {
+      // Apply lab filter
+      if (selectedLab !== "all") {
+        const labTools = labCategories[selectedLab]?.tools || [];
+        if (!labTools.includes(tool.id)) return false;
+      }
 
-    // Check if it's a lab category
-    if (labCategories[selectedCategory]) {
-      const labTools = labCategories[selectedCategory].tools || [];
-      return availableTools.filter((tool) => labTools.includes(tool.id));
-    }
+      // Apply topic filter
+      if (selectedTopic !== "all") {
+        const topicTools = topicCategories[selectedTopic]?.tools || [];
+        if (!topicTools.includes(tool.id)) return false;
+      }
 
-    // Check if it's a tool type category
-    if (toolTypeCategories[selectedCategory]) {
-      const typeTools = toolTypeCategories[selectedCategory].tools || [];
-      return availableTools.filter((tool) => typeTools.includes(tool.id));
-    }
+      // Apply type filter
+      if (selectedType !== "all") {
+        const typeTools = toolTypeCategories[selectedType]?.tools || [];
+        if (!typeTools.includes(tool.id)) return false;
+      }
 
-    // Otherwise it's a topic category
-    const categoryTools = topicCategories[selectedCategory]?.tools || [];
-    return availableTools.filter((tool) => categoryTools.includes(tool.id));
+      return true;
+    });
   };
 
   const getTagsForTool = (toolId) => {
@@ -88,77 +94,86 @@ const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
         </p>
       </div>
 
-      {/* All Tools - Most Prominent */}
-      <div className="mb-8">
-        <div className="flex justify-center">
-          <button
-            onClick={() => setSelectedCategory("all")}
-            className={`px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-200 border-2 ${
-              selectedCategory === "all"
-                ? currentTheme === "unicorn"
-                  ? "bg-pink-200 border-pink-500 text-pink-900 shadow-lg transform scale-105"
-                  : currentTheme === "dark"
-                    ? "bg-blue-600 border-blue-400 text-white shadow-lg transform scale-105"
-                    : "bg-blue-200 border-blue-500 text-blue-900 shadow-lg transform scale-105"
-                : currentTheme === "unicorn"
-                  ? "bg-purple-50 border-purple-300 text-purple-800 hover:bg-purple-100 hover:transform hover:scale-102"
-                  : currentTheme === "dark"
-                    ? "bg-gray-700 border-gray-500 text-gray-200 hover:bg-gray-600 hover:transform hover:scale-102"
-                    : "bg-white border-gray-400 text-gray-800 hover:bg-gray-50 hover:transform hover:scale-102"
-            }`}
-          >
-            All Tools
-          </button>
-        </div>
-      </div>
-
       {/* Lab Manual Categories */}
       <div className="mb-6">
-        <h3
-          className={`text-lg font-medium ${theme.text} mb-3 text-center opacity-75`}
-        >
-          Lab Manual
-        </h3>
         <div className="flex flex-wrap justify-center gap-2 mb-4">
-          {labKeys.map((labKey) => (
-            <button
-              key={labKey}
-              onClick={() => setSelectedCategory(labKey)}
-              title={labCategories[labKey].title}
-              className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 border ${
-                selectedCategory === labKey
-                  ? currentTheme === "unicorn"
-                    ? "bg-pink-100 border-pink-400 text-pink-800 shadow-md"
-                    : currentTheme === "dark"
-                      ? "bg-blue-600 border-blue-500 text-white shadow-md"
-                      : "bg-blue-100 border-blue-400 text-blue-800 shadow-md"
-                  : currentTheme === "unicorn"
-                    ? "bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100"
-                    : currentTheme === "dark"
-                      ? "bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600"
-                      : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
-              }`}
-            >
-              {labCategories[labKey].name}
-            </button>
-          ))}
+          <button
+            onClick={() => setSelectedLab("all")}
+            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 border ${
+              selectedLab === "all"
+                ? currentTheme === "unicorn"
+                  ? "bg-pink-100 border-pink-400 text-pink-800 shadow-md"
+                  : currentTheme === "dark"
+                    ? "bg-blue-600 border-blue-500 text-white shadow-md"
+                    : "bg-blue-100 border-blue-400 text-blue-800 shadow-md"
+                : currentTheme === "unicorn"
+                  ? "bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100"
+                  : currentTheme === "dark"
+                    ? "bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600"
+                    : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
+            }`}
+          >
+            All Labs
+          </button>
+          {labKeys.map((labKey) => {
+            const labNumber = labKey.replace("lab", "");
+            const labTitle = labCategories[labKey].title;
+            const shortTitle = labTitle.includes(":")
+              ? labTitle.split(":")[1].trim()
+              : labTitle;
+            return (
+              <button
+                key={labKey}
+                onClick={() => setSelectedLab(labKey)}
+                title={labCategories[labKey].title}
+                className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 border ${
+                  selectedLab === labKey
+                    ? currentTheme === "unicorn"
+                      ? "bg-pink-100 border-pink-400 text-pink-800 shadow-md"
+                      : currentTheme === "dark"
+                        ? "bg-blue-600 border-blue-500 text-white shadow-md"
+                        : "bg-blue-100 border-blue-400 text-blue-800 shadow-md"
+                    : currentTheme === "unicorn"
+                      ? "bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100"
+                      : currentTheme === "dark"
+                        ? "bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600"
+                        : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
+                }`}
+              >
+                {labNumber}. {shortTitle}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Topic Categories */}
       <div className="mb-6">
-        <h3
-          className={`text-lg font-medium ${theme.text} mb-3 text-center opacity-75`}
-        >
-          By Topic
-        </h3>
         <div className="flex flex-wrap justify-center gap-2 mb-4">
+          <button
+            onClick={() => setSelectedTopic("all")}
+            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 border ${
+              selectedTopic === "all"
+                ? currentTheme === "unicorn"
+                  ? "bg-pink-100 border-pink-400 text-pink-800 shadow-md"
+                  : currentTheme === "dark"
+                    ? "bg-blue-600 border-blue-500 text-white shadow-md"
+                    : "bg-blue-100 border-blue-400 text-blue-800 shadow-md"
+                : currentTheme === "unicorn"
+                  ? "bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100"
+                  : currentTheme === "dark"
+                    ? "bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600"
+                    : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
+            }`}
+          >
+            All Topics
+          </button>
           {Object.keys(topicCategories).map((category) => (
             <button
               key={category}
-              onClick={() => setSelectedCategory(category)}
+              onClick={() => setSelectedTopic(category)}
               className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 border ${
-                selectedCategory === category
+                selectedTopic === category
                   ? currentTheme === "unicorn"
                     ? "bg-pink-100 border-pink-400 text-pink-800 shadow-md"
                     : currentTheme === "dark"
@@ -180,18 +195,31 @@ const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
 
       {/* Tool Type Categories */}
       <div className="mb-8">
-        <h3
-          className={`text-lg font-medium ${theme.text} mb-3 text-center opacity-75`}
-        >
-          By Tool Type
-        </h3>
         <div className="flex flex-wrap justify-center gap-2">
+          <button
+            onClick={() => setSelectedType("all")}
+            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 border ${
+              selectedType === "all"
+                ? currentTheme === "unicorn"
+                  ? "bg-pink-100 border-pink-400 text-pink-800 shadow-md"
+                  : currentTheme === "dark"
+                    ? "bg-blue-600 border-blue-500 text-white shadow-md"
+                    : "bg-blue-100 border-blue-400 text-blue-800 shadow-md"
+                : currentTheme === "unicorn"
+                  ? "bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100"
+                  : currentTheme === "dark"
+                    ? "bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600"
+                    : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
+            }`}
+          >
+            All Types
+          </button>
           {toolTypeKeys.map((typeKey) => (
             <button
               key={typeKey}
-              onClick={() => setSelectedCategory(typeKey)}
+              onClick={() => setSelectedType(typeKey)}
               className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 border ${
-                selectedCategory === typeKey
+                selectedType === typeKey
                   ? currentTheme === "unicorn"
                     ? "bg-pink-100 border-pink-400 text-pink-800 shadow-md"
                     : currentTheme === "dark"
@@ -289,12 +317,10 @@ const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
       {filteredTools.length === 0 && (
         <div className="text-center py-12">
           <p className={`text-lg ${theme.text} opacity-50`}>
-            No tools available in this category yet.
+            No tools match the selected criteria.
           </p>
           <p className={`text-sm ${theme.text} opacity-40 mt-2`}>
-            {selectedCategory.startsWith("lab") && selectedCategory !== "lab1"
-              ? "This lab will be available in future updates."
-              : "Tools will be added to this category area soon."}
+            Try adjusting your filter selections to see more tools.
           </p>
         </div>
       )}
