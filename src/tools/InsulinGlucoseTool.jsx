@@ -277,26 +277,11 @@ const InsulinGlucoseTool = () => {
     setTimeout(() => setIsRunning(false), 1000);
   };
 
-  // Handle reset to defaults
-  const handleReset = () => {
-    setM(DEFAULT_VALUES.m);
-    setS(DEFAULT_VALUES.s);
-    setQ(DEFAULT_VALUES.q);
-    setB(DEFAULT_VALUES.B);
-    setGamma(DEFAULT_VALUES.gamma);
-    setCurrentMode(DEFAULT_VALUES.currentMode);
-    setIsRunning(false);
-    setTimeSeriesData([]); // Clear old graph data
-    // Re-run simulation immediately with explicit default parameters
-    runSimulation(DEFAULT_VALUES.currentMode, DEFAULT_VALUES);
-  };
-
   return (
     <ToolContainer
       title="Insulin-Glucose Regulation"
       canvasWidth={11}
       canvasHeight={5}
-      onReset={handleReset}
     >
       {/* Row 0: Glucose production parameter */}
       <GridSliderHorizontal

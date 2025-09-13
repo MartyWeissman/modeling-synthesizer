@@ -6,14 +6,8 @@ import { ThemeProvider } from "./components/ui/ThemeProvider";
 import { useTheme } from "./hooks/useTheme";
 import ToolMenu from "./components/ui/ToolMenu";
 
-// Import tools
-import { CaffeineMetabolismTool } from "./tools";
-import { ComponentTestTool } from "./tools";
-import { GridLabelTest } from "./tools";
-import { SharkTunaInteractionTool } from "./tools";
-import { SharkTunaTrajectoryTool } from "./tools";
-import { InsulinGlucoseTool } from "./tools";
-import VisualToolBuilder from "./tools/VisualToolBuilder";
+// Import centralized tool system
+import { getToolsByVisibility, getToolById } from "./data/tools";
 
 // Theme selector component
 const ThemeSelector = () => {
@@ -38,7 +32,16 @@ const ThemeSelector = () => {
                   ? "bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600"
                   : "bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100"
           }`}
-          onClick={() => setCurrentTheme(themeKey)}
+          onClick={() => {
+            const urlParams = new URLSearchParams(window.location.search);
+            urlParams.set("theme", themeKey);
+            window.history.replaceState(
+              {},
+              "",
+              `${window.location.pathname}?${urlParams.toString()}`,
+            );
+            setCurrentTheme(themeKey);
+          }}
         >
           {themeKey.charAt(0).toUpperCase() + themeKey.slice(1)}
         </button>
@@ -49,81 +52,43 @@ const ThemeSelector = () => {
 
 // Main App content
 const AppContent = () => {
-  const { theme, currentTheme } = useTheme();
+  const { theme, currentTheme, themes, setCurrentTheme } = useTheme();
   const [currentTool, setCurrentTool] = useState(null);
   const [isDevMode, setIsDevMode] = useState(false);
 
-  // Check for dev mode in URL
+  // Read URL parameters for tool selection, theme, and dev mode
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
+    setCurrentTool(urlParams.get("tool"));
     setIsDevMode(urlParams.get("dev") === "true");
-  }, []);
 
-  // Available tools with metadata
-  const availableTools = [
-    {
-      id: "insulin-glucose",
-      name: "Insulin-Glucose Regulation",
-      description: "Explore glucose homeostasis and insulin response dynamics with customizable parameters and meal challenges.",
-      component: InsulinGlucoseTool,
-      studentTool: true,
-    },
-    {
-      id: "caffeine-metabolism",
-      name: "Caffeine Metabolism",
-      description: "Model exponential decay of caffeine in the bloodstream with multiple daily doses and adjustable metabolic rates.",
-      component: CaffeineMetabolismTool,
-      studentTool: true,
-    },
-    {
-      id: "shark-tuna-interaction",
-      name: "Shark-Tuna Interactions",
-      description: "Spatial predator-prey simulation showing real-time predation events in an ocean ecosystem.",
-      component: SharkTunaInteractionTool,
-      studentTool: true,
-    },
-    {
-      id: "shark-tuna-trajectory",
-      name: "Shark-Tuna Trajectories",
-      description: "Phase space visualization of predator-prey dynamics with vector fields and trajectory plotting.",
-      component: SharkTunaTrajectoryTool,
-      studentTool: true,
-    },
-    {
-      id: "component-test",
-      name: "Component Test",
-      description: "Test individual grid components and their interactions.",
-      component: ComponentTestTool,
-      studentTool: false,
-      devTool: true,
-    },
-    {
-      id: "grid-label-test",
-      name: "Grid Label Test",
-      description: "Typography and labeling system testing interface.",
-      component: GridLabelTest,
-      studentTool: false,
-      devTool: true,
-    },
-    {
-      id: "visual-tool-builder",
-      name: "Visual Tool Builder",
-      description: "Drag-and-drop interface for creating new modeling tools.",
-      component: VisualToolBuilder,
-      studentTool: false,
-      devTool: true,
-    },
-  ];
+    // Set theme from URL if provided
+    const urlTheme = urlParams.get("theme");
+    if (urlTheme && themes[urlTheme]) {
+      setCurrentTheme(urlTheme);
+    }
+  }, [themes, setCurrentTheme]);
 
-  // Filter tools based on dev mode
-  const filteredTools = availableTools.filter((tool) => {
-    if (isDevMode) return true; // Show all tools in dev mode
-    return tool.studentTool; // Only show student tools in normal mode
-  });
+  // Handle tool selection by updating URL
+  const handleToolSelect = (toolId) => {
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.set("tool", toolId);
+    window.location.search = urlParams.toString();
+  };
+
+  // Handle back to menu by removing tool parameter
+  const handleBackToMenu = () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.delete("tool");
+    window.location.search = urlParams.toString();
+  };
+
+  // Get tools from centralized metadata system
+  const availableTools = getToolsByVisibility(isDevMode ? "dev" : "student");
 
   // Get current tool component
   const getCurrentToolComponent = () => {
-    const tool = availableTools.find((t) => t.id === currentTool);
+    const tool = getToolById(currentTool);
     return tool ? tool.component : null;
   };
 
@@ -133,11 +98,12 @@ const AppContent = () => {
     <div
       className="min-h-screen transition-all duration-300"
       style={{
-        background: currentTheme === "unicorn"
-          ? "linear-gradient(135deg, #fef7ff 0%, #fce7f3 50%, #f3e8ff 100%)"
-          : currentTheme === "dark"
-            ? "linear-gradient(135deg, #111827 0%, #1f2937 50%, #374151 100%)"
-            : "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #cbd5e1 100%)"
+        background:
+          currentTheme === "unicorn"
+            ? "linear-gradient(135deg, #fef7ff 0%, #fce7f3 50%, #f3e8ff 100%)"
+            : currentTheme === "dark"
+              ? "linear-gradient(135deg, #111827 0%, #1f2937 50%, #374151 100%)"
+              : "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #cbd5e1 100%)",
       }}
     >
       <div className="container mx-auto px-4 py-8">
@@ -146,7 +112,7 @@ const AppContent = () => {
           <div>
             {currentTool && (
               <button
-                onClick={() => setCurrentTool(null)}
+                onClick={handleBackToMenu}
                 className={`px-4 py-2 rounded-lg font-medium transition-all border ${
                   currentTheme === "unicorn"
                     ? "bg-pink-100 border-pink-300 text-pink-800 hover:bg-pink-200"
@@ -165,8 +131,8 @@ const AppContent = () => {
         {/* Main content */}
         {!currentTool ? (
           <ToolMenu
-            onToolSelect={setCurrentTool}
-            availableTools={filteredTools}
+            onToolSelect={handleToolSelect}
+            availableTools={availableTools}
             currentTool={currentTool}
           />
         ) : CurrentToolComponent ? (
@@ -175,22 +141,22 @@ const AppContent = () => {
           </div>
         ) : (
           <div className="text-center py-12">
-            <p className={`text-lg ${theme.text} opacity-75`}>
-              Tool not found
-            </p>
+            <p className={`text-lg ${theme.text} opacity-75`}>Tool not found</p>
           </div>
         )}
 
         {/* Dev mode indicator */}
         {isDevMode && (
           <div className="fixed bottom-4 right-4">
-            <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-              currentTheme === "unicorn"
-                ? "bg-pink-200 text-pink-800"
-                : currentTheme === "dark"
-                  ? "bg-gray-700 text-gray-300"
-                  : "bg-gray-200 text-gray-700"
-            }`}>
+            <div
+              className={`px-3 py-1 rounded-full text-xs font-medium ${
+                currentTheme === "unicorn"
+                  ? "bg-pink-200 text-pink-800"
+                  : currentTheme === "dark"
+                    ? "bg-gray-700 text-gray-300"
+                    : "bg-gray-200 text-gray-700"
+              }`}
+            >
               Dev Mode
             </div>
           </div>
