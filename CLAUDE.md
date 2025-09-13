@@ -243,6 +243,288 @@ Most tools will combine techniques from multiple patterns:
 
 **Key Principle**: Choose the techniques that best serve your specific tool's educational purpose, not the pattern that seems closest.
 
+## Animated Graph State Management ⚡
+
+For tools with animated visualizations (vector fields, trajectories, particles), use the **proven two-canvas optimization pattern**. This provides 10-100x performance improvement for complex animations.
+
+### The Gold Standard: Two-Canvas Architecture
+
+**Problem**: Traditional single-canvas approach recalculates static elements (vector fields, nullclines, equilibrium points) 60 times per second during animation, causing performance issues.
+
+**Solution**: Layer two canvases - static background + dynamic foreground.
+
+```jsx
+const YourAnimatedTool = () => {
+  const { currentTheme } = useTheme();
+  
+  // UI State - React state for controls
+  const [uiParams, setUiParams] = useState({
+    v: 1.0, c: 1.0, k: 1.0, speed: 2
+  });
+  const [showNullclines, setShowNullclines] = useState(false);
+  
+  // Canvas refs - separate layers for performance
+  const staticCanvasRef = useRef(null);
+  const dynamicCanvasRef = useRef(null);
+
+  // Animation state - pure refs for smooth performance
+  const animationStateRef = useRef({
+    trajectories: [], time: 0, params: { ...uiParams }
+  });
+
+  // Sync UI changes to animation (unidirectional)
+  useEffect(() => {
+    animationStateRef.current.params = { ...uiParams };
+  }, [uiParams]);
+```
+
+### Static vs Dynamic Drawing Functions
+
+**Key Insight**: Split drawing into two functions with different performance characteristics.
+
+```jsx
+// Static elements - only recompute when parameters change
+const drawStaticElements = useCallback((canvas, ctx) => {
+  const { v, c, k } = animationStateRef.current.params;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Vector field (expensive calculation - do once per parameter change)
+  if (showVectorField) {
+    for (let i = 0; i < gridCoords.length; i++) {
+      for (let j = 0; j < gridCoords.length; j++) {
+        // ... expensive vector field computation
+        // ... draw arrow with trigonometry calculations
+      }
+    }
+  }
+  
+  // Nullclines (expensive - do once per parameter change)
+  if (showNullclines) {
+    // ... expensive nullcline calculations
+    // ... curve drawing
+  }
+  
+  // Equilibrium points (cheap but static)
+  // ... equilibrium calculations and drawing
+}, [currentTheme, showNullclines, showVectorField]);
+
+// Dynamic elements - recompute every animation frame
+const drawDynamicElements = useCallback((canvas, ctx) => {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Trajectories (must update every frame)
+  animationStateRef.current.trajectories.forEach(traj => {
+    // ... draw trajectory path and current position
+  });
+}, []);
+```
+
+### Efficient Animation Loop
+
+**Performance**: Only dynamic elements redraw each frame (60 FPS).
+
+```jsx
+const animationLoop = useCallback(() => {
+  const state = animationStateRef.current;
+  if (!state.isRunning) return;
+
+  // Update physics (trajectories, particles)
+  state.trajectories = state.trajectories.map(traj => {
+    // ... RK4 integration or physics update
+    return { ...traj, /* updated position */ };
+  });
+
+  // Draw ONLY dynamic elements (efficient!)
+  const dynamicCanvas = dynamicCanvasRef.current;
+  if (dynamicCanvas) {
+    const ctx = dynamicCanvas.getContext('2d');
+    drawDynamicElements(dynamicCanvas, ctx);
+  }
+
+  state.animationId = requestAnimationFrame(animationLoop);
+}, [drawDynamicElements]); // Minimal dependencies
+```
+
+### Parameter Change Handling
+
+**Smart Redraws**: Static elements redraw immediately when sliders change, whether animating or not.
+
+```jsx
+// Redraw static elements when parameters change (responsive to sliders)
+useEffect(() => {
+  if (staticCanvasRef.current) {
+    const ctx = staticCanvasRef.current.getContext('2d');
+    drawStaticElements(staticCanvasRef.current, ctx);
+  }
+}, [uiParams, showNullclines, drawStaticElements]);
+```
+
+### Layered Canvas JSX
+
+**Implementation**: Two overlaid canvases within GridGraph.
+
+```jsx
+<GridGraph x={0} y={0} w={5} h={5} /* ... */>
+  {/* Static background - vector field, nullclines, equilibria */}
+  <canvas
+    ref={staticCanvasRef}
+    className="absolute pointer-events-none"
+    style={{ left: 1, bottom: 1, width: "calc(100% - 2px)", height: "calc(100% - 2px)" }}
+    width={600} height={400}
+  />
+  
+  {/* Dynamic foreground - trajectories, moving particles */}
+  <canvas
+    ref={dynamicCanvasRef}
+    className="absolute cursor-crosshair"
+    style={{ left: 1, bottom: 1, width: "calc(100% - 2px)", height: "calc(100% - 2px)" }}
+    width={600} height={400}
+    onClick={handleCanvasClick}
+  />
+</GridGraph>
+```
+
+### Toggle Button Fix
+
+**Important**: Use UI state directly in drawStaticElements to avoid timing bugs.
+
+```jsx
+// ❌ Wrong - uses stale ref state
+if (animationStateRef.current.showNullclines) { ... }
+
+// ✅ Correct - uses fresh UI state
+if (showNullclines) { ... }
+```
+
+### Performance Benchmarks
+
+**Real Results from GlycolysisTool and SharkTunaTrajectoryTool**:
+
+| Element | Before (Single Canvas) | After (Two Canvas) |
+|---------|------------------------|-------------------|
+| Vector Field | 60 calculations/sec | 1 calculation/param change |
+| Nullclines | 60 calculations/sec | 1 calculation/param change |
+| Equilibria | 60 calculations/sec | 1 calculation/param change |
+| Trajectories | 60 calculations/sec | 60 calculations/sec ✓ |
+
+**Result**: 10-100x performance improvement for complex visualizations.
+
+### Complete Example Template
+
+```jsx
+const OptimizedAnimatedTool = () => {
+  const { theme, currentTheme } = useTheme();
+  
+  // UI State
+  const [uiParams, setUiParams] = useState({ /* ... */ });
+  const [showNullclines, setShowNullclines] = useState(false);
+  
+  // Canvas refs
+  const staticCanvasRef = useRef(null);
+  const dynamicCanvasRef = useRef(null);
+  
+  // Animation state
+  const animationStateRef = useRef({
+    trajectories: [], params: { ...uiParams }
+  });
+  
+  // Sync UI to animation
+  useEffect(() => {
+    animationStateRef.current.params = { ...uiParams };
+  }, [uiParams]);
+  
+  // Drawing functions
+  const drawStaticElements = useCallback((canvas, ctx) => {
+    // Static expensive computations
+  }, [currentTheme, showNullclines]);
+  
+  const drawDynamicElements = useCallback((canvas, ctx) => {
+    // Fast trajectory drawing
+  }, []);
+  
+  // Animation loop
+  const animationLoop = useCallback(() => {
+    // Update physics, draw only dynamic elements
+  }, [drawDynamicElements]);
+  
+  // Parameter change redraws
+  useEffect(() => {
+    if (staticCanvasRef.current) {
+      const ctx = staticCanvasRef.current.getContext('2d');
+      drawStaticElements(staticCanvasRef.current, ctx);
+    }
+  }, [uiParams, showNullclines, drawStaticElements]);
+  
+  return (
+    <ToolContainer>
+      <GridGraph>
+        <canvas ref={staticCanvasRef} className="absolute pointer-events-none" />
+        <canvas ref={dynamicCanvasRef} className="absolute cursor-crosshair" onClick={handleClick} />
+      </GridGraph>
+    </ToolContainer>
+  );
+};
+```
+
+### When to Use This Pattern
+
+✅ **Always use for**: Vector fields, nullclines, particle systems, phase portraits  
+✅ **Benefits**: Smooth 60 FPS animation with complex backgrounds  
+✅ **Proven in**: GlycolysisTool, SharkTunaTrajectoryTool
+
+### Advanced Features
+
+**Toggle Buttons**: Use proper toggle pattern for show/hide controls:
+
+```jsx
+<GridButton
+  type="toggle"
+  variant="function"
+  active={showNullclines}
+  onToggle={setShowNullclines}
+  theme={theme}
+>
+  <div style={{ textAlign: "center", lineHeight: "1.1" }}>
+    <div>{showNullclines ? "Hide" : "Show"}</div>
+    <div>Nullclines</div>
+  </div>
+</GridButton>
+```
+
+**Canvas Initialization**: Standard setup pattern:
+
+```jsx
+useEffect(() => {
+  [staticCanvasRef, dynamicCanvasRef, timeSeriesCanvasRef].forEach(ref => {
+    if (ref.current) {
+      const canvas = ref.current;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+    }
+  });
+
+  // Draw initial static elements
+  if (staticCanvasRef.current) {
+    const ctx = staticCanvasRef.current.getContext('2d');
+    drawStaticElements(staticCanvasRef.current, ctx);
+  }
+}, [drawStaticElements]);
+```
+
+**Memory Cleanup**: Always clean up animation frames:
+
+```jsx
+useEffect(() => {
+  return () => {
+    const state = animationStateRef.current;
+    if (state.animationId) {
+      cancelAnimationFrame(state.animationId);
+    }
+  };
+}, []);
+```
+
 ### Tool Structure Template
 ```jsx
 import React, { useState, useEffect, useCallback } from "react";

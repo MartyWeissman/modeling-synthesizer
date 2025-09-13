@@ -31,8 +31,9 @@ const SharkTunaTrajectoryTool = () => {
   const [isAnimating, setIsAnimating] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
 
-  // Canvas refs
-  const vectorFieldCanvasRef = useRef(null);
+  // Canvas refs - separate static and dynamic layers for performance
+  const staticCanvasRef = useRef(null);
+  const dynamicCanvasRef = useRef(null);
   const timeSeriesCanvasRef = useRef(null);
 
   // Animation state - pure refs, never cause React re-renders
@@ -96,8 +97,8 @@ const SharkTunaTrajectoryTool = () => {
     return points;
   }, [uiParams.p, uiParams.q, uiParams.beta, uiParams.delta]);
 
-  // Pure animation functions - no React dependencies
-  const drawVectorField = useCallback(
+  // Static elements drawing function - only redraws when parameters change
+  const drawStaticElements = useCallback(
     (canvas, ctx) => {
       const { width, height } = canvas;
 
@@ -105,9 +106,6 @@ const SharkTunaTrajectoryTool = () => {
       const { p, q, beta, delta } = animationStateRef.current.params;
 
       // Account for graph padding (matching GridGraph component calculation)
-      // For ticks [0, 10, 20, 30, 40, 50]: maxYTickLength = 2 chars
-      // yTickWidth = Math.max(25, 2 * 6 + 10) = 25
-      // left = yTickWidth(25) + yAxisLabelWidth(20) = 45
       const paddingLeft = 45; // Space for y-axis labels
       const paddingRight = 15;
       const paddingTop = 15;
@@ -115,6 +113,9 @@ const SharkTunaTrajectoryTool = () => {
 
       const plotWidth = width - paddingLeft - paddingRight;
       const plotHeight = height - paddingTop - paddingBottom;
+
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
 
       // Calculate vector field dynamically
       // 16x16 grid at coordinates 2,5,8,...,47
@@ -194,8 +195,28 @@ const SharkTunaTrajectoryTool = () => {
         ctx.arc(canvasX, canvasY, 2.5, 0, 2 * Math.PI);
         ctx.fill();
       });
+    },
+    [], // No dependencies - uses current animation parameters
+  );
 
-      // Draw trajectories
+  // Dynamic elements drawing function - redraws every animation frame
+  const drawDynamicElements = useCallback(
+    (canvas, ctx) => {
+      const { width, height } = canvas;
+
+      // Account for graph padding (matching GridGraph calculation)
+      const paddingLeft = 45;
+      const paddingRight = 15;
+      const paddingTop = 15;
+      const paddingBottom = 35;
+
+      const plotWidth = width - paddingLeft - paddingRight;
+      const plotHeight = height - paddingTop - paddingBottom;
+
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
+
+      // Draw trajectories only
       const state = animationStateRef.current;
       state.trajectories.forEach((traj) => {
         if (!traj.trail || traj.trail.length < 2) return;
@@ -224,22 +245,22 @@ const SharkTunaTrajectoryTool = () => {
         }
       });
     },
-    [], // No dependencies - uses current animation parameters
+    [], // No dependencies
   );
 
-  // Redraw vector field when parameters change
+  // Redraw static elements when parameters change (whether animating or not)
   useEffect(() => {
-    if (vectorFieldCanvasRef.current) {
-      const ctx = vectorFieldCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        vectorFieldCanvasRef.current.width,
-        vectorFieldCanvasRef.current.height,
-      );
-      drawVectorField(vectorFieldCanvasRef.current, ctx);
+    if (staticCanvasRef.current) {
+      const ctx = staticCanvasRef.current.getContext("2d");
+      drawStaticElements(staticCanvasRef.current, ctx);
     }
-  }, [uiParams.p, uiParams.q, uiParams.beta, uiParams.delta, drawVectorField]);
+  }, [
+    uiParams.p,
+    uiParams.q,
+    uiParams.beta,
+    uiParams.delta,
+    drawStaticElements,
+  ]);
 
   const drawTimeSeries = useCallback((canvas, ctx) => {
     const { width, height } = canvas;
@@ -378,14 +399,13 @@ const SharkTunaTrajectoryTool = () => {
       ];
     }
 
-    // Draw everything
-    const vectorCanvas = vectorFieldCanvasRef.current;
+    // Draw only dynamic elements (efficient!)
+    const dynamicCanvas = dynamicCanvasRef.current;
     const timeCanvas = timeSeriesCanvasRef.current;
 
-    if (vectorCanvas) {
-      const ctx = vectorCanvas.getContext("2d");
-      ctx.clearRect(0, 0, vectorCanvas.width, vectorCanvas.height);
-      drawVectorField(vectorCanvas, ctx);
+    if (dynamicCanvas) {
+      const ctx = dynamicCanvas.getContext("2d");
+      drawDynamicElements(dynamicCanvas, ctx);
     }
 
     if (timeCanvas) {
@@ -394,11 +414,11 @@ const SharkTunaTrajectoryTool = () => {
     }
 
     state.animationId = requestAnimationFrame(animationLoop);
-  }, [drawVectorField, drawTimeSeries]);
+  }, [drawDynamicElements, drawTimeSeries]);
 
   // Canvas click handler
   const handleCanvasClick = useCallback((event) => {
-    const canvas = vectorFieldCanvasRef.current;
+    const canvas = dynamicCanvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
@@ -480,15 +500,9 @@ const SharkTunaTrajectoryTool = () => {
     setCurrentTime(0);
 
     // Redraw static elements after clearing
-    if (vectorFieldCanvasRef.current) {
-      const ctx = vectorFieldCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        vectorFieldCanvasRef.current.width,
-        vectorFieldCanvasRef.current.height,
-      );
-      drawVectorField(vectorFieldCanvasRef.current, ctx);
+    if (staticCanvasRef.current) {
+      const ctx = staticCanvasRef.current.getContext("2d");
+      drawStaticElements(staticCanvasRef.current, ctx);
     }
 
     if (timeSeriesCanvasRef.current) {
@@ -500,7 +514,7 @@ const SharkTunaTrajectoryTool = () => {
         timeSeriesCanvasRef.current.height,
       );
     }
-  }, [stopAnimation, drawVectorField]);
+  }, [stopAnimation, drawStaticElements]);
 
   const updateParam = useCallback((param, value) => {
     // Use callback to avoid re-renders
@@ -527,7 +541,7 @@ const SharkTunaTrajectoryTool = () => {
 
   // Initialize canvases
   useEffect(() => {
-    [vectorFieldCanvasRef, timeSeriesCanvasRef].forEach((ref) => {
+    [staticCanvasRef, dynamicCanvasRef, timeSeriesCanvasRef].forEach((ref) => {
       if (ref.current) {
         const canvas = ref.current;
         const rect = canvas.getBoundingClientRect();
@@ -536,12 +550,12 @@ const SharkTunaTrajectoryTool = () => {
       }
     });
 
-    // Draw initial vector field
-    if (vectorFieldCanvasRef.current) {
-      const ctx = vectorFieldCanvasRef.current.getContext("2d");
-      drawVectorField(vectorFieldCanvasRef.current, ctx);
+    // Draw initial static elements
+    if (staticCanvasRef.current) {
+      const ctx = staticCanvasRef.current.getContext("2d");
+      drawStaticElements(staticCanvasRef.current, ctx);
     }
-  }, [drawVectorField]);
+  }, [drawStaticElements]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -571,8 +585,23 @@ const SharkTunaTrajectoryTool = () => {
         theme={theme}
         tooltip="Click to start a trajectory from that point"
       >
+        {/* Static background layer - vector field and equilibrium points */}
         <canvas
-          ref={vectorFieldCanvasRef}
+          ref={staticCanvasRef}
+          className="absolute pointer-events-none"
+          style={{
+            left: 1,
+            bottom: 1,
+            width: "calc(100% - 2px)",
+            height: "calc(100% - 2px)",
+          }}
+          width={600}
+          height={400}
+        />
+
+        {/* Dynamic foreground layer - trajectories and moving points */}
+        <canvas
+          ref={dynamicCanvasRef}
           className="absolute cursor-crosshair"
           style={{
             left: 1,

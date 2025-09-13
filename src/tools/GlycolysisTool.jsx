@@ -22,7 +22,7 @@ const GlycolysisTool = () => {
   // UI State - only for React components
   const [uiParams, setUiParams] = useState({
     v: 1.0, // Glucose input rate
-    c: 2.5, // Enzyme rate constant
+    c: 1.0, // Enzyme rate constant
     k: 1.0, // ADP utilization rate
     speed: 2, // Animation speed
   });
@@ -33,8 +33,9 @@ const GlycolysisTool = () => {
   const [showPeriod, setShowPeriod] = useState(false);
   const [detectedPeriod, setDetectedPeriod] = useState(null);
 
-  // Canvas refs
-  const vectorFieldCanvasRef = useRef(null);
+  // Canvas refs - separate static and dynamic layers for performance
+  const staticCanvasRef = useRef(null);
+  const dynamicCanvasRef = useRef(null);
   const timeSeriesCanvasRef = useRef(null);
 
   // Animation state - pure refs, never cause React re-renders
@@ -94,8 +95,8 @@ const GlycolysisTool = () => {
     return points;
   }, [uiParams]);
 
-  // Pure animation functions
-  const drawVectorField = useCallback(
+  // Static elements drawing function - only redraws when parameters change
+  const drawStaticElements = useCallback(
     (canvas, ctx) => {
       const { width, height } = canvas;
       const { v, c, k } = animationStateRef.current.params;
@@ -109,8 +110,11 @@ const GlycolysisTool = () => {
       const plotWidth = width - paddingLeft - paddingRight;
       const plotHeight = height - paddingTop - paddingBottom;
 
-      // Draw nullclines FIRST (behind everything else) - using animation state
-      if (animationStateRef.current.showNullclines) {
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
+
+      // Draw nullclines FIRST (behind everything else) - using UI state for immediate response
+      if (showNullclines) {
         // Compute nullclines dynamically using current animation parameters
         const fNullcline = []; // cFA² = v
         const aNullcline = []; // cFA = k
@@ -221,12 +225,9 @@ const GlycolysisTool = () => {
         }
       }
 
-      // Draw period reference line when period detection is active
-      if (
-        animationStateRef.current.showPeriod &&
-        animationStateRef.current.periodData.referenceLine !== null
-      ) {
-        const fEq = animationStateRef.current.periodData.referenceLine;
+      // Draw period reference line when period detection is active - using UI state for immediate response
+      if (showPeriod && v > 0 && c > 0 && k > 0) {
+        const fEq = (k * k) / (c * v); // Calculate equilibrium F value directly
         if (fEq >= 0 && fEq <= fmax) {
           const canvasX = paddingLeft + (fEq / fmax) * plotWidth;
 
@@ -264,38 +265,54 @@ const GlycolysisTool = () => {
           ctx.fill();
         }
       }
-
-      // Draw trajectories
-      const state = animationStateRef.current;
-      state.trajectories.forEach((traj) => {
-        if (!traj.trail || traj.trail.length < 2) return;
-
-        ctx.strokeStyle = traj.color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-
-        traj.trail.forEach((point, i) => {
-          const x = paddingLeft + (point.x / fmax) * plotWidth;
-          const y = paddingTop + plotHeight - (point.y / amax) * plotHeight;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
-
-        // Current position
-        if (traj.isActive && traj.f !== undefined && traj.a !== undefined) {
-          const currentX = paddingLeft + (traj.f / fmax) * plotWidth;
-          const currentY =
-            paddingTop + plotHeight - (traj.a / amax) * plotHeight;
-          ctx.fillStyle = traj.color;
-          ctx.beginPath();
-          ctx.arc(currentX, currentY, 4, 0, 2 * Math.PI);
-          ctx.fill();
-        }
-      });
     },
-    [currentTheme],
+    [currentTheme, showNullclines, showPeriod],
   );
+
+  // Dynamic elements drawing function - redraws every animation frame
+  const drawDynamicElements = useCallback((canvas, ctx) => {
+    const { width, height } = canvas;
+
+    // Account for graph padding (matching GridGraph calculation)
+    const paddingLeft = 45;
+    const paddingRight = 15;
+    const paddingTop = 15;
+    const paddingBottom = 35;
+
+    const plotWidth = width - paddingLeft - paddingRight;
+    const plotHeight = height - paddingTop - paddingBottom;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+
+    // Draw trajectories only
+    const state = animationStateRef.current;
+    state.trajectories.forEach((traj) => {
+      if (!traj.trail || traj.trail.length < 2) return;
+
+      ctx.strokeStyle = traj.color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+
+      traj.trail.forEach((point, i) => {
+        const x = paddingLeft + (point.x / fmax) * plotWidth;
+        const y = paddingTop + plotHeight - (point.y / amax) * plotHeight;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Current position
+      if (traj.isActive && traj.f !== undefined && traj.a !== undefined) {
+        const currentX = paddingLeft + (traj.f / fmax) * plotWidth;
+        const currentY = paddingTop + plotHeight - (traj.a / amax) * plotHeight;
+        ctx.fillStyle = traj.color;
+        ctx.beginPath();
+        ctx.arc(currentX, currentY, 4, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    });
+  }, []);
 
   // Draw time series
   const drawTimeSeries = useCallback(
@@ -470,14 +487,13 @@ const GlycolysisTool = () => {
       }
     }
 
-    // Draw everything
-    const vectorCanvas = vectorFieldCanvasRef.current;
+    // Draw only dynamic elements (efficient!)
+    const dynamicCanvas = dynamicCanvasRef.current;
     const timeCanvas = timeSeriesCanvasRef.current;
 
-    if (vectorCanvas) {
-      const ctx = vectorCanvas.getContext("2d");
-      ctx.clearRect(0, 0, vectorCanvas.width, vectorCanvas.height);
-      drawVectorField(vectorCanvas, ctx);
+    if (dynamicCanvas) {
+      const ctx = dynamicCanvas.getContext("2d");
+      drawDynamicElements(dynamicCanvas, ctx);
     }
 
     if (timeCanvas) {
@@ -486,7 +502,7 @@ const GlycolysisTool = () => {
     }
 
     state.animationId = requestAnimationFrame(animationLoop);
-  }, [drawVectorField, drawTimeSeries]);
+  }, [drawDynamicElements, drawTimeSeries]);
 
   // Control functions
   const startAnimation = useCallback(() => {
@@ -499,7 +515,7 @@ const GlycolysisTool = () => {
   // Canvas click handler
   const handleCanvasClick = useCallback(
     (event) => {
-      const canvas = vectorFieldCanvasRef.current;
+      const canvas = dynamicCanvasRef.current;
       if (!canvas) return;
 
       const rect = canvas.getBoundingClientRect();
@@ -527,7 +543,7 @@ const GlycolysisTool = () => {
 
       if (dataX < 0 || dataY < 0 || dataX > fmax || dataY > amax) return;
 
-      const colorHues = [0, 120, 240, 60, 300, 180];
+      const colorHues = [120, 240, 60, 300, 180, 0];
       const hue =
         colorHues[
           animationStateRef.current.trajectories.length % colorHues.length
@@ -571,15 +587,9 @@ const GlycolysisTool = () => {
     setCurrentTime(0);
 
     // Redraw static elements
-    if (vectorFieldCanvasRef.current) {
-      const ctx = vectorFieldCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        vectorFieldCanvasRef.current.width,
-        vectorFieldCanvasRef.current.height,
-      );
-      drawVectorField(vectorFieldCanvasRef.current, ctx);
+    if (staticCanvasRef.current) {
+      const ctx = staticCanvasRef.current.getContext("2d");
+      drawStaticElements(staticCanvasRef.current, ctx);
     }
 
     if (timeSeriesCanvasRef.current) {
@@ -591,7 +601,7 @@ const GlycolysisTool = () => {
         timeSeriesCanvasRef.current.height,
       );
     }
-  }, [stopAnimation, drawVectorField]);
+  }, [stopAnimation, drawStaticElements]);
 
   const updateParam = useCallback((param, value) => {
     setUiParams((prev) => ({ ...prev, [param]: value }));
@@ -599,7 +609,7 @@ const GlycolysisTool = () => {
 
   // Initialize canvases
   useEffect(() => {
-    [vectorFieldCanvasRef, timeSeriesCanvasRef].forEach((ref) => {
+    [staticCanvasRef, dynamicCanvasRef, timeSeriesCanvasRef].forEach((ref) => {
       if (ref.current) {
         const canvas = ref.current;
         const rect = canvas.getBoundingClientRect();
@@ -608,26 +618,20 @@ const GlycolysisTool = () => {
       }
     });
 
-    // Draw initial vector field
-    if (vectorFieldCanvasRef.current) {
-      const ctx = vectorFieldCanvasRef.current.getContext("2d");
-      drawVectorField(vectorFieldCanvasRef.current, ctx);
+    // Draw initial static elements
+    if (staticCanvasRef.current) {
+      const ctx = staticCanvasRef.current.getContext("2d");
+      drawStaticElements(staticCanvasRef.current, ctx);
     }
-  }, [drawVectorField]);
+  }, [drawStaticElements]);
 
-  // Redraw vector field when parameters or display options change (whether animating or not)
+  // Redraw static elements when parameters or display options change (whether animating or not)
   useEffect(() => {
-    if (vectorFieldCanvasRef.current) {
-      const ctx = vectorFieldCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        vectorFieldCanvasRef.current.width,
-        vectorFieldCanvasRef.current.height,
-      );
-      drawVectorField(vectorFieldCanvasRef.current, ctx);
+    if (staticCanvasRef.current) {
+      const ctx = staticCanvasRef.current.getContext("2d");
+      drawStaticElements(staticCanvasRef.current, ctx);
     }
-  }, [uiParams, showNullclines, showPeriod, drawVectorField]);
+  }, [uiParams, showNullclines, showPeriod, drawStaticElements]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -657,8 +661,23 @@ const GlycolysisTool = () => {
         theme={theme}
         tooltip="Click to start a trajectory from that point"
       >
+        {/* Static background layer - vector field, nullclines, equilibrium points */}
         <canvas
-          ref={vectorFieldCanvasRef}
+          ref={staticCanvasRef}
+          className="absolute pointer-events-none"
+          style={{
+            left: 1,
+            bottom: 1,
+            width: "calc(100% - 2px)",
+            height: "calc(100% - 2px)",
+          }}
+          width={600}
+          height={400}
+        />
+
+        {/* Dynamic foreground layer - trajectories and moving particles */}
+        <canvas
+          ref={dynamicCanvasRef}
           className="absolute cursor-crosshair"
           style={{
             left: 1,
@@ -756,8 +775,10 @@ const GlycolysisTool = () => {
         y={4}
         w={1}
         h={1}
-        onPress={() => setShowNullclines(!showNullclines)}
-        variant={showNullclines ? "pressed" : "default"}
+        type="toggle"
+        variant="function"
+        active={showNullclines}
+        onToggle={setShowNullclines}
         theme={theme}
       >
         <div style={{ textAlign: "center", lineHeight: "1.1" }}>
@@ -771,8 +792,10 @@ const GlycolysisTool = () => {
         y={4}
         w={1}
         h={1}
-        onPress={() => setShowPeriod(!showPeriod)}
-        variant={showPeriod ? "pressed" : "default"}
+        type="toggle"
+        variant="function"
+        active={showPeriod}
+        onToggle={setShowPeriod}
         theme={theme}
       >
         <div style={{ textAlign: "center", lineHeight: "1.1" }}>

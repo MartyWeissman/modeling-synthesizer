@@ -3,14 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { ThemeProvider } from "./components/ui/ThemeProvider";
 import { useTheme } from "./hooks/useTheme";
-import { CaffeineMetabolismTool } from "./tools";
-import { ComponentTestTool } from "./tools";
-import { GridLabelTest } from "./tools";
-import { SharkTunaInteractionTool } from "./tools";
-import { SharkTunaTrajectoryTool } from "./tools";
-import { InsulinGlucoseTool } from "./tools";
-
-import VisualToolBuilder from "./tools/VisualToolBuilder";
+import ToolMenu from "./components/ui/ToolMenu";
+import { getToolsByVisibility, getToolById } from "./data/tools";
 
 // Theme selector component
 const ThemeSelector = () => {

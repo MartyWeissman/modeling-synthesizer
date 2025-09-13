@@ -105,16 +105,16 @@ const ToolContainer = React.memo(
 
                 window.location.search = newParams.toString();
               }}
-              className={`px-3 py-1 text-sm font-medium rounded ${
+              className={`w-8 h-8 flex items-center justify-center text-lg font-bold rounded-full ${
                 isUnicornMode
                   ? "bg-pink-100 hover:bg-pink-200 text-pink-800 border border-pink-300"
                   : isDarkMode
                     ? "bg-gray-600 hover:bg-gray-500 text-gray-100 border border-gray-500"
                     : "bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300"
               } transition-colors duration-150`}
-              title="Reset all parameters to defaults"
+              title="Reload tool"
             >
-              Reset
+              ↻
             </button>
           </div>
 
