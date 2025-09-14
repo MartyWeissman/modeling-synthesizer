@@ -58,7 +58,7 @@ const SharkTunaTrajectoryTool = () => {
     tmax = 50;
 
   // Vector field computation (only for display, not animation)
-  const vectorField = useMemo(() => {
+  const _vectorField = useMemo(() => {
     const { p, q, beta, delta } = uiParams;
     const gridSize = 12;
     const field = [];
@@ -83,10 +83,10 @@ const SharkTunaTrajectoryTool = () => {
       }
     }
     return field;
-  }, [uiParams.p, uiParams.q, uiParams.beta, uiParams.delta]);
+  }, [uiParams]);
 
   // Equilibrium points
-  const equilibria = useMemo(() => {
+  const _equilibria = useMemo(() => {
     const { p, q, beta, delta } = uiParams;
     const points = [{ x: 0, y: 0, stability: "saddle" }];
     const sEq = beta / q;
@@ -95,7 +95,7 @@ const SharkTunaTrajectoryTool = () => {
       points.push({ x: sEq, y: tEq, stability: "stable" });
     }
     return points;
-  }, [uiParams.p, uiParams.q, uiParams.beta, uiParams.delta]);
+  }, [uiParams]);
 
   // Static elements drawing function - only redraws when parameters change
   const drawStaticElements = useCallback(
@@ -291,7 +291,7 @@ const SharkTunaTrajectoryTool = () => {
     ctx.lineWidth = 2;
     ctx.beginPath();
     let firstPoint = true;
-    state.timeSeriesData.forEach((point, i) => {
+    state.timeSeriesData.forEach((point) => {
       if (point.time >= minTime && point.time <= maxTime) {
         const x =
           paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
@@ -312,7 +312,7 @@ const SharkTunaTrajectoryTool = () => {
     ctx.lineWidth = 2;
     ctx.beginPath();
     firstPoint = true;
-    state.timeSeriesData.forEach((point, i) => {
+    state.timeSeriesData.forEach((point) => {
       if (point.time >= minTime && point.time <= maxTime) {
         const x =
           paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
@@ -416,63 +416,6 @@ const SharkTunaTrajectoryTool = () => {
     state.animationId = requestAnimationFrame(animationLoop);
   }, [drawDynamicElements, drawTimeSeries]);
 
-  // Canvas click handler
-  const handleCanvasClick = useCallback((event) => {
-    const canvas = dynamicCanvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-
-    // Account for graph padding when converting click coordinates
-    const paddingLeft = 45; // Must match GridGraph calculation
-    const paddingRight = 15;
-    const paddingTop = 15;
-    const paddingBottom = 35;
-
-    const plotWidth = rect.width - paddingLeft - paddingRight;
-    const plotHeight = rect.height - paddingTop - paddingBottom;
-
-    // Only process clicks within the plot area
-    if (
-      x < paddingLeft ||
-      x > paddingLeft + plotWidth ||
-      y < paddingTop ||
-      y > paddingTop + plotHeight
-    )
-      return;
-
-    const dataX = ((x - paddingLeft) / plotWidth) * smax;
-    const dataY = tmax - ((y - paddingTop) / plotHeight) * tmax;
-
-    if (dataX < 0 || dataY < 0 || dataX > smax || dataY > tmax) return;
-
-    const colorHues = [0, 120, 240, 60, 300, 180];
-    const hue =
-      colorHues[
-        animationStateRef.current.trajectories.length % colorHues.length
-      ];
-
-    const newTrajectory = {
-      id: Date.now() + Math.random(),
-      s: dataX,
-      t: dataY,
-      isActive: true,
-      color: `hsl(${hue}, 70%, 50%)`,
-      trail: [{ x: dataX, y: dataY }],
-    };
-
-    animationStateRef.current.trajectories.push(newTrajectory);
-
-    if (animationStateRef.current.trajectories.length === 1) {
-      animationStateRef.current.time = 0;
-      animationStateRef.current.timeSeriesData = [];
-    }
-
-    startAnimation();
-  }, []);
-
   // Control functions
   const startAnimation = useCallback(() => {
     if (animationStateRef.current.isRunning) return;
@@ -481,6 +424,66 @@ const SharkTunaTrajectoryTool = () => {
     setIsAnimating(true);
     animationLoop();
   }, [animationLoop]);
+
+  // Canvas click handler
+  const handleCanvasClick = useCallback(
+    (event) => {
+      const canvas = dynamicCanvasRef.current;
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+
+      // Account for graph padding when converting click coordinates
+      const paddingLeft = 45; // Must match GridGraph calculation
+      const paddingRight = 15;
+      const paddingTop = 15;
+      const paddingBottom = 35;
+
+      const plotWidth = rect.width - paddingLeft - paddingRight;
+      const plotHeight = rect.height - paddingTop - paddingBottom;
+
+      // Only process clicks within the plot area
+      if (
+        x < paddingLeft ||
+        x > paddingLeft + plotWidth ||
+        y < paddingTop ||
+        y > paddingTop + plotHeight
+      )
+        return;
+
+      const dataX = ((x - paddingLeft) / plotWidth) * smax;
+      const dataY = tmax - ((y - paddingTop) / plotHeight) * tmax;
+
+      if (dataX < 0 || dataY < 0 || dataX > smax || dataY > tmax) return;
+
+      const colorHues = [0, 120, 240, 60, 300, 180];
+      const hue =
+        colorHues[
+          animationStateRef.current.trajectories.length % colorHues.length
+        ];
+
+      const newTrajectory = {
+        id: Date.now() + Math.random(),
+        s: dataX,
+        t: dataY,
+        isActive: true,
+        color: `hsl(${hue}, 70%, 50%)`,
+        trail: [{ x: dataX, y: dataY }],
+      };
+
+      animationStateRef.current.trajectories.push(newTrajectory);
+
+      if (animationStateRef.current.trajectories.length === 1) {
+        animationStateRef.current.time = 0;
+        animationStateRef.current.timeSeriesData = [];
+      }
+
+      startAnimation();
+    },
+    [startAnimation],
+  );
 
   const stopAnimation = useCallback(() => {
     animationStateRef.current.isRunning = false;

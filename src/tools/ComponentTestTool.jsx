@@ -9,6 +9,7 @@ import {
   GridStaircase,
   GridTimePicker,
   GridWindow,
+  GridInput,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
@@ -25,6 +26,11 @@ const ComponentTestTool = () => {
   const [staircaseLevel, setStaircaseLevel] = useState(2);
   const [selectedTime, setSelectedTime] = useState("9:30 AM");
 
+  // GridInput test values
+  const [inputValue1, setInputValue1] = useState(5.0); // 0-10 range (1 decimal)
+  const [inputValue2, setInputValue2] = useState(100); // 1-999 range (no decimals)
+  const [inputValue3, setInputValue3] = useState(1.5); // 0.1-2.0 range (2 decimals)
+
   // Grid layout debugging - define the component layout
   const gridComponents = [
     { x: 0, y: 0, w: 1, h: 1, name: "Number Btn", type: "button" },
@@ -35,9 +41,12 @@ const ComponentTestTool = () => {
     { x: 5, y: 0, w: 1, h: 3, name: "Unipolar Slider", type: "slider" },
     { x: 6, y: 0, w: 2, h: 1, name: "Display 1", type: "display" },
     { x: 8, y: 0, w: 1, h: 1, name: "TimePicker", type: "timePicker" },
+    { x: 9, y: 0, w: 1, h: 1, name: "Input p", type: "input" },
     { x: 6, y: 1, w: 2, h: 1, name: "Display 2", type: "display" },
     { x: 0, y: 1, w: 4, h: 3, name: "Main Graph", type: "graph" },
     { x: 8, y: 1, w: 2, h: 2, name: "Circular Window", type: "window" },
+    { x: 6, y: 2, w: 1, h: 1, name: "Input α", type: "input" },
+    { x: 7, y: 2, w: 1, h: 1, name: "Input β", type: "input" },
     { x: 5, y: 3, w: 3, h: 2, name: "Rect Window", type: "window" },
   ];
 
@@ -196,6 +205,46 @@ const ComponentTestTool = () => {
         theme={theme}
       />
 
+      {/* Test GridInput components */}
+      <GridInput
+        x={9}
+        y={0}
+        value={inputValue1}
+        onChange={setInputValue1}
+        min={0}
+        max={10}
+        step={0.1}
+        variable="p"
+        tooltip="Parameter p (0-10, 1 decimal)"
+        theme={theme}
+      />
+
+      <GridInput
+        x={6}
+        y={2}
+        value={inputValue2}
+        onChange={setInputValue2}
+        min={1}
+        max={999}
+        step={1}
+        variable="α"
+        tooltip="Alpha (1-999, no decimals)"
+        theme={theme}
+      />
+
+      <GridInput
+        x={7}
+        y={2}
+        value={inputValue3}
+        onChange={setInputValue3}
+        min={0.1}
+        max={2.0}
+        step={0.01}
+        variable="β"
+        tooltip="Beta (0.1-2.0, 2 decimals)"
+        theme={theme}
+      />
+
       {/* Test Displays */}
       <GridDisplay
         x={6}
@@ -299,6 +348,13 @@ const ComponentTestTool = () => {
         Bipolar: {bipolarValue} | Unipolar: {unipolarValue} | Toggle:{" "}
         {toggleState ? "ON" : "OFF"} | Staircase: {staircaseLevel} | Time:{" "}
         {selectedTime}
+      </div>
+      <div
+        className={`absolute ${theme.text} text-sm`}
+        style={{ left: "0px", top: "400px" }}
+      >
+        Inputs → p: {inputValue1} | α: {inputValue2} | β:{" "}
+        {inputValue3.toFixed(2)}
       </div>
 
       {/* Layout info display */}

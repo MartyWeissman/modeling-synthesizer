@@ -5,6 +5,7 @@ import InsulinGlucoseTool from "../tools/InsulinGlucoseTool";
 import CaffeineMetabolismTool from "../tools/CaffeineMetabolismTool";
 import GentamicinDosageTool from "../tools/GentamicinDosageTool";
 import GlycolysisTool from "../tools/GlycolysisTool";
+import HollingTannerTool from "../tools/HollingTannerTool";
 import SharkTunaInteractionTool from "../tools/SharkTunaInteractionTool";
 import SharkTunaTrajectoryTool from "../tools/SharkTunaTrajectoryTool";
 import ComponentTestTool from "../tools/ComponentTestTool";
@@ -64,6 +65,19 @@ export const toolDefinitions = {
       topics: ["molecular"],
       toolType: "simulation",
       lab: "lab4",
+    },
+    visibility: "student",
+  },
+
+  "holling-tanner": {
+    name: "Holling-Tanner Predator-Prey Model",
+    description:
+      "Advanced predator-prey dynamics with Holling Type II functional response, showing complex population interactions between sharks and tuna.",
+    component: HollingTannerTool,
+    categories: {
+      topics: ["ecology"],
+      toolType: "simulation",
+      lab: "lab2",
     },
     visibility: "student",
   },
@@ -238,7 +252,7 @@ export const generateLabCategories = () => {
 
 export const getToolsByVisibility = (visibility) => {
   return Object.entries(toolDefinitions)
-    .filter(([_, tool]) => {
+    .filter(([, tool]) => {
       if (visibility === "dev") return true; // Dev mode shows all
       return tool.visibility === "student" || tool.visibility === "both";
     })

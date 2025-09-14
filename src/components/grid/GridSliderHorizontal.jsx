@@ -153,10 +153,10 @@ const GridSliderHorizontal = React.memo(
     };
 
     // Calculate track width based on component width (accounting for padding)
-    const getTrackWidth = () => {
+    const getTrackWidth = useCallback(() => {
       // Approximate calculation: w * 100px - padding
       return w * 100 - 32; // 16px padding on each side
-    };
+    }, [w]);
 
     // Mouse handling for horizontal movement
     const handleMouseDown = useCallback(
@@ -213,7 +213,7 @@ const GridSliderHorizontal = React.memo(
         document.addEventListener("mousemove", handleMouseMove);
         document.addEventListener("mouseup", handleMouseUp);
       },
-      [onChange, variant, w],
+      [onChange, variant, getTrackWidth],
     );
 
     const sliderPosition = getSliderPosition();

@@ -256,7 +256,7 @@ const InsulinGlucoseTool = () => {
       ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
       ctx.fillText("Insulin", legendX + 40, legendY + 30);
     }, 100);
-  }, [timeSeriesData, currentMode, currentTheme]);
+  }, [timeSeriesData, currentMode, currentTheme, theme.component]);
 
   // Run initial simulation
   useEffect(() => {

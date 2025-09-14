@@ -18,7 +18,6 @@ const GridGraphDualY = React.memo(
     xUnit = "",
     yUnitLeft = "",
     yUnitRight = "",
-    variant = "dual-y-axis",
 
     xTicks = [],
     yTicksLeft = [],

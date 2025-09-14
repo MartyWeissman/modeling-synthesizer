@@ -221,7 +221,8 @@ const GridTimeSeries = ({
         cancelAnimationFrame(animationIdRef.current);
       }
     };
-  }, []); // Empty dependency array!
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array intentional for stable animation loop!
 
   // Handle window resize - NO React dependencies
   useEffect(() => {

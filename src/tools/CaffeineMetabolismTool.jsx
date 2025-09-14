@@ -146,7 +146,7 @@ const CaffeineMetabolismTool = () => {
       ctx.clearRect(0, 0, width, height);
 
       // Use fixed max level to match Y-axis (0-320mg for headroom)
-      const maxLevel = 320;
+      const _maxLevel = 320;
       // No padding needed - canvas is already positioned within axis bounds
       const graphWidth = width;
       const graphHeight = height;
@@ -170,7 +170,7 @@ const CaffeineMetabolismTool = () => {
 
       ctx.stroke();
     }, 200);
-  }, [timeSeriesData, theme]);
+  }, [timeSeriesData]);
 
   // Auto-update and regenerate time series
   useEffect(() => {
