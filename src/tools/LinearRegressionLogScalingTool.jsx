@@ -220,40 +220,6 @@ const LinearRegressionLogScalingTool = () => {
     setLogBase(base);
   }, []);
 
-  // Calculate regression statistics
-  const calculateRegression = useCallback(() => {
-    const { validPoints } = processedData();
-
-    if (validPoints.length < 2) {
-      return {
-        slope: 0,
-        intercept: 0,
-        rSquared: 0,
-        isValid: false,
-      };
-    }
-
-    // Create points for regression based on current scaling
-    const regressionPoints = validPoints.map((point) => ({
-      x: xScale === "log" ? point.logX : point.x,
-      y: yScale === "log" ? point.logY : point.y,
-    }));
-
-    // Validate and calculate regression
-    const validation = validateRegressionData(regressionPoints);
-    if (!validation.isValid) {
-      console.warn("Regression validation failed:", validation.error);
-      return {
-        slope: 0,
-        intercept: 0,
-        rSquared: 0,
-        isValid: false,
-      };
-    }
-
-    return calculateLinearRegression(regressionPoints);
-  }, [processedData, xScale, yScale]);
-
   // Handle regression toggle
   const handleRegressionToggle = useCallback(() => {
     const newShowRegression = !showRegression;
