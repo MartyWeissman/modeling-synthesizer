@@ -1,0 +1,14 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">A</mi>
+  <mo>′</mo>
+  <mo>=</mo>
+  <mi>c</mi>
+  <mi mathvariant="bold-italic">F</mi>
+  <msup>
+    <mi mathvariant="bold-italic">A</mi>
+    <mn>2</mn>
+  </msup>
+  <mo>−</mo>
+  <mi>k</mi>
+  <mi mathvariant="bold-italic">A</mi>
+</math>

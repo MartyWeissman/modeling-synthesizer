@@ -1,0 +1,30 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">T</mi>
+  <mo>′</mo>
+  <mo>=</mo>
+  <mi>β</mi>
+  <mi mathvariant="bold-italic">T</mi>
+  <mrow>
+    <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">(</mo>
+    <mn>1</mn>
+    <mo>−</mo>
+    <mfrac>
+      <mi mathvariant="bold-italic">T</mi>
+      <mi>m</mi>
+    </mfrac>
+    <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">)</mo>
+  </mrow>
+  <mo>−</mo>
+  <mfrac>
+    <mrow>
+      <mi>c</mi>
+      <mi mathvariant="bold-italic">S</mi>
+      <mi mathvariant="bold-italic">T</mi>
+    </mrow>
+    <mrow>
+      <mi>h</mi>
+      <mo>+</mo>
+      <mi mathvariant="bold-italic">T</mi>
+    </mrow>
+  </mfrac>
+</math>

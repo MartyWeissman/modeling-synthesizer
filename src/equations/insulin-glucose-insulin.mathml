@@ -1,0 +1,16 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">I</mi>
+  <mo>′</mo>
+  <mo>=</mo>
+  <mi>q</mi>
+  <mi>B</mi>
+  <mi>f</mi>
+  <mrow>
+    <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">(</mo>
+    <mi mathvariant="bold-italic">G</mi>
+    <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">)</mo>
+  </mrow>
+  <mo>−</mo>
+  <mi>γ</mi>
+  <mi mathvariant="bold-italic">I</mi>
+</math>

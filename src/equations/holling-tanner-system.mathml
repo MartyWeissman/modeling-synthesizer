@@ -1,0 +1,66 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mtable columnalign="right center left" columnspacing="0.2em 0.3em" rowspacing="0.8em">
+    <mtr>
+      <mtd>
+        <mi mathvariant="bold-italic">S</mi>
+        <mo>′</mo>
+      </mtd>
+      <mtd>
+        <mo>=</mo>
+      </mtd>
+      <mtd>
+        <mi>α</mi>
+        <mi mathvariant="bold-italic">S</mi>
+        <mrow>
+          <mo>(</mo>
+          <mn>1</mn>
+          <mo>−</mo>
+          <mfrac>
+            <mi mathvariant="bold-italic">S</mi>
+            <mrow>
+              <mi>q</mi>
+              <mi mathvariant="bold-italic">T</mi>
+            </mrow>
+          </mfrac>
+          <mo>)</mo>
+        </mrow>
+      </mtd>
+    </mtr>
+    <mtr>
+      <mtd>
+        <mi mathvariant="bold-italic">T</mi>
+        <mo>′</mo>
+      </mtd>
+      <mtd>
+        <mo>=</mo>
+      </mtd>
+      <mtd>
+        <mi>β</mi>
+        <mi mathvariant="bold-italic">T</mi>
+        <mrow>
+          <mo>(</mo>
+          <mn>1</mn>
+          <mo>−</mo>
+          <mfrac>
+            <mi mathvariant="bold-italic">T</mi>
+            <mi>m</mi>
+          </mfrac>
+          <mo>)</mo>
+        </mrow>
+        <mo>−</mo>
+        <mfrac>
+          <mrow>
+            <mi>c</mi>
+            <mi mathvariant="bold-italic">S</mi>
+            <mi mathvariant="bold-italic">T</mi>
+          </mrow>
+          <mrow>
+            <mi>h</mi>
+            <mo>+</mo>
+            <mi mathvariant="bold-italic">T</mi>
+          </mrow>
+        </mfrac>
+      </mtd>
+    </mtr>
+  </mtable>
+</math>
