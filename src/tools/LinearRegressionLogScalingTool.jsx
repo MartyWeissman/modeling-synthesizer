@@ -10,6 +10,11 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import {
+  calculateLinearRegression,
+  generateRegressionLine,
+  validateRegressionData,
+} from "../utils/mathHelpers";
 
 const LinearRegressionLogScalingTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -169,84 +174,97 @@ const LinearRegressionLogScalingTool = () => {
   }, [axisRanges, xScale, yScale, generateLinearTicks, generateLogTicks]);
 
   // Handle data changes from table
-  const handleDataChange = useCallback((newData) => {
-    setTableData(newData);
-    // TODO: Recalculate regression when data changes
-  }, []);
+  const handleDataChange = useCallback(
+    (newData) => {
+      setTableData(newData);
 
-  // Handle scaling changes with error checking
-  const handleXScaleToggle = useCallback(() => {
-    const newScale = xScale === "linear" ? "log" : "linear";
-
-    // Check if switching to log would cause errors
-    if (newScale === "log") {
-      const hasNegative = tableData.some((row) => {
-        const x = parseFloat(row.x);
-        return !isNaN(x) && x <= 0;
-      });
-
-      if (hasNegative) {
-        // Don't switch - show error indication
-        setLogErrors((prev) => [
-          ...prev.filter((e) => e.field !== "x"),
-          ...tableData
-            .map((row, index) => {
-              const x = parseFloat(row.x);
-              return !isNaN(x) && x <= 0
-                ? { index, field: "x", value: x }
-                : null;
-            })
-            .filter(Boolean),
-        ]);
-        return;
+      // Recalculate regression if it's currently enabled
+      if (showRegression) {
+        // Use setTimeout to ensure state has updated before calculating
+        setTimeout(() => {
+          const regression = calculateRegression();
+          setRegressionStats(regression);
+        }, 0);
       }
-    }
+    },
+    [showRegression, calculateRegression],
+  );
 
-    setXScale(newScale);
-    setLogErrors((prev) => prev.filter((e) => e.field !== "x"));
-  }, [xScale, tableData]);
+  // Handle scaling changes - always allow the change
+  const handleXScaleToggle = useCallback(() => {
+    setXScale((prev) => (prev === "linear" ? "log" : "linear"));
+
+    // Recalculate regression if it's currently enabled
+    if (showRegression) {
+      setTimeout(() => {
+        const regression = calculateRegression();
+        setRegressionStats(regression);
+      }, 0);
+    }
+  }, [showRegression, calculateRegression]);
 
   const handleYScaleToggle = useCallback(() => {
-    const newScale = yScale === "linear" ? "log" : "linear";
+    setYScale((prev) => (prev === "linear" ? "log" : "linear"));
 
-    // Check if switching to log would cause errors
-    if (newScale === "log") {
-      const hasNegative = tableData.some((row) => {
-        const y = parseFloat(row.y);
-        return !isNaN(y) && y <= 0;
-      });
-
-      if (hasNegative) {
-        // Don't switch - show error indication
-        setLogErrors((prev) => [
-          ...prev.filter((e) => e.field !== "y"),
-          ...tableData
-            .map((row, index) => {
-              const y = parseFloat(row.y);
-              return !isNaN(y) && y <= 0
-                ? { index, field: "y", value: y }
-                : null;
-            })
-            .filter(Boolean),
-        ]);
-        return;
-      }
+    // Recalculate regression if it's currently enabled
+    if (showRegression) {
+      setTimeout(() => {
+        const regression = calculateRegression();
+        setRegressionStats(regression);
+      }, 0);
     }
-
-    setYScale(newScale);
-    setLogErrors((prev) => prev.filter((e) => e.field !== "y"));
-  }, [yScale, tableData]);
+  }, [showRegression, calculateRegression]);
 
   // Handle log base changes
   const handleLogBaseChange = useCallback((base) => {
     setLogBase(base);
   }, []);
 
+  // Calculate regression statistics
+  const calculateRegression = useCallback(() => {
+    const { validPoints } = processedData();
+
+    if (validPoints.length < 2) {
+      return {
+        slope: 0,
+        intercept: 0,
+        rSquared: 0,
+        isValid: false,
+      };
+    }
+
+    // Create points for regression based on current scaling
+    const regressionPoints = validPoints.map((point) => ({
+      x: xScale === "log" ? point.logX : point.x,
+      y: yScale === "log" ? point.logY : point.y,
+    }));
+
+    // Validate and calculate regression
+    const validation = validateRegressionData(regressionPoints);
+    if (!validation.isValid) {
+      console.warn("Regression validation failed:", validation.error);
+      return {
+        slope: 0,
+        intercept: 0,
+        rSquared: 0,
+        isValid: false,
+      };
+    }
+
+    return calculateLinearRegression(regressionPoints);
+  }, [processedData, xScale, yScale]);
+
   // Handle regression toggle
   const handleRegressionToggle = useCallback(() => {
-    setShowRegression((prev) => !prev);
-    // TODO: Calculate regression when enabled
-  }, []);
+    const newShowRegression = !showRegression;
+    setShowRegression(newShowRegression);
+
+    if (newShowRegression) {
+      // Calculate and update regression statistics
+      const regression = calculateRegression();
+      setRegressionStats(regression);
+    }
+  }, [showRegression, calculateRegression]);
 
   // Draw data points on canvas
   const drawDataPoints = useCallback(() => {
@@ -269,10 +287,42 @@ const LinearRegressionLogScalingTool = () => {
     const plotWidth = canvas.width - paddingLeft - paddingRight;
     const plotHeight = canvas.height - paddingTop - paddingBottom;
 
+    // Draw regression line first (so it appears behind points)
+    if (showRegression && regressionStats.isValid) {
+      const regressionLinePoints = generateRegressionLine(
+        regressionStats.slope,
+        regressionStats.intercept,
+        xRange,
+        100,
+      );
+
+      ctx.strokeStyle = currentTheme === "dark" ? "#ef4444" : "#dc2626"; // Red-400 / Red-600
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+
+      regressionLinePoints.forEach((point, index) => {
+        // Convert to canvas coordinates
+        const canvasX =
+          paddingLeft +
+          ((point.x - xRange[0]) / (xRange[1] - xRange[0])) * plotWidth;
+        const canvasY =
+          paddingTop +
+          plotHeight -
+          ((point.y - yRange[0]) / (yRange[1] - yRange[0])) * plotHeight;
+
+        if (index === 0) {
+          ctx.moveTo(canvasX, canvasY);
+        } else {
+          ctx.lineTo(canvasX, canvasY);
+        }
+      });
+      ctx.stroke();
+    }
+
     // Theme-appropriate point color
     const pointColor = currentTheme === "dark" ? "#60a5fa" : "#2563eb"; // Blue-400 / Blue-600
 
-    // Draw data points
+    // Draw data points on top of regression line
     validPoints.forEach((point) => {
       // Get the values to plot based on current scaling
       const plotX = xScale === "log" ? point.logX : point.x;
@@ -298,7 +348,15 @@ const LinearRegressionLogScalingTool = () => {
       ctx.lineWidth = 1;
       ctx.stroke();
     });
-  }, [processedData, axisRanges, xScale, yScale, currentTheme]);
+  }, [
+    processedData,
+    axisRanges,
+    xScale,
+    yScale,
+    currentTheme,
+    showRegression,
+    regressionStats,
+  ]);
 
   // Initialize canvas and draw points when data or scaling changes
   useEffect(() => {
@@ -342,6 +400,35 @@ const LinearRegressionLogScalingTool = () => {
     return "Y";
   };
 
+  // Process table data to include computed log values
+  const getProcessedTableData = useCallback(() => {
+    return tableData.map((row, index) => {
+      const processedRow = { ...row };
+
+      // Compute Log(X) if X scaling is log
+      if (xScale === "log") {
+        const x = parseFloat(row.x);
+        if (!isNaN(x) && x > 0) {
+          processedRow.logX = Math.log10(x).toFixed(3);
+        } else {
+          processedRow.logX = ""; // Will be handled as error
+        }
+      }
+
+      // Compute Log(Y) if Y scaling is log
+      if (yScale === "log") {
+        const y = parseFloat(row.y);
+        if (!isNaN(y) && y > 0) {
+          processedRow.logY = Math.log10(y).toFixed(3);
+        } else {
+          processedRow.logY = ""; // Will be handled as error
+        }
+      }
+
+      return processedRow;
+    });
+  }, [tableData, xScale, yScale]);
+
   // Define table columns based on current scaling
   const getTableColumns = () => {
     const columns = [];
@@ -351,22 +438,24 @@ const LinearRegressionLogScalingTool = () => {
       columns.push({
         key: "logX",
         label: getXLabel(),
-        type: "number",
+        type: "computed", // New type for computed values
+        editable: false,
       });
     }
 
     // Add X column
-    columns.push({ key: "x", label: "X", type: "number" });
+    columns.push({ key: "x", label: "X", type: "number", editable: true });
 
     // Add Y column
-    columns.push({ key: "y", label: "Y", type: "number" });
+    columns.push({ key: "y", label: "Y", type: "number", editable: true });
 
     // Add Log(Y) column last if Y is log scale
     if (yScale === "log") {
       columns.push({
         key: "logY",
         label: getYLabel(),
-        type: "number",
+        type: "computed", // New type for computed values
+        editable: false,
       });
     }
 
@@ -385,7 +474,7 @@ const LinearRegressionLogScalingTool = () => {
         y={0}
         w={3}
         h={5}
-        data={tableData}
+        data={getProcessedTableData()}
         onDataChange={handleDataChange}
         columns={getTableColumns()}
         title="Data Entry Table"
@@ -453,24 +542,39 @@ const LinearRegressionLogScalingTool = () => {
         </div>
       </GridButton>
 
-      {/* Current Settings Display */}
+      {/* Regression Statistics Display */}
       <GridDisplay
         x={9}
         y={1}
         w={2}
         h={1}
-        variant="status"
+        variant="info"
         align="center"
         fontSize="small"
         theme={theme}
       >
         <div style={{ padding: "4px" }}>
-          <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
-            Current Settings
-          </div>
-          <div style={{ fontSize: "0.85em" }}>
-            X-Axis: {xScale} | Y-Axis: {yScale}
-          </div>
+          {showRegression && regressionStats.isValid ? (
+            <div>
+              <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
+                Linear Regression
+              </div>
+              <div style={{ fontSize: "0.8em", lineHeight: "1.2" }}>
+                <div>Slope: {regressionStats.slope.toFixed(3)}</div>
+                <div>Intercept: {regressionStats.intercept.toFixed(3)}</div>
+                <div>R²: {regressionStats.rSquared.toFixed(3)}</div>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
+                Settings
+              </div>
+              <div style={{ fontSize: "0.85em" }}>
+                X: {xScale} | Y: {yScale}
+              </div>
+            </div>
+          )}
         </div>
       </GridDisplay>
 

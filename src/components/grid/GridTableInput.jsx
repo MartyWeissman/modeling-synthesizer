@@ -102,27 +102,58 @@ const GridTableInput = ({
     [errorHighlights],
   );
 
+  // Check if a computed cell should show error (empty value when it should have content)
+  const hasComputedError = useCallback(
+    (rowIndex, columnKey, column) => {
+      if (column.type !== "computed") return false;
+
+      // For computed log columns, error if value is empty but original value exists
+      const row = data[rowIndex];
+      if (!row) return false;
+
+      if (columnKey === "logX") {
+        const x = parseFloat(row.x);
+        return !isNaN(x) && x !== "" && x <= 0; // X exists but is non-positive
+      }
+
+      if (columnKey === "logY") {
+        const y = parseFloat(row.y);
+        return !isNaN(y) && y !== "" && y <= 0; // Y exists but is non-positive
+      }
+
+      return false;
+    },
+    [data],
+  );
+
   // Get cell input styles with error indication
-  const getCellInputStyles = (rowIndex, columnKey) => {
+  const getCellInputStyles = (rowIndex, columnKey, column) => {
     const isError = hasError(rowIndex, columnKey);
+    const isComputedError = hasComputedError(rowIndex, columnKey, column);
+    const hasAnyError = isError || isComputedError;
+    const isComputed = column.type === "computed";
 
     return {
       width: `${colWidth - 2}px`,
       height: `${rowHeight - 2}px`,
       border: "1px solid",
-      borderColor: isError
+      borderColor: hasAnyError
         ? "#ef4444" // Red border for errors
         : isDarkMode
           ? "#4a5568"
           : "#cbd5e0",
-      backgroundColor: isError
+      backgroundColor: hasAnyError
         ? isDarkMode
           ? "#7f1d1d"
           : "#fee2e2" // Red background for errors
-        : isDarkMode
-          ? "#2d3748"
-          : "#ffffff",
-      color: isError
+        : isComputed
+          ? isDarkMode
+            ? "#374151" // Slightly different for computed fields
+            : "#f3f4f6"
+          : isDarkMode
+            ? "#2d3748"
+            : "#ffffff",
+      color: hasAnyError
         ? "#ef4444" // Red text for errors
         : isDarkMode
           ? "#e2e8f0"
@@ -132,6 +163,7 @@ const GridTableInput = ({
       textAlign: "center",
       outline: "none",
       borderRadius: "2px",
+      cursor: isComputed ? "default" : "text",
     };
   };
 
@@ -213,18 +245,29 @@ const GridTableInput = ({
                   >
                     <input
                       type={column.type === "number" ? "number" : "text"}
-                      value={row[column.key]}
+                      value={row[column.key] || ""}
                       onChange={(e) => {
-                        const formattedValue = formatCellValue(
-                          e.target.value,
-                          column.type,
-                        );
-                        handleCellChange(rowIndex, column.key, formattedValue);
+                        if (column.editable !== false) {
+                          const formattedValue = formatCellValue(
+                            e.target.value,
+                            column.type,
+                          );
+                          handleCellChange(
+                            rowIndex,
+                            column.key,
+                            formattedValue,
+                          );
+                        }
                       }}
-                      style={getCellInputStyles(rowIndex, column.key)}
+                      style={getCellInputStyles(rowIndex, column.key, column)}
                       placeholder={
-                        rowIndex < 5 ? `${column.label}${rowIndex + 1}` : ""
+                        column.type === "computed"
+                          ? ""
+                          : rowIndex < 5
+                            ? `${column.label}${rowIndex + 1}`
+                            : ""
                       }
+                      readOnly={column.editable === false}
                     />
                   </div>
                 ))}
