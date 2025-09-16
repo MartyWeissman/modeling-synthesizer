@@ -15,6 +15,7 @@ import {
   GridInput,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
+import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 
 const HollingTannerTool = () => {
@@ -22,11 +23,11 @@ const HollingTannerTool = () => {
 
   // UI State - parameters for Holling-Tanner model
   const [uiParams, setUiParams] = useState({
-    alpha: 1.0, // α - Shark population growth rate
+    alpha: 0.1, // α - Shark population growth rate
     beta: 1.0, // β - Tuna population growth rate
-    c: 1.0, // c - Predation rate
+    c: 0.5, // c - Predation rate
     h: 1.0, // h - Half-saturation constant
-    m: 2.0, // m - Tuna carrying capacity
+    m: 7.0, // m - Tuna carrying capacity
     q: 2.0, // q - Shark carrying capacity
     speed: 2, // Animation speed
   });
@@ -63,9 +64,9 @@ const HollingTannerTool = () => {
 
   // Display constants for Shark (S) and Tuna (T) populations
   const smin = 0,
-    smax = 3;
+    smax = 6;
   const tmin = 0,
-    tmax = 3;
+    tmax = 6;
 
   // Equilibrium points for Holling-Tanner model
   const equilibria = useMemo(() => {
@@ -131,7 +132,10 @@ const HollingTannerTool = () => {
       ctx.clearRect(0, 0, width, height);
 
       // Draw vector field
-      const gridCoords = [0.2, 0.5, 0.8, 1.1, 1.4, 1.7, 2.0, 2.3, 2.6, 2.9];
+      const gridCoords = [
+        0.2, 0.6, 1.0, 1.4, 1.8, 2.2, 2.6, 3.0, 3.4, 3.8, 4.2, 4.6, 5.0, 5.4,
+        5.8,
+      ];
       ctx.strokeStyle =
         currentTheme === "dark"
           ? "rgba(156, 163, 175, 0.7)"
@@ -666,8 +670,8 @@ const HollingTannerTool = () => {
         yLabel="Tuna (T)"
         xRange={[smin, smax]}
         yRange={[tmin, tmax]}
-        xTicks={[0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]}
-        yTicks={[0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]}
+        xTicks={[0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}
+        yTicks={[0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}
         theme={theme}
         tooltip="Click to start a trajectory from that point"
       >
@@ -711,7 +715,7 @@ const HollingTannerTool = () => {
         xRange={[Math.max(0, currentTime - 20), Math.max(20, currentTime)]}
         yRange={[0, Math.max(smax, tmax)]}
         xTicks={[]}
-        yTicks={[0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]}
+        yTicks={[0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}
         theme={theme}
         tooltip="Population dynamics over time"
       >
@@ -735,9 +739,9 @@ const HollingTannerTool = () => {
         y={0}
         value={uiParams.alpha}
         onChange={(value) => updateParam("alpha", value)}
-        min={0.1}
-        max={3.0}
-        step={0.1}
+        min={0.01}
+        max={1.0}
+        step={0.01}
         variable="α"
         title="Shark growth rate"
         theme={theme}
@@ -788,7 +792,7 @@ const HollingTannerTool = () => {
         value={uiParams.m}
         onChange={(value) => updateParam("m", value)}
         min={0.5}
-        max={5.0}
+        max={10.0}
         step={0.1}
         variable="m"
         title="Tuna carrying capacity"
@@ -863,21 +867,22 @@ const HollingTannerTool = () => {
         fontSize="medium"
         theme={theme}
       >
-        <div style={{ textAlign: "center", lineHeight: "1.6" }}>
+        <div style={{ textAlign: "center", lineHeight: "2.0" }}>
           <div
             style={{
               fontWeight: "bold",
-              marginBottom: "8px",
+              marginBottom: "15px",
               color: currentTheme === "dark" ? "#60a5fa" : "#3b82f6",
+              fontSize: "1.1em",
             }}
           >
             Holling-Tanner Model
           </div>
-          <div style={{ marginBottom: "4px", fontFamily: "monospace" }}>
-            S' = αS(1 - S/qT)
+          <div style={{ marginBottom: "0px", lineHeight: "1.2" }}>
+            <Equation name="holling-tanner-predator" size="medium" />
           </div>
-          <div style={{ fontFamily: "monospace" }}>
-            T' = βT(1 - T/m) - cST/(h+T)
+          <div>
+            <Equation name="holling-tanner-prey" size="medium" />
           </div>
         </div>
       </GridDisplay>
@@ -899,11 +904,27 @@ const HollingTannerTool = () => {
           </div>
           {equilibria.length > 0 ? (
             <>
-              <div style={{ marginBottom: "4px", fontSize: "0.9em" }}>
-                S* = {equilibria[equilibria.length - 1].x.toFixed(2)}
+              <div
+                style={{
+                  marginBottom: "4px",
+                  fontSize: "0.9em",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Equation
+                  name="equilibrium-s"
+                  size="small"
+                  style={{ marginRight: "4px" }}
+                />
+                {equilibria[equilibria.length - 1].x.toFixed(2)}
               </div>
-              <div style={{ fontSize: "0.9em" }}>
-                T* = {equilibria[equilibria.length - 1].y.toFixed(2)}
+              <div style={{ fontSize: "0.9em", whiteSpace: "nowrap" }}>
+                <Equation
+                  name="equilibrium-t"
+                  size="small"
+                  style={{ marginRight: "4px" }}
+                />
+                {equilibria[equilibria.length - 1].y.toFixed(2)}
               </div>
             </>
           ) : (

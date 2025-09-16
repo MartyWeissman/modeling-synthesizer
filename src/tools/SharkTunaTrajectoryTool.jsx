@@ -14,6 +14,7 @@ import {
   GridGraph,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
+import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 
 const SharkTunaTrajectoryTool = () => {
@@ -720,20 +721,23 @@ const SharkTunaTrajectoryTool = () => {
         fontSize="medium"
         theme={theme}
       >
-        <div style={{ textAlign: "center", lineHeight: "1.6" }}>
+        <div style={{ textAlign: "center", lineHeight: "2.0" }}>
           <div
             style={{
               fontWeight: "bold",
-              marginBottom: "8px",
+              marginBottom: "15px",
               color: "#ff6b35",
+              fontSize: "1.1em",
             }}
           >
             Lotka-Volterra Model
           </div>
-          <div style={{ marginBottom: "4px", fontFamily: "monospace" }}>
-            S' = -δS + pST
+          <div style={{ marginBottom: "0px", lineHeight: "1.2" }}>
+            <Equation name="lotka-volterra-predator" size="medium" />
           </div>
-          <div style={{ fontFamily: "monospace" }}>T' = βT - qST</div>
+          <div>
+            <Equation name="lotka-volterra-prey" size="medium" />
+          </div>
         </div>
       </GridDisplay>
 
@@ -752,11 +756,27 @@ const SharkTunaTrajectoryTool = () => {
           <div style={{ fontWeight: "bold", marginBottom: "6px" }}>
             Equilibrium Point
           </div>
-          <div style={{ marginBottom: "4px", fontSize: "0.9em" }}>
-            S* = β/q = {(uiParams.beta / uiParams.q).toFixed(1)}
+          <div
+            style={{
+              marginBottom: "4px",
+              fontSize: "0.9em",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <Equation
+              name="equilibrium-s"
+              size="small"
+              style={{ marginRight: "4px" }}
+            />
+            {(uiParams.beta / uiParams.q).toFixed(1)}
           </div>
-          <div style={{ fontSize: "0.9em" }}>
-            T* = δ/p = {(uiParams.delta / uiParams.p).toFixed(1)}
+          <div style={{ fontSize: "0.9em", whiteSpace: "nowrap" }}>
+            <Equation
+              name="equilibrium-t"
+              size="small"
+              style={{ marginRight: "4px" }}
+            />
+            {(uiParams.delta / uiParams.p).toFixed(1)}
           </div>
         </div>
       </GridDisplay>

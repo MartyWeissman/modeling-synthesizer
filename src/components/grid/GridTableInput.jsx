@@ -15,19 +15,21 @@ const GridTableInput = ({
   onDataChange,
   columns = [
     { key: "x", label: "X", type: "number" },
-    { key: "y", label: "Y", type: "number" }
+    { key: "y", label: "Y", type: "number" },
   ],
   title = "Data Table",
   theme,
   maxRows = h * 3, // 3 rows per grid unit
+  errorHighlights = [], // Array of {index, field, value} for error indication
 }) => {
   // Ensure data has the correct structure
   const initializeData = useCallback(() => {
     const initialData = [];
     for (let i = 0; i < maxRows; i++) {
       const row = {};
-      columns.forEach(col => {
-        row[col.key] = data[i] && data[i][col.key] !== undefined ? data[i][col.key] : "";
+      columns.forEach((col) => {
+        row[col.key] =
+          data[i] && data[i][col.key] !== undefined ? data[i][col.key] : "";
       });
       initialData.push(row);
     }
@@ -60,17 +62,25 @@ const GridTableInput = ({
   const colWidth = contentWidth / columns.length;
 
   // Handle cell value change
-  const handleCellChange = useCallback((rowIndex, columnKey, value) => {
-    const newData = [...tableData];
-    newData[rowIndex] = { ...newData[rowIndex], [columnKey]: value };
-    setTableData(newData);
+  const handleCellChange = useCallback(
+    (rowIndex, columnKey, value) => {
+      const newData = [...tableData];
+      newData[rowIndex] = { ...newData[rowIndex], [columnKey]: value };
+      setTableData(newData);
 
-    // Call external onChange with cleaned data (remove empty rows)
-    const cleanedData = newData.filter(row =>
-      columns.some(col => row[col.key] !== "" && row[col.key] !== null && row[col.key] !== undefined)
-    );
-    onDataChange?.(cleanedData);
-  }, [tableData, columns, onDataChange]);
+      // Call external onChange with cleaned data (remove empty rows)
+      const cleanedData = newData.filter((row) =>
+        columns.some(
+          (col) =>
+            row[col.key] !== "" &&
+            row[col.key] !== null &&
+            row[col.key] !== undefined,
+        ),
+      );
+      onDataChange?.(cleanedData);
+    },
+    [tableData, columns, onDataChange],
+  );
 
   // Validate and format input based on column type
   const formatCellValue = useCallback((value, columnType) => {
@@ -82,20 +92,48 @@ const GridTableInput = ({
     return value;
   }, []);
 
-  // Get cell input styles
-  const getCellInputStyles = () => ({
-    width: `${colWidth - 2}px`,
-    height: `${rowHeight - 2}px`,
-    border: "1px solid",
-    borderColor: isDarkMode ? "#4a5568" : "#cbd5e0",
-    backgroundColor: isDarkMode ? "#2d3748" : "#ffffff",
-    color: isDarkMode ? "#e2e8f0" : "#2d3748",
-    fontSize: "12px",
-    padding: "2px 4px",
-    textAlign: "center",
-    outline: "none",
-    borderRadius: "2px",
-  });
+  // Check if a cell has an error
+  const hasError = useCallback(
+    (rowIndex, columnKey) => {
+      return errorHighlights.some(
+        (error) => error.index === rowIndex && error.field === columnKey,
+      );
+    },
+    [errorHighlights],
+  );
+
+  // Get cell input styles with error indication
+  const getCellInputStyles = (rowIndex, columnKey) => {
+    const isError = hasError(rowIndex, columnKey);
+
+    return {
+      width: `${colWidth - 2}px`,
+      height: `${rowHeight - 2}px`,
+      border: "1px solid",
+      borderColor: isError
+        ? "#ef4444" // Red border for errors
+        : isDarkMode
+          ? "#4a5568"
+          : "#cbd5e0",
+      backgroundColor: isError
+        ? isDarkMode
+          ? "#7f1d1d"
+          : "#fee2e2" // Red background for errors
+        : isDarkMode
+          ? "#2d3748"
+          : "#ffffff",
+      color: isError
+        ? "#ef4444" // Red text for errors
+        : isDarkMode
+          ? "#e2e8f0"
+          : "#2d3748",
+      fontSize: "12px",
+      padding: "2px 4px",
+      textAlign: "center",
+      outline: "none",
+      borderRadius: "2px",
+    };
+  };
 
   // Get header cell styles
   const getHeaderStyles = () => ({
@@ -113,14 +151,7 @@ const GridTableInput = ({
   });
 
   return (
-    <GridComponent
-      x={x}
-      y={y}
-      w={w}
-      h={h}
-      theme={theme}
-      title={title}
-    >
+    <GridComponent x={x} y={y} w={w} h={h} theme={theme} title={title}>
       <div
         style={{
           width: "100%",
@@ -137,9 +168,6 @@ const GridTableInput = ({
           style={{
             width: contentWidth,
             height: contentHeight,
-            backgroundColor: isDarkMode ? "rgba(45, 55, 72, 0.95)" : "rgba(255, 255, 255, 0.95)",
-            border: `1px solid ${isDarkMode ? "#4a5568" : "#cbd5e0"}`,
-            borderRadius: "4px",
             overflow: "hidden",
             display: "flex",
             flexDirection: "column",
@@ -152,7 +180,10 @@ const GridTableInput = ({
                 key={column.key}
                 style={{
                   ...getHeaderStyles(),
-                  borderRight: colIndex < columns.length - 1 ? getHeaderStyles().borderRight : "none",
+                  borderRight:
+                    colIndex < columns.length - 1
+                      ? getHeaderStyles().borderRight
+                      : "none",
                 }}
               >
                 {column.label}
@@ -173,7 +204,10 @@ const GridTableInput = ({
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      borderRight: colIndex < columns.length - 1 ? `1px solid ${isDarkMode ? "#4a5568" : "#cbd5e0"}` : "none",
+                      borderRight:
+                        colIndex < columns.length - 1
+                          ? `1px solid ${isDarkMode ? "#4a5568" : "#cbd5e0"}`
+                          : "none",
                       borderBottom: `1px solid ${isDarkMode ? "#4a5568" : "#e2e8f0"}`,
                     }}
                   >
@@ -181,11 +215,16 @@ const GridTableInput = ({
                       type={column.type === "number" ? "number" : "text"}
                       value={row[column.key]}
                       onChange={(e) => {
-                        const formattedValue = formatCellValue(e.target.value, column.type);
+                        const formattedValue = formatCellValue(
+                          e.target.value,
+                          column.type,
+                        );
                         handleCellChange(rowIndex, column.key, formattedValue);
                       }}
-                      style={getCellInputStyles()}
-                      placeholder={rowIndex < 5 ? `${column.label}${rowIndex + 1}` : ""}
+                      style={getCellInputStyles(rowIndex, column.key)}
+                      placeholder={
+                        rowIndex < 5 ? `${column.label}${rowIndex + 1}` : ""
+                      }
                     />
                   </div>
                 ))}

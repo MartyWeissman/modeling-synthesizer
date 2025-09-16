@@ -10,6 +10,7 @@ import {
   GridDisplay,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
+import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 
 const CaffeineMetabolismTool = () => {
@@ -332,18 +333,27 @@ const CaffeineMetabolismTool = () => {
       />
 
       {/* Differential Equation Formula */}
-      <GridLabel
+      <GridDisplay
         x={4}
         y={3}
         w={2}
         h={1}
-        text="C' = [intake] - {mu} C"
+        variant="info"
+        align="center"
         fontSize="medium"
-        textAlign="center"
-        formulaMode={true}
-        tooltip="Differential equation for caffeine metabolism"
         theme={theme}
-      />
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "100%",
+          }}
+        >
+          <Equation name="caffeine-metabolism" size="small" />
+        </div>
+      </GridDisplay>
     </ToolContainer>
   );
 };

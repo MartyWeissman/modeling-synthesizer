@@ -14,6 +14,7 @@ import {
   GridGraph,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
+import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 
 const GlycolysisTool = () => {
@@ -829,20 +830,23 @@ const GlycolysisTool = () => {
         fontSize="medium"
         theme={theme}
       >
-        <div style={{ textAlign: "center", lineHeight: "1.6" }}>
+        <div style={{ textAlign: "center", lineHeight: "2.0" }}>
           <div
             style={{
               fontWeight: "bold",
-              marginBottom: "8px",
+              marginBottom: "15px",
               color: currentTheme === "dark" ? "#60a5fa" : "#3b82f6",
+              fontSize: "1.1em",
             }}
           >
             Higgins-Sel'kov Model
           </div>
-          <div style={{ marginBottom: "4px", fontFamily: "monospace" }}>
-            F' = v - cFA²
+          <div style={{ marginBottom: "0px", lineHeight: "1.2" }}>
+            <Equation name="higgins-selkov-f6p" size="medium" />
           </div>
-          <div style={{ fontFamily: "monospace" }}>A' = cFA² - kA</div>
+          <div>
+            <Equation name="higgins-selkov-adp" size="medium" />
+          </div>
         </div>
       </GridDisplay>
 
@@ -863,11 +867,27 @@ const GlycolysisTool = () => {
           </div>
           {equilibria.length > 0 ? (
             <>
-              <div style={{ marginBottom: "4px", fontSize: "0.9em" }}>
-                F* = {equilibria[0].x.toFixed(2)}
+              <div
+                style={{
+                  marginBottom: "4px",
+                  fontSize: "0.9em",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Equation
+                  name="equilibrium-f"
+                  size="small"
+                  style={{ marginRight: "4px" }}
+                />
+                {equilibria[0].x.toFixed(2)}
               </div>
-              <div style={{ fontSize: "0.9em" }}>
-                A* = {equilibria[0].y.toFixed(2)}
+              <div style={{ fontSize: "0.9em", whiteSpace: "nowrap" }}>
+                <Equation
+                  name="equilibrium-a"
+                  size="small"
+                  style={{ marginRight: "4px" }}
+                />
+                {equilibria[0].y.toFixed(2)}
               </div>
             </>
           ) : (

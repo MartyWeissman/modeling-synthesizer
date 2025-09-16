@@ -9,6 +9,7 @@ import {
   GridDisplay,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
+import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 
 const InsulinGlucoseTool = () => {
@@ -437,18 +438,21 @@ const InsulinGlucoseTool = () => {
       />
 
       {/* Differential equation display */}
-      <GridLabel
+      <GridDisplay
         x={8}
         y={4}
         w={3}
         h={1}
-        text="G' = m - sIG|I' = qBf(G) - γI"
+        variant="info"
+        align="center"
         fontSize="small"
-        textAlign="center"
-        formulaMode={true}
-        tooltip="Differential equations: dG/dt = m - sIG, dI/dt = qBf(G) - γI where f(G) = G²/(1+G²)"
         theme={theme}
-      />
+      >
+        <div style={{ lineHeight: "5px" }}>
+          <Equation name="insulin-glucose-glucose" />
+          <Equation name="insulin-glucose-insulin" />
+        </div>
+      </GridDisplay>
     </ToolContainer>
   );
 };

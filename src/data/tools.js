@@ -12,7 +12,7 @@ import DynamicalSystemsCalculator from "../tools/DynamicalSystemsCalculator";
 import ComponentTestTool from "../tools/ComponentTestTool";
 import GridLabelTest from "../tools/GridLabelTest";
 import VisualToolBuilder from "../tools/VisualToolBuilder";
-import DataPlottingTool from "../tools/DataPlottingTool";
+import LinearRegressionLogScalingTool from "../tools/LinearRegressionLogScalingTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -159,15 +159,15 @@ export const toolDefinitions = {
     visibility: "dev",
   },
 
-  "data-plotting": {
-    name: "Data Plotting with Log Scaling",
+  "linear-regression-log-scaling": {
+    name: "Linear Regression with Log Scaling",
     description:
       "Interactive data visualization tool with linear and logarithmic scaling options, plus linear regression analysis for exploring data relationships.",
-    component: DataPlottingTool,
+    component: LinearRegressionLogScalingTool,
     categories: {
-      topics: ["physical"],
-      toolType: "explorer",
-      lab: "lab6",
+      topics: [],
+      toolType: "calculator",
+      lab: null,
     },
     visibility: "student",
   },

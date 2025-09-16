@@ -576,11 +576,16 @@ export default NewTool;
 5. **Determine Grid Size**: Plan layout (typical: 10x5 to 12x6)
 
 ### Step 2: Component Selection
-- **Sliders**: Use `GridSliderHorizontal` for parameters
+- **Parameter Controls**: 
+  - Use `GridInput` for tools with **many parameters** (5+ parameters)
+  - Use `GridSliderHorizontal` for tools with **few parameters** (≤4 parameters)
+  - **Always use `GridSliderHorizontal` for animation speed** regardless of parameter count
 - **Buttons**: Use `GridButton` with `type="momentary"` for actions
 - **Graphs**: Use `GridGraphDualY` for dual-axis, `GridGraph` for single-axis
 - **Text**: Use `GridLabel` for equations/info, `GridDisplay` for values
 - **Status**: Use `GridDisplay` with `variant="status"` for mode indicators
+  - **Minimize status displays**: Use only **one consolidated status box** with key information
+  - Use **small font size** (`fontSize="small"`) to fit more information efficiently
 
 ### Step 3: Parameter Mapping
 ```jsx
@@ -618,9 +623,12 @@ const [param, setParam] = useState(1.0);  // Default value
 ### Component Sizing Guidelines
 - **Main Graph**: `w={5-8}`, `h={3-5}` (central visualization)
 - **Secondary Graph**: `w={5}`, `h={2}` (time series, smaller plots)
-- **Sliders (Horizontal)**: `w={3}`, `h={1}` (parameter controls)
+- **Parameter Controls**:
+  - **GridInput**: `w={1}`, `h={1}` (compact, space-efficient for many parameters)
+  - **GridSliderHorizontal**: `w={3}`, `h={1}` (wider for visual feedback)
 - **Buttons**: `w={1-3}`, `h={1}` (actions - single buttons w=1, wide buttons w=3)
 - **Displays (Status)**: `w={2-6}`, `h={1-2}` (values, results, multi-line info)
+  - **Consolidated Status**: `w={5}`, `h={2}` (single comprehensive display)
 - **Labels**: `w={1-4}`, `h={1}` (text, equations - narrow labels w=1, equations w=2-4)
 - **Windows**: `w={4}`, `h={4}` (interactive containers, spatial simulations)
 - **Time Pickers**: Default size (typically 1x1)
@@ -628,6 +636,220 @@ const [param, setParam] = useState(1.0);  // Default value
 - **Info Displays**: `w={3}`, `h={2}` (detailed information panels)
 
 ## Component Design Rules
+
+### Parameter Control Selection
+
+**GridInput vs GridSlider Decision Matrix**:
+
+✅ **Use GridInput when**:
+- Tool has **5 or more parameters** (reduces visual clutter)
+- Parameters have wide ranges or need precise values
+- Limited grid space requires compact controls
+- Example: HollingTannerTool with 6 biological parameters (α, β, c, h, m, q)
+
+✅ **Use GridSliderHorizontal when**:
+- Tool has **4 or fewer parameters** (visual feedback is valuable)
+- **Always for animation speed controls** (immediate visual feedback essential)
+- Parameters benefit from real-time visual adjustment
+- Sufficient grid space available
+
+**GridInput Best Practices**:
+```jsx
+<GridInput
+  x={5} y={0}
+  value={uiParams.alpha}
+  onChange={(value) => updateParam("alpha", value)}
+  min={0.1} max={3.0} step={0.1}
+  variable="α"  // Greek letters and symbols encouraged
+  title="Biological parameter description"
+  theme={theme}
+/>
+```
+
+**Animation Speed Exception**:
+```jsx
+// Always use slider for speed - immediate feedback crucial
+<GridSliderHorizontal
+  x={5} y={4} w={3} h={1}
+  value={uiParams.speed * 25}
+  onChange={(value) => updateParam("speed", value / 25)}
+  variant="unipolar"
+  label={`Animation Speed: ${uiParams.speed.toFixed(1)}x`}
+  theme={theme}
+/>
+```
+
+### Status Display Design
+
+**Single Consolidated Status Box Principle**:
+- Use **only one status display** per tool instead of multiple separate boxes
+- Consolidate all key information (current values, simulation state, legend)
+- Use **small font size** (`fontSize="small"`) to fit more content efficiently
+- Group related information with proper spacing and hierarchy
+
+**Effective Status Display Pattern**:
+```jsx
+<GridDisplay
+  x={5} y={5} w={5} h={2}
+  variant="info"
+  align="left"
+  fontSize="small"  // Small font enables more information
+  theme={theme}
+>
+  <div style={{ padding: "4px" }}>
+    <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
+      Simulation Status
+    </div>
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr 1fr",
+      gap: "8px",
+      fontSize: "0.85em"
+    }}>
+      <div>Active Trajectories: {trajectoryCount}</div>
+      <div>Current Time: {currentTime.toFixed(1)}</div>
+      <div>Animation: {isAnimating ? "Running" : "Stopped"}</div>
+    </div>
+    <div style={{ marginTop: "4px", fontSize: "0.85em" }}>
+      <div>Current Values: S={currentS.toFixed(2)}, T={currentT.toFixed(2)}</div>
+    </div>
+    <div style={{ marginTop: "6px", fontSize: "0.8em", opacity: 0.8 }}>
+      <span style={{ color: "blue" }}>Blue: Species 1</span> | 
+      <span style={{ color: "red" }}>Red: Species 2</span>
+    </div>
+  </div>
+</GridDisplay>
+```
+
+### Mathematical Equation Display
+
+**Professional MathML Equation Architecture**:
+
+The modeling synthesizer uses a centralized MathML system for displaying mathematical equations with publication-quality typography. This system provides consistent, theme-aware equation rendering across all tools.
+
+**Directory Structure**:
+```
+src/equations/
+├── holling-tanner-predator.mathml     # Individual equation files
+├── holling-tanner-prey.mathml
+├── equilibrium-s.mathml               # Reusable equation fragments
+├── equilibrium-t.mathml
+└── [tool-name]-[description].mathml   # Naming convention
+```
+
+**Equation Component Usage**:
+```jsx
+import Equation from "../components/Equation";
+
+// In your tool component:
+<Equation name="holling-tanner-predator" size="medium" />
+<Equation name="equilibrium-s" size="small" style={{ marginRight: "4px" }} />
+```
+
+**MathML Best Practices**:
+
+✅ **Individual Display Equations** (Recommended):
+```mathml
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">S</mi>
+  <mo>′</mo>
+  <mo>=</mo>
+  <!-- equation content -->
+</math>
+```
+
+❌ **Aligned Equation Systems** (Avoid):
+MathML alignment is poorly supported across browsers. Use separate beautiful equations instead.
+
+**Scaling Parentheses Pattern**:
+```mathml
+<mrow>
+  <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">(</mo>
+  <!-- content with fractions -->
+  <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">)</mo>
+</mrow>
+```
+*Equivalent to LaTeX `\left(` and `\right)` - parentheses scale to content height*
+
+**Fractions Pattern**:
+```mathml
+<mfrac>
+  <mrow><!-- numerator --></mrow>
+  <mrow><!-- denominator --></mrow>
+</mfrac>
+```
+*Display block automatically creates spacious, readable fractions*
+
+**Multiple Equation Display**:
+```jsx
+<div style={{ marginBottom: "0px", lineHeight: "1.2" }}>
+  <Equation name="predator-equation" size="medium" />
+</div>
+<div>
+  <Equation name="prey-equation" size="medium" />
+</div>
+```
+*Tight spacing between related equations in a system*
+
+**Equilibrium Point Integration**:
+```jsx
+// Prevent line wrapping of "S* = value"
+<div style={{ fontSize: "0.9em", whiteSpace: "nowrap" }}>
+  <Equation name="equilibrium-s" size="small" style={{ marginRight: "4px" }} />
+  {equilibriumValue.toFixed(2)}
+</div>
+```
+
+**Variable Typography Standards**:
+- **State Variables**: `mathvariant="bold-italic"` (S, T, x, y)
+- **Parameters**: `mathvariant="italic"` (α, β, c, h, m, q)  
+- **Numbers**: `<mn>` element (1, 2, 0.5)
+- **Operators**: `<mo>` element (=, +, −, ′)
+
+**Theme Integration**:
+- Equation component automatically adapts colors for dark/light themes
+- No manual color management needed
+- Consistent with tool's theme switching
+
+**Size Guidelines**:
+- **`size="large"`**: Main display equations, prominent formulas
+- **`size="medium"`**: Standard equation systems, tool equations
+- **`size="small"`**: Equilibrium points, inline mathematical expressions
+
+**Common Equation Patterns**:
+
+*Differential Equations*:
+```mathml
+<mi mathvariant="bold-italic">x</mi>
+<mo>′</mo>
+<mo>=</mo>
+```
+
+*Equilibrium Points*:
+```mathml
+<mi mathvariant="bold-italic">x</mi>
+<mo>*</mo>
+<mo>=</mo>
+```
+
+*Subscripts/Superscripts*:
+```mathml
+<msub>
+  <mi>x</mi>
+  <mn>0</mn>
+</msub>
+```
+
+**Benefits of This System**:
+✅ **Professional Typography**: Publication-quality mathematical display  
+✅ **Maintainable**: Equations in dedicated files, easy to edit  
+✅ **Reusable**: Same equation across multiple tools  
+✅ **Theme-Aware**: Automatic light/dark mode support  
+✅ **Consistent**: Unified mathematical typography across all tools  
+✅ **No Dependencies**: Native MathML, no external libraries  
+
+**Usage in Tools**:
+Most biological modeling tools will need 2-4 equations. Follow the HollingTannerTool pattern: main system equations plus equilibrium point displays for comprehensive mathematical presentation.
 
 ### Button Design Principles
 
