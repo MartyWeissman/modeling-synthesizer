@@ -8,6 +8,7 @@ import GlycolysisTool from "../tools/GlycolysisTool";
 import HollingTannerTool from "../tools/HollingTannerTool";
 import SharkTunaInteractionTool from "../tools/SharkTunaInteractionTool";
 import SharkTunaTrajectoryTool from "../tools/SharkTunaTrajectoryTool";
+import DynamicalSystemsCalculator from "../tools/DynamicalSystemsCalculator";
 import ComponentTestTool from "../tools/ComponentTestTool";
 import GridLabelTest from "../tools/GridLabelTest";
 import VisualToolBuilder from "../tools/VisualToolBuilder";
@@ -25,7 +26,7 @@ export const toolDefinitions = {
     categories: {
       topics: ["physiology"],
       toolType: "simulation",
-      lab: "lab3",
+      lab: "lab1",
     },
     visibility: "student",
   },
@@ -38,7 +39,7 @@ export const toolDefinitions = {
     categories: {
       topics: ["physiology"],
       toolType: "simulation",
-      lab: "lab4",
+      lab: "lab1",
     },
     visibility: "student",
   },
@@ -51,7 +52,7 @@ export const toolDefinitions = {
     categories: {
       topics: ["physiology"],
       toolType: "simulation",
-      lab: "lab4",
+      lab: "lab2",
     },
     visibility: "student",
   },
@@ -77,7 +78,7 @@ export const toolDefinitions = {
     categories: {
       topics: ["ecology"],
       toolType: "simulation",
-      lab: "lab2",
+      lab: "lab4",
     },
     visibility: "student",
   },
@@ -90,7 +91,7 @@ export const toolDefinitions = {
     categories: {
       topics: ["ecology"],
       toolType: "explorer",
-      lab: "lab2",
+      lab: "lab1",
     },
     visibility: "student",
   },
@@ -108,14 +109,27 @@ export const toolDefinitions = {
     visibility: "student",
   },
 
+  "dynamical-systems-calculator": {
+    name: "Dynamical Systems Calculator",
+    description:
+      "General-purpose calculator for exploring vector fields and particle trajectories with custom differential equations.",
+    component: DynamicalSystemsCalculator,
+    categories: {
+      topics: [],
+      toolType: "calculator",
+      lab: ["lab1", "lab2", "lab3", "lab4"],
+    },
+    visibility: "student",
+  },
+
   "component-test": {
     name: "Component Test",
     description: "Test individual grid components and their interactions.",
     component: ComponentTestTool,
     categories: {
-      topics: ["physical"],
+      topics: [],
       toolType: "development",
-      lab: "lab1",
+      lab: null,
     },
     visibility: "dev",
   },
@@ -125,9 +139,9 @@ export const toolDefinitions = {
     description: "Typography and labeling system testing interface.",
     component: GridLabelTest,
     categories: {
-      topics: ["physical"],
+      topics: [],
       toolType: "development",
-      lab: "lab1",
+      lab: null,
     },
     visibility: "dev",
   },
@@ -137,9 +151,9 @@ export const toolDefinitions = {
     description: "Drag-and-drop interface for creating new modeling tools.",
     component: VisualToolBuilder,
     categories: {
-      topics: ["physical"],
+      topics: [],
       toolType: "development",
-      lab: "lab1",
+      lab: null,
     },
     visibility: "dev",
   },
@@ -237,10 +251,15 @@ export const generateLabCategories = () => {
 
   // Populate tools into categories
   Object.entries(toolDefinitions).forEach(([toolId, tool]) => {
-    const lab = tool.categories.lab;
-    if (categories[lab]) {
-      categories[lab].tools.push(toolId);
-    }
+    // Handle both single 'lab' and multiple 'labs' properties
+    const labs =
+      tool.categories.labs ||
+      (tool.categories.lab ? [tool.categories.lab] : []);
+    labs.forEach((lab) => {
+      if (categories[lab]) {
+        categories[lab].tools.push(toolId);
+      }
+    });
   });
 
   return categories;
