@@ -117,7 +117,7 @@ export const toolDefinitions = {
     categories: {
       topics: [],
       toolType: "calculator",
-      lab: ["lab1", "lab2", "lab3", "lab4"],
+      labs: ["lab1", "lab2", "lab3", "lab4"],
     },
     visibility: "student",
   },
