@@ -18,3 +18,4 @@ export { default as GridWindow } from "./GridWindow";
 export { default as GridVectorField } from "./GridVectorField";
 export { default as GridTimeSeries } from "./GridTimeSeries";
 export { default as GridTableInput } from "./GridTableInput";
+export { default as GridWheelSelector } from "./GridWheelSelector";
