@@ -1,0 +1,16 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">{VARIABLE}</mi>
+  <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">(</mo>
+  <mi mathvariant="italic">t</mi>
+  <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">)</mo>
+  <mo>=</mo>
+  <mn>{INITIAL}</mn>
+  <mo>×</mo>
+  <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">(</mo>
+  <mn>{FACTOR}</mn>
+  <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">)</mo>
+  <msup>
+    <mrow></mrow>
+    <mi mathvariant="italic">t</mi>
+  </msup>
+</math>

@@ -26,32 +26,66 @@ const GridTimeSeries = ({
   const canvasRef = useRef(null);
   const animationIdRef = useRef(null);
 
-  // Generate tick marks based on ranges
+  // Generate tick marks based on ranges with smart formatting
   const generateTicks = (range, numTicks = 6) => {
     const [min, max] = range;
     const step = (max - min) / (numTicks - 1);
-    return Array.from(
-      { length: numTicks },
-      (_, i) => Math.round((min + i * step) * 100) / 100,
-    );
+    return Array.from({ length: numTicks }, (_, i) => {
+      const value = min + i * step;
+      // Format to avoid long decimals
+      if (Math.abs(value) >= 1000) {
+        return Math.round(value);
+      } else if (Math.abs(value) >= 100) {
+        return Math.round(value * 10) / 10;
+      } else if (Math.abs(value) >= 10) {
+        return Math.round(value * 10) / 10;
+      } else {
+        return Math.round(value * 100) / 100;
+      }
+    });
   };
 
   const xTicks = generateTicks(timeRange);
   const yTicks = generateTicks(populationRange);
 
-  // Convert data coordinates to canvas coordinates
+  // Calculate padding to match GridGraph's layout
+  const calculatePadding = useCallback(() => {
+    const maxYTickLength = Math.max(
+      ...yTicks.map((tick) => tick.toString().length),
+    );
+    const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
+    const yAxisLabelWidth = 20;
+    const xTickHeight = 15;
+    const xAxisLabelHeight = 20;
+
+    return {
+      left: yTickWidth + yAxisLabelWidth,
+      right: 15,
+      top: 15,
+      bottom: xTickHeight + xAxisLabelHeight,
+    };
+  }, [yTicks]);
+
+  // Convert data coordinates to canvas coordinates (accounting for padding)
   const dataToCanvas = useCallback(
     (dataX, dataY, canvasWidth, canvasHeight) => {
       const [xMin, xMax] = timeRange;
       const [yMin, yMax] = populationRange;
 
-      const canvasX = ((dataX - xMin) / (xMax - xMin)) * canvasWidth;
+      const padding = calculatePadding();
+      const plotWidth = canvasWidth - padding.left - padding.right;
+      const plotHeight = canvasHeight - padding.top - padding.bottom;
+
+      const canvasX =
+        padding.left + ((dataX - xMin) / (xMax - xMin)) * plotWidth;
       const canvasY =
-        canvasHeight - ((dataY - yMin) / (yMax - yMin)) * canvasHeight;
+        padding.top +
+        plotHeight -
+        ((dataY - yMin) / (yMax - yMin)) * plotHeight;
 
       return [canvasX, canvasY];
     },
-    [timeRange, populationRange],
+    [timeRange, populationRange, calculatePadding],
   );
 
   // Draw time series
@@ -206,7 +240,7 @@ const GridTimeSeries = ({
     });
   }, [series, currentTime, events, showMarkers, dataToCanvas, theme]);
 
-  // Animation loop - NO React dependencies to avoid re-renders
+  // Animation loop - restart when draw function changes
   useEffect(() => {
     const animate = () => {
       draw();
@@ -221,8 +255,7 @@ const GridTimeSeries = ({
         cancelAnimationFrame(animationIdRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array intentional for stable animation loop!
+  }, [draw]); // Restart animation when draw function changes
 
   // Handle window resize - NO React dependencies
   useEffect(() => {

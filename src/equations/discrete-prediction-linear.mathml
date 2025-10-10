@@ -1,0 +1,11 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">{VARIABLE}</mi>
+  <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">(</mo>
+  <mi mathvariant="italic">t</mi>
+  <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">)</mo>
+  <mo>=</mo>
+  <mn>{RATE}</mn>
+  <mi mathvariant="italic">t</mi>
+  <mo>+</mo>
+  <mn>{INITIAL}</mn>
+</math>

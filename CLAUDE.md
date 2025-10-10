@@ -208,9 +208,106 @@ const runSimulation = useCallback(() => {
 - Randomization and probability experiments
 - Interactive "run experiment" workflows
 
+### Pattern D: Study Aide (DiscreteModelingPracticeTool)
+**Best for**: Educational practice tools, randomized problem generation, step-by-step reveals
+
+**Key Characteristics**:
+- **Question Display**: Wide display area for problem description
+- **Progressive Reveals**: Multiple hidden answer sections that can be shown individually
+- **Randomization**: Generate new problems with random parameters
+- **Educational Flow**: Guided discovery with toggle buttons for each section
+- **Tight Layout**: Compact spacing with labels to the left of content areas
+
+**Implementation Pattern**:
+```jsx
+// Study aide state
+const [currentProblem, setCurrentProblem] = useState(null);
+const [showEquation, setShowEquation] = useState(false);
+const [showVariable, setShowVariable] = useState(false);
+const [showPrediction, setShowPrediction] = useState(false);
+const [showGraph, setShowGraph] = useState(false);
+
+// Problem generation logic
+const generateNewProblem = useCallback(() => {
+  // Reset all reveals
+  setShowEquation(false);
+  setShowVariable(false);
+  setShowPrediction(false);
+  setShowGraph(false);
+
+  // Generate randomized problem parameters
+  const containers = ["basket", "house", "bucket"];
+  const things = ["apples", "bicycles", "monkeys"];
+  const container = getRandomElement(containers);
+  const thing = getRandomElement(things);
+  
+  // Create problem object with description and answers
+  setCurrentProblem({
+    description: `Problem description...`,
+    equation: `Mathematical equation`,
+    variable: `Variable definition`,
+    prediction: `Predictive equation`
+  });
+}, []);
+
+// Layout with labels on left, content in middle, buttons on right
+<GridLabel
+  x={0} y={1} w={1} h={1}
+  text="Change Equation"
+  textAlign="left"
+  fontWeight="bold"
+  theme={theme}
+/>
+
+<GridDisplay
+  x={1} y={1} w={6} h={1}
+  variant="info"
+  align="left"
+  theme={theme}
+  style={{ 
+    backgroundColor: showEquation ? 'transparent' : (currentTheme === "dark" ? "#374151" : "#f3f4f6"),
+    color: showEquation ? 'inherit' : 'transparent'
+  }}
+>
+  <div style={{ padding: "4px", fontFamily: "monospace" }}>
+    {currentProblem.equation}
+  </div>
+</GridDisplay>
+
+<GridButton
+  x={8} y={1} w={2} h={1}
+  type="toggle"
+  active={showEquation}
+  onToggle={setShowEquation}
+  theme={theme}
+>
+  <div style={{ fontSize: "14px" }}>
+    {showEquation ? "Hide" : "Reveal"}
+  </div>
+</GridButton>
+```
+
+**When to Use**:
+- Educational practice and drill tools
+- Randomized problem generation
+- Step-by-step learning with guided reveals
+- Study aides with multiple answer components
+- Tools where discovery process is pedagogically important
+
+**Layout Guidelines for Study Aides**:
+- **Tight Spacing**: Use consistent padding (8px) and compact layout
+- **Consistent Typography**: 
+  - GridLabels: `fontSize="large"` for section headers, 2 units wide
+  - GridDisplays: `fontSize="large"` with inner `fontSize: "16px"`
+  - GridButtons: `fontSize: "14px"` for button text
+- **Labels on Left**: Use GridLabel components (w=2) positioned to the left of content
+- **Progressive Disclosure**: Hide content with background color, reveal with toggle buttons
+- **Toggle Functionality**: Use `type="toggle"`, `active={state}`, `onToggle={setState}` pattern
+- **Logical Flow**: Arrange sections in pedagogical order (problem → equation → variable → prediction → graph)
+
 ## Architecture Pattern Guidelines
 
-The three patterns above are **examples and starting points**, not rigid templates. Each tool will likely need its own unique combination of techniques. Use these patterns as inspiration:
+The four patterns above are **examples and starting points**, not rigid templates. Each tool will likely need its own unique combination of techniques. Use these patterns as inspiration:
 
 ### When to Consider Each Approach
 
@@ -234,6 +331,13 @@ The three patterns above are **examples and starting points**, not rigid templat
 - "Run experiment" workflows
 - Statistical counting/analysis
 - Randomization and probability
+
+**Study Aide Techniques** (Pattern D inspiration):
+- Educational practice and drill
+- Randomized problem generation
+- Progressive discovery learning
+- Step-by-step answer reveals
+- Question-answer format tools
 
 ### Mixing Patterns
 Most tools will combine techniques from multiple patterns:

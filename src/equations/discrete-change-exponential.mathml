@@ -1,0 +1,13 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mfrac>
+    <mrow>
+      <mi mathvariant="bold-italic">Δ{VARIABLE}</mi>
+    </mrow>
+    <mrow>
+      <mi mathvariant="bold-italic">Δt</mi>
+    </mrow>
+  </mfrac>
+  <mo>=</mo>
+  <mn>{RATE}</mn>
+  <mi mathvariant="bold-italic">{VARIABLE}</mi>
+</math>

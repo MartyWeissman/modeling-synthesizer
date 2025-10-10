@@ -13,6 +13,8 @@ import ComponentTestTool from "../tools/ComponentTestTool";
 import GridLabelTest from "../tools/GridLabelTest";
 import VisualToolBuilder from "../tools/VisualToolBuilder";
 import LinearRegressionLogScalingTool from "../tools/LinearRegressionLogScalingTool";
+import DiscreteModelingPracticeTool from "../tools/DiscreteModelingPracticeTool";
+import TrajectoryTimeSeriesPracticeTool from "../tools/TrajectoryTimeSeriesPracticeTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -167,6 +169,32 @@ export const toolDefinitions = {
     categories: {
       topics: [],
       toolType: "calculator",
+      lab: null,
+    },
+    visibility: "student",
+  },
+
+  "discrete-modeling-practice": {
+    name: "Discrete Modeling Practice",
+    description:
+      "Interactive study aide for practicing discrete-time modeling with randomized linear and exponential growth scenarios.",
+    component: DiscreteModelingPracticeTool,
+    categories: {
+      topics: [],
+      toolType: "study",
+      lab: null,
+    },
+    visibility: "student",
+  },
+
+  "trajectory-time-series-practice": {
+    name: "Trajectory & Time Series Practice",
+    description:
+      "Interactive study aide for understanding the relationship between trajectory plots and time series plots in population dynamics.",
+    component: TrajectoryTimeSeriesPracticeTool,
+    categories: {
+      topics: [],
+      toolType: "study",
       lab: null,
     },
     visibility: "student",

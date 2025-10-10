@@ -16,6 +16,8 @@ const GridGraph = React.memo(
     yLabel = "sharks",
     xUnit = "", // e.g., "hours", "seconds"
     yUnit = "", // e.g., "mg", "units"
+    xLabelColor = null, // Optional custom color for x-axis label
+    yLabelColor = null, // Optional custom color for y-axis label
     variant = "default", // "default", "time-series-static", "time-series-dynamic"
 
     xTicks = [], // Array of tick positions for x-axis
@@ -347,7 +349,9 @@ const GridGraph = React.memo(
                 justifyContent: "center",
                 fontSize: "13px",
                 ...getFontStyle("mono", "500"),
-                color: theme.text?.includes("gray-100") ? "#ffffff" : "#000000",
+                color:
+                  xLabelColor ||
+                  (theme.text?.includes("gray-100") ? "#ffffff" : "#000000"),
               }}
             >
               {formatAxisLabel(xLabel, xUnit)}
@@ -367,7 +371,9 @@ const GridGraph = React.memo(
                 transform: "rotate(-90deg)",
                 fontSize: "13px",
                 ...getFontStyle("mono", "500"),
-                color: theme.text?.includes("gray-100") ? "#ffffff" : "#000000",
+                color:
+                  yLabelColor ||
+                  (theme.text?.includes("gray-100") ? "#ffffff" : "#000000"),
                 whiteSpace: "nowrap",
               }}
             >
