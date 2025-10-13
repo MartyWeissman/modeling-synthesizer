@@ -15,6 +15,7 @@ import VisualToolBuilder from "../tools/VisualToolBuilder";
 import LinearRegressionLogScalingTool from "../tools/LinearRegressionLogScalingTool";
 import DiscreteModelingPracticeTool from "../tools/DiscreteModelingPracticeTool";
 import TrajectoryTimeSeriesPracticeTool from "../tools/TrajectoryTimeSeriesPracticeTool";
+import SelfInteractionSimulatorTool from "../tools/SelfInteractionSimulatorTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -196,6 +197,19 @@ export const toolDefinitions = {
       topics: [],
       toolType: "study",
       lab: null,
+    },
+    visibility: "student",
+  },
+
+  "self-interaction-simulator": {
+    name: "Self-Interaction Simulator",
+    description:
+      "Particle collision simulator showing random motion and interactions in a circular space. Track collision frequency over time.",
+    component: SelfInteractionSimulatorTool,
+    categories: {
+      topics: ["physical"],
+      toolType: "simulation",
+      lab: "lab5",
     },
     visibility: "student",
   },

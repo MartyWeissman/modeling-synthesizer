@@ -42,8 +42,18 @@ const GridInput = ({
   const isUnicornMode = theme.text.includes("purple-800");
   const currentTexture = isDarkMode ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE;
 
-  // Calculate appropriate decimal places based on range
+  // Get arrow button colors based on theme
+  const arrowColor = isUnicornMode
+    ? "#7c3aed"
+    : isDarkMode
+      ? "#ffffff"
+      : "#000000";
+
+  // Calculate appropriate decimal places based on range and step
   const getDecimalPlaces = () => {
+    // If step is 1 or greater (integer step), use 0 decimals
+    if (step >= 1) return 0;
+
     const range = max - min;
     if (range >= 100) return 0; // 1-999: no decimals
     if (range >= 10) return 1; // 10-99: 1 decimal
@@ -320,9 +330,7 @@ const GridInput = ({
                   background: isUnicornMode
                     ? "rgba(196,181,253,0.1)"
                     : theme.component,
-                  color: isUnicornMode
-                    ? "#7c3aed"
-                    : theme.text.split(" ")[0].replace("text-", ""),
+                  color: arrowColor,
                   borderColor: isUnicornMode
                     ? "rgba(236,72,153,0.2)"
                     : "rgba(0,0,0,0.1)",
@@ -346,9 +354,7 @@ const GridInput = ({
                   background: isUnicornMode
                     ? "rgba(196,181,253,0.1)"
                     : theme.component,
-                  color: isUnicornMode
-                    ? "#7c3aed"
-                    : theme.text.split(" ")[0].replace("text-", ""),
+                  color: arrowColor,
                   borderColor: isUnicornMode
                     ? "rgba(236,72,153,0.2)"
                     : "rgba(0,0,0,0.1)",

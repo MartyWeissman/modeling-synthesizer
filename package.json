@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "license": "MIT",
+  "author": "Martin H. Weissman",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

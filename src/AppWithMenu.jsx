@@ -15,7 +15,13 @@ const ThemeSelector = () => {
 
   return (
     <div className="flex gap-2 items-center mb-6">
-      <span className="text-sm font-medium opacity-75">Theme:</span>
+      <span
+        className={`text-sm font-medium opacity-75 ${
+          currentTheme === "dark" ? "text-gray-200" : ""
+        }`}
+      >
+        Theme:
+      </span>
       {Object.keys(themes).map((themeKey) => (
         <button
           key={themeKey}
