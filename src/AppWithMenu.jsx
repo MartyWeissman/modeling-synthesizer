@@ -5,6 +5,7 @@ import React, { useState, useEffect } from "react";
 import { ThemeProvider } from "./components/ui/ThemeProvider";
 import { useTheme } from "./hooks/useTheme";
 import ToolMenu from "./components/ui/ToolMenu";
+import Footer from "./components/ui/Footer";
 
 // Import centralized tool system
 import { getToolsByVisibility, getToolById } from "./data/tools";
@@ -150,6 +151,9 @@ const AppContent = () => {
             <p className={`text-lg ${theme.text} opacity-75`}>Tool not found</p>
           </div>
         )}
+
+        {/* Footer with license */}
+        <Footer />
 
         {/* Dev mode indicator */}
         {isDevMode && (

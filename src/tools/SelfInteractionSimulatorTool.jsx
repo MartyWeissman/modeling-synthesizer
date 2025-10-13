@@ -5,9 +5,11 @@ import {
   GridInput,
   GridDisplay,
   GridLabel,
+  GridSound,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { useSoundEffects } from "../hooks/useSoundEffects";
 
 // Constants
 const PARTICLE_SIZE = 10;
@@ -137,6 +139,10 @@ class Firework {
 const SelfInteractionSimulatorTool = () => {
   const { theme, currentTheme } = useTheme();
 
+  // Sound effects
+  const { volume, setVolume, isEnabled, setIsEnabled, collisionPing } =
+    useSoundEffects();
+
   // State
   const [numParticles, setNumParticles] = useState(10);
   const [isRunning, setIsRunning] = useState(false);
@@ -210,10 +216,13 @@ const SelfInteractionSimulatorTool = () => {
           const midY = (particles[i].y + particles[j].y) / 2;
           fireworks.push(new Firework(midX, midY));
           setHits(hitsCountRef.current);
+
+          // Play collision sound (rate-limited automatically)
+          collisionPing();
         }
       }
     }
-  }, []);
+  }, [collisionPing]);
 
   // Animation loop
   const animate = useCallback(
@@ -519,6 +528,16 @@ const SelfInteractionSimulatorTool = () => {
           </div>
         </div>
       </GridDisplay>
+
+      {/* Sound Control */}
+      <GridSound
+        x={6}
+        y={3}
+        theme={theme}
+        onVolumeChange={setVolume}
+        onEnabledChange={setIsEnabled}
+        title="Collision sound effects"
+      />
     </ToolContainer>
   );
 };
