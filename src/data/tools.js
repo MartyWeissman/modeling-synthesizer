@@ -16,6 +16,7 @@ import LinearRegressionLogScalingTool from "../tools/LinearRegressionLogScalingT
 import DiscreteModelingPracticeTool from "../tools/DiscreteModelingPracticeTool";
 import TrajectoryTimeSeriesPracticeTool from "../tools/TrajectoryTimeSeriesPracticeTool";
 import SelfInteractionSimulatorTool from "../tools/SelfInteractionSimulatorTool";
+import LogisticGrowthTool from "../tools/LogisticGrowthTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -210,6 +211,19 @@ export const toolDefinitions = {
       topics: ["physical"],
       toolType: "simulation",
       lab: "lab5",
+    },
+    visibility: "student",
+  },
+
+  "logistic-growth": {
+    name: "Logistic Growth Model Explorer",
+    description:
+      "Explore logistic population growth with carrying capacity. Fit model parameters to data and visualize residuals to understand sigmoid growth curves.",
+    component: LogisticGrowthTool,
+    categories: {
+      topics: ["ecology"],
+      toolType: "simulation",
+      lab: "lab2",
     },
     visibility: "student",
   },
