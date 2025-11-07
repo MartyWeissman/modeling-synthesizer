@@ -16,6 +16,7 @@ import LinearRegressionLogScalingTool from "../tools/LinearRegressionLogScalingT
 import DiscreteModelingPracticeTool from "../tools/DiscreteModelingPracticeTool";
 import TrajectoryTimeSeriesPracticeTool from "../tools/TrajectoryTimeSeriesPracticeTool";
 import SelfInteractionSimulatorTool from "../tools/SelfInteractionSimulatorTool";
+import LogisticGrowthExplorerTool from "../tools/LogisticGrowthExplorerTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -207,9 +208,22 @@ export const toolDefinitions = {
       "Particle collision simulator showing random motion and interactions in a circular space. Track collision frequency over time.",
     component: SelfInteractionSimulatorTool,
     categories: {
-      topics: ["physical"],
+      topics: [],
       toolType: "simulation",
-      lab: "lab5",
+      lab: "lab3",
+    },
+    visibility: "student",
+  },
+
+  "logistic-growth-explorer": {
+    name: "Logistic Growth Explorer",
+    description:
+      "Interactive tool for exploring logistic growth dynamics with data fitting. Adjust carrying capacity, growth rate, and time shift to match experimental population data.",
+    component: LogisticGrowthExplorerTool,
+    categories: {
+      topics: ["ecology"],
+      toolType: "explorer",
+      lab: "lab3",
     },
     visibility: "student",
   },

@@ -309,7 +309,10 @@ const GridInput = ({
                 fontSize: "13px", // Increased from 11px by 2 points
                 background: isUnicornMode ? "rgba(196,181,253,0.1)" : undefined,
               }}
-              maxLength={decimalPlaces > 0 ? 4 : 3} // Accommodate decimal point
+              maxLength={Math.max(
+                max.toString().length,
+                decimalPlaces > 0 ? 4 : 3,
+              )} // Based on max value
             />
 
             {/* Up/Down arrows */}

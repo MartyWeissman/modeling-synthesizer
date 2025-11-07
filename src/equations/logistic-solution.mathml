@@ -1,0 +1,44 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">P</mi>
+  <mo stretchy="false">(</mo>
+  <mi>t</mi>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <mfrac>
+    <mrow>
+      <mi mathvariant="bold-italic">C</mi>
+      <msup>
+        <mi>e</mi>
+        <mrow>
+          <mi>β</mi>
+          <mo stretchy="false">(</mo>
+          <mi>t</mi>
+          <mo>−</mo>
+          <msub>
+            <mi>t</mi>
+            <mn>0</mn>
+          </msub>
+          <mo stretchy="false">)</mo>
+        </mrow>
+      </msup>
+    </mrow>
+    <mrow>
+      <mn>1</mn>
+      <mo>+</mo>
+      <msup>
+        <mi>e</mi>
+        <mrow>
+          <mi>β</mi>
+          <mo stretchy="false">(</mo>
+          <mi>t</mi>
+          <mo>−</mo>
+          <msub>
+            <mi>t</mi>
+            <mn>0</mn>
+          </msub>
+          <mo stretchy="false">)</mo>
+        </mrow>
+      </msup>
+    </mrow>
+  </mfrac>
+</math>

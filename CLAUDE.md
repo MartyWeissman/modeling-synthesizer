@@ -741,6 +741,107 @@ const [param, setParam] = useState(1.0);  // Default value
 
 ## Component Design Rules
 
+### GridGraph Child Elements for Model Visualization
+
+**Critical Pattern**: Lines, nullclines, equilibrium points, and other model-specific visual elements that align with axes **MUST be GridGraph child elements**, not drawn on canvas with manual coordinate calculations.
+
+**Why This Matters**:
+- GridGraph has internal padding calculations that vary based on tick label lengths
+- Canvas overlay positioning is complex and error-prone
+- GridGraph provides exact coordinate transformation functions
+- Alignment issues are nearly impossible to fix with manual canvas calculations
+
+**The Correct Pattern** (LogisticGrowthExplorerTool carrying capacity line):
+
+```jsx
+<GridGraph
+  x={2} y={0} w={7} h={6}
+  xLabel="Time (t)" yLabel="Population (P)"
+  xRange={tRange} yRange={PRange}
+  xTicks={xTicks} yTicks={yTicks}
+  theme={theme}
+>
+  {/* Model element positioned by GridGraph's coordinate system */}
+  {(() => {
+    // Calculate GridGraph's internal dimensions (same as GridGraph does)
+    const maxYTickLength = Math.max(...yTicks.map(t => t.toString().length));
+    const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
+    const yAxisLabelWidth = 20;
+    const dynamicPaddingBottom = 35;
+    const dynamicPaddingLeft = yTickWidth + yAxisLabelWidth;
+    const dynamicPaddingRight = 15;
+    const dynamicPaddingTop = 15;
+    
+    // Graph dimensions (w cells * 100px - 16px for component padding)
+    const graphWidth = 7 * 100 - 16;
+    const graphHeight = 6 * 100 - 16;
+    const axisWidth = graphWidth - dynamicPaddingLeft - dynamicPaddingRight;
+    const axisHeight = graphHeight - dynamicPaddingTop - dynamicPaddingBottom;
+    
+    // Data to pixel transformation (SAME as GridGraph's dataToPixel)
+    const [pMin, pMax] = PRange;
+    const yPos = ((C - pMin) / (pMax - pMin)) * axisHeight;
+    
+    return (
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          left: `${dynamicPaddingLeft}px`,
+          bottom: `${dynamicPaddingBottom + yPos}px`,
+          width: `${axisWidth}px`,
+          height: '2px',
+          borderTop: `2px dashed ${currentTheme === "dark" ? "#4ade80" : "#16a34a"}`,
+        }}
+      />
+    );
+  })()}
+  
+  {/* Canvas for dynamic elements (trajectories, particles, etc.) */}
+  <canvas ref={canvasRef} className="absolute" 
+    style={{ left: 1, bottom: 1, width: "calc(100% - 2px)", height: "calc(100% - 2px)" }}
+  />
+</GridGraph>
+```
+
+**Key Implementation Details**:
+
+1. **Padding Calculation** - Must match GridGraph exactly:
+   ```jsx
+   const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);  // 6px per char
+   const yAxisLabelWidth = 20;
+   const dynamicPaddingBottom = 35;  // 15 tick labels + 20 axis label
+   ```
+
+2. **Graph Dimensions** - Account for component padding:
+   ```jsx
+   const graphWidth = w * 100 - 16;   // 8px padding each side
+   const graphHeight = h * 100 - 16;
+   ```
+
+3. **Data Transformation** - Same formula as GridGraph's `dataToPixel`:
+   ```jsx
+   const yPos = ((value - dataMin) / (dataMax - dataMin)) * axisHeight;
+   ```
+
+4. **Positioning** - Use GridGraph's coordinate system:
+   ```jsx
+   left: `${dynamicPaddingLeft}px`,
+   bottom: `${dynamicPaddingBottom + yPos}px`,
+   ```
+
+**When to Use This Pattern**:
+- ✅ Horizontal/vertical lines at specific data values (carrying capacity, thresholds)
+- ✅ Nullclines (curves where derivatives equal zero)
+- ✅ Equilibrium points (fixed points in phase space)
+- ✅ Isoclines or other mathematical curves aligned with axes
+- ❌ NOT for dynamic animated elements (use canvas for those)
+
+**Benefits**:
+- Perfect pixel-accurate alignment with tick marks
+- Automatically adapts to theme changes
+- No coordinate transformation bugs
+- Cleaner separation: GridGraph positions static model elements, canvas handles animation
+
 ### Parameter Control Selection
 
 **GridInput vs GridSlider Decision Matrix**:
