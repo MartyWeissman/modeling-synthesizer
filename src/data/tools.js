@@ -17,6 +17,7 @@ import DiscreteModelingPracticeTool from "../tools/DiscreteModelingPracticeTool"
 import TrajectoryTimeSeriesPracticeTool from "../tools/TrajectoryTimeSeriesPracticeTool";
 import SelfInteractionSimulatorTool from "../tools/SelfInteractionSimulatorTool";
 import LogisticGrowthExplorerTool from "../tools/LogisticGrowthExplorerTool";
+import GeneralizedLotkaVolterraTool from "../tools/GeneralizedLotkaVolterraTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -224,6 +225,19 @@ export const toolDefinitions = {
       topics: ["ecology"],
       toolType: "explorer",
       lab: "lab3",
+    },
+    visibility: "student",
+  },
+
+  "generalized-lotka-volterra": {
+    name: "Generalized Lotka-Volterra Model",
+    description:
+      "Explore general two-species population dynamics with customizable growth, competition, and interaction parameters. Includes phase portraits, nullclines, and time series analysis.",
+    component: GeneralizedLotkaVolterraTool,
+    categories: {
+      topics: ["ecology"],
+      toolType: "simulation",
+      lab: "lab4",
     },
     visibility: "student",
   },

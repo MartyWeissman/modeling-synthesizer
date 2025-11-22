@@ -1,0 +1,17 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">Q</mi>
+  <mo>′</mo>
+  <mo>=</mo>
+  <mi mathvariant="italic">β</mi>
+  <mi mathvariant="bold-italic">Q</mi>
+  <mo>−</mo>
+  <mi mathvariant="italic">δ</mi>
+  <msup>
+    <mi mathvariant="bold-italic">Q</mi>
+    <mn>2</mn>
+  </msup>
+  <mo>+</mo>
+  <mi mathvariant="italic">v</mi>
+  <mi mathvariant="bold-italic">P</mi>
+  <mi mathvariant="bold-italic">Q</mi>
+</math>
