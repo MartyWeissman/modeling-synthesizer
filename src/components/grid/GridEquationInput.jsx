@@ -47,8 +47,8 @@ const GridEquationInput = React.memo(
       if (!equation.trim()) return true; // Empty is valid
 
       // Allow letters (for X, Y, sin, cos, tan, sqrt, exp, log, abs, pow, pi, e)
-      // numbers, operators, parentheses, and basic punctuation
-      const validPattern = /^[A-Za-z0-9\+\-\*\/\(\)\.\s\^]+$/;
+      // numbers, operators, parentheses, underscores (for X_tau), and basic punctuation
+      const validPattern = /^[A-Za-z0-9_\+\-\*\/\(\)\.\s\^]+$/;
       return validPattern.test(equation);
     };
 

@@ -28,10 +28,12 @@ const OneDimensionalCalculator = () => {
   const [k, setK] = useState(0.5);
   const [xMin, setXMin] = useState(-0.5);
   const [xMax, setXMax] = useState(1.5);
+  const [tau, setTau] = useState(0);
   const [showDerivativePlot, setShowDerivativePlot] = useState(false);
 
   // Dynamical system and analysis
   const [dynamicalSystem, setDynamicalSystem] = useState(null);
+  const [equilibriumSystem, setEquilibriumSystem] = useState(null);
   const [phaseLineAnalysis, setPhaseLineAnalysis] = useState(null);
   const [degenerateIntervals, setDegenerateIntervals] = useState([]);
   const [equationError, setEquationError] = useState("");
@@ -44,34 +46,70 @@ const OneDimensionalCalculator = () => {
 
   // Animation state - pure refs for smooth performance
   const animationStateRef = useRef({
-    balls: [], // Array of {id, x, t, history: [{t, x}]}
+    balls: [], // Array of {id, x, t, history: [{t, x}], active: boolean}
     animationId: null,
     isRunning: false,
-    params: { k },
+    params: { k, tau },
     nextBallId: 0,
   });
 
   // Sync UI params to animation state
   useEffect(() => {
-    animationStateRef.current.params = { k };
-  }, [k]);
+    animationStateRef.current.params = { k, tau };
+  }, [k, tau]);
 
-  // RK4 integration for 1D system
+  // RK4 integration for 1D system with delay support
   const rk4Step = useCallback(
-    (x, dt, params) => {
-      if (!dynamicalSystem || !dynamicalSystem.isValidSystem()) return x;
+    (history, dt, params) => {
+      if (!dynamicalSystem || !dynamicalSystem.isValidSystem()) {
+        return history[history.length - 1].x;
+      }
 
-      const k1 = dynamicalSystem.evaluateDerivative(x, params);
-      const k2 = dynamicalSystem.evaluateDerivative(x + 0.5 * dt * k1, params);
-      const k3 = dynamicalSystem.evaluateDerivative(x + 0.5 * dt * k2, params);
-      const k4 = dynamicalSystem.evaluateDerivative(x + dt * k3, params);
+      const currentX = history[history.length - 1].x;
+      const tau = params.tau || 0;
 
-      return x + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+      // Helper to get delayed value X(t - tau)
+      const getDelayedX = (currentHistory) => {
+        if (tau === 0) return currentX;
+
+        // Find the index that's approximately tau seconds ago
+        // Since dt = 0.05, we need to look back tau/dt steps
+        const stepsBack = Math.round(tau / dt);
+        const index = currentHistory.length - 1 - stepsBack;
+
+        if (index < 0) {
+          // If we don't have enough history, use the initial value
+          return currentHistory[0].x;
+        }
+
+        return currentHistory[index].x;
+      };
+
+      // For delay equations, we pass X_tau as a separate parameter
+      // The equation can use X_tau to refer to X(t - tau)
+      const xDelayed = getDelayedX(history);
+      const evalParams = { ...params, X_tau: xDelayed };
+
+      const k1 = dynamicalSystem.evaluateDerivative(currentX, evalParams);
+      const k2 = dynamicalSystem.evaluateDerivative(
+        currentX + 0.5 * dt * k1,
+        evalParams,
+      );
+      const k3 = dynamicalSystem.evaluateDerivative(
+        currentX + 0.5 * dt * k2,
+        evalParams,
+      );
+      const k4 = dynamicalSystem.evaluateDerivative(
+        currentX + dt * k3,
+        evalParams,
+      );
+
+      return currentX + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
     },
     [dynamicalSystem],
   );
 
-  // Draw balls on phase line
+  // Draw balls on phase line (only those within extended bounds)
   const drawBalls = useCallback(
     (canvas, ctx) => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -90,9 +128,45 @@ const OneDimensionalCalculator = () => {
         ((x - xMinExtended) / (xMaxExtended - xMinExtended)) * drawableWidth;
 
       const state = animationStateRef.current;
+      const tau = state.params.tau || 0;
+      const dt = 0.05;
 
-      // Draw each ball as a shaded sphere
+      // Draw each ball as a shaded sphere - only if within extended viewport bounds
       state.balls.forEach((ball) => {
+        // Draw ghost ball at X(t - tau) position if tau > 0 and ball is active
+        if (tau > 0 && ball.active && ball.history.length > 1) {
+          const stepsBack = Math.round(tau / dt);
+          const delayedIndex = Math.max(0, ball.history.length - 1 - stepsBack);
+          const delayedX = ball.history[delayedIndex].x;
+
+          // Only draw ghost if within extended bounds
+          if (delayedX >= xMinExtended && delayedX <= xMaxExtended) {
+            const ghostPixelX = xToPixel(delayedX);
+            const ghostRadius = 10;
+
+            // Light gray ghost ball with subtle gradient
+            const ghostGradient = ctx.createRadialGradient(
+              ghostPixelX - ghostRadius * 0.3,
+              centerY - ghostRadius * 0.3,
+              ghostRadius * 0.1,
+              ghostPixelX,
+              centerY,
+              ghostRadius,
+            );
+            ghostGradient.addColorStop(0, "rgba(200, 200, 200, 0.6)");
+            ghostGradient.addColorStop(0.4, "rgba(160, 160, 160, 0.5)");
+            ghostGradient.addColorStop(1, "rgba(120, 120, 120, 0.4)");
+
+            ctx.beginPath();
+            ctx.arc(ghostPixelX, centerY, ghostRadius, 0, 2 * Math.PI);
+            ctx.fillStyle = ghostGradient;
+            ctx.fill();
+          }
+        }
+
+        // Draw main ball - only if within the extended bounds
+        if (ball.x < xMinExtended || ball.x > xMaxExtended) return;
+
         const pixelX = xToPixel(ball.x);
         const radius = 10;
 
@@ -216,26 +290,40 @@ const OneDimensionalCalculator = () => {
     const dt = 0.05;
     const params = state.params;
 
-    // Calculate 10% extended bounds (matching phase line display)
+    // Calculate extended bounds (10% padding on each side)
     const xRange = xMax - xMin;
     const xMinExtended = xMin - 0.1 * xRange;
     const xMaxExtended = xMax + 0.1 * xRange;
 
     // Update each ball
     state.balls = state.balls.map((ball) => {
-      // Check if ball is out of bounds (using 10% extension like phase line)
-      if (ball.x < xMinExtended || ball.x > xMaxExtended || ball.t > 10) {
-        return ball; // Stop updating if out of bounds
+      // Skip updating if ball is no longer active
+      if (!ball.active) {
+        return ball;
       }
 
-      const newX = rk4Step(ball.x, dt, params);
+      const newX = rk4Step(ball.history, dt, params);
       const newT = ball.t + dt;
+
+      // Check termination conditions
+      let stillActive = true;
+
+      // Terminate if time exceeds 10
+      if (newT >= 10) {
+        stillActive = false;
+      }
+
+      // Terminate if X escapes extended bounds [xMinExtended, xMaxExtended]
+      if (newX < xMinExtended || newX > xMaxExtended) {
+        stillActive = false;
+      }
 
       return {
         ...ball,
         x: newX,
         t: newT,
         history: [...ball.history, { t: newT, x: newX }],
+        active: stillActive,
       };
     });
 
@@ -248,6 +336,17 @@ const OneDimensionalCalculator = () => {
     if (timeSeriesCanvasRef.current) {
       const ctx = timeSeriesCanvasRef.current.getContext("2d");
       drawTimeSeries(timeSeriesCanvasRef.current, ctx);
+    }
+
+    // Stop animation if no active balls remain
+    const hasActiveBalls = state.balls.some((ball) => ball.active);
+    if (!hasActiveBalls) {
+      state.isRunning = false;
+      if (state.animationId) {
+        cancelAnimationFrame(state.animationId);
+        state.animationId = null;
+      }
+      return;
     }
 
     state.animationId = requestAnimationFrame(animationLoop);
@@ -303,6 +402,7 @@ const OneDimensionalCalculator = () => {
         x: x,
         t: 0,
         history: [{ t: 0, x: x }],
+        active: true,
       };
 
       state.balls.push(newBall);
@@ -358,7 +458,8 @@ const OneDimensionalCalculator = () => {
   // Update dynamical system when equation changes
   useEffect(() => {
     try {
-      const system = new DynamicalSystem1D(equation, ["k"]);
+      // Include X_tau as a potential parameter for delay equations
+      const system = new DynamicalSystem1D(equation, ["k", "X_tau"]);
       setDynamicalSystem(system);
 
       if (system.isValidSystem()) {
@@ -375,21 +476,40 @@ const OneDimensionalCalculator = () => {
   // Update phase line analysis when system or parameters change
   useEffect(() => {
     if (dynamicalSystem && dynamicalSystem.isValidSystem()) {
-      const analysis = analyzePhaseLine1D(dynamicalSystem, { k }, xMin, xMax);
-      setPhaseLineAnalysis(analysis);
+      // For equilibrium analysis, replace X_tau with X (equilibrium condition)
+      const equilibriumEquation = equation.replace(/X_tau/g, "X");
 
-      const intervals = findDegenerateIntervals1D(
-        dynamicalSystem,
-        { k },
-        xMin,
-        xMax,
-      );
-      setDegenerateIntervals(intervals);
+      try {
+        const eqSystem = new DynamicalSystem1D(equilibriumEquation, ["k"]);
+        setEquilibriumSystem(eqSystem);
+
+        if (eqSystem.isValidSystem()) {
+          const analysis = analyzePhaseLine1D(eqSystem, { k }, xMin, xMax);
+          setPhaseLineAnalysis(analysis);
+
+          const intervals = findDegenerateIntervals1D(
+            eqSystem,
+            { k },
+            xMin,
+            xMax,
+          );
+          setDegenerateIntervals(intervals);
+        } else {
+          setPhaseLineAnalysis(null);
+          setDegenerateIntervals([]);
+        }
+      } catch (error) {
+        // If equilibrium system fails, no phase line analysis
+        setEquilibriumSystem(null);
+        setPhaseLineAnalysis(null);
+        setDegenerateIntervals([]);
+      }
     } else {
+      setEquilibriumSystem(null);
       setPhaseLineAnalysis(null);
       setDegenerateIntervals([]);
     }
-  }, [dynamicalSystem, k, xMin, xMax]);
+  }, [dynamicalSystem, equation, k, xMin, xMax]);
 
   // Draw background X' plot
   const drawDerivativePlot = useCallback(
@@ -398,7 +518,7 @@ const OneDimensionalCalculator = () => {
       ctx.clearRect(0, 0, width, height);
 
       if (!showDerivativePlot) return;
-      if (!dynamicalSystem || !dynamicalSystem.isValidSystem()) return;
+      if (!equilibriumSystem || !equilibriumSystem.isValidSystem()) return;
       if (!phaseLineAnalysis) return;
 
       const xRange = xMax - xMin;
@@ -420,7 +540,7 @@ const OneDimensionalCalculator = () => {
       let maxAbsDerivative = 0;
       for (let i = 0; i <= numSamples; i++) {
         const x = xMin + i * dx;
-        const derivative = dynamicalSystem.evaluateDerivative(x, { k });
+        const derivative = equilibriumSystem.evaluateDerivative(x, { k });
         if (isFinite(derivative)) {
           maxAbsDerivative = Math.max(maxAbsDerivative, Math.abs(derivative));
         }
@@ -452,7 +572,7 @@ const OneDimensionalCalculator = () => {
         const points = [];
         for (let j = 0; j <= regionSamples; j++) {
           const x = regionStart + j * regionDx;
-          const derivative = dynamicalSystem.evaluateDerivative(x, { k });
+          const derivative = equilibriumSystem.evaluateDerivative(x, { k });
           if (isFinite(derivative)) {
             points.push({ x, derivative });
           }
@@ -486,7 +606,7 @@ const OneDimensionalCalculator = () => {
       showDerivativePlot,
       phaseLineAnalysis,
       degenerateIntervals,
-      dynamicalSystem,
+      equilibriumSystem,
       k,
       xMin,
       xMax,
@@ -632,8 +752,8 @@ const OneDimensionalCalculator = () => {
       // Draw directional arrows
       if (
         showDerivativePlot &&
-        dynamicalSystem &&
-        dynamicalSystem.isValidSystem() &&
+        equilibriumSystem &&
+        equilibriumSystem.isValidSystem() &&
         phaseLineAnalysis
       ) {
         const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
@@ -649,7 +769,7 @@ const OneDimensionalCalculator = () => {
 
         if (equilibriumXValues.length === 0) {
           const midpoint = (xMin + xMax) / 2;
-          const derivative = dynamicalSystem.evaluateDerivative(midpoint, {
+          const derivative = equilibriumSystem.evaluateDerivative(midpoint, {
             k,
           });
           if (isFinite(derivative) && Math.abs(derivative) > 1e-10) {
@@ -661,7 +781,7 @@ const OneDimensionalCalculator = () => {
         } else {
           if (equilibriumXValues[0] > xMin) {
             const leftEdge = xMin;
-            const derivative = dynamicalSystem.evaluateDerivative(leftEdge, {
+            const derivative = equilibriumSystem.evaluateDerivative(leftEdge, {
               k,
             });
             if (isFinite(derivative) && Math.abs(derivative) > 1e-10) {
@@ -675,7 +795,7 @@ const OneDimensionalCalculator = () => {
           for (let i = 0; i < equilibriumXValues.length - 1; i++) {
             const midpoint =
               (equilibriumXValues[i] + equilibriumXValues[i + 1]) / 2;
-            const derivative = dynamicalSystem.evaluateDerivative(midpoint, {
+            const derivative = equilibriumSystem.evaluateDerivative(midpoint, {
               k,
             });
             if (isFinite(derivative) && Math.abs(derivative) > 1e-10) {
@@ -688,7 +808,7 @@ const OneDimensionalCalculator = () => {
 
           if (equilibriumXValues[equilibriumXValues.length - 1] < xMax) {
             const rightEdge = xMax;
-            const derivative = dynamicalSystem.evaluateDerivative(rightEdge, {
+            const derivative = equilibriumSystem.evaluateDerivative(rightEdge, {
               k,
             });
             if (isFinite(derivative) && Math.abs(derivative) > 1e-10) {
@@ -815,6 +935,19 @@ const OneDimensionalCalculator = () => {
       drawPhaseLine(phaseLineCanvasRef.current, ctx);
     }
   }, [drawPhaseLine]);
+
+  // Redraw balls and time series when parameters change or canvases are reinitialized
+  useEffect(() => {
+    if (ballCanvasRef.current) {
+      const ctx = ballCanvasRef.current.getContext("2d");
+      drawBalls(ballCanvasRef.current, ctx);
+    }
+
+    if (timeSeriesCanvasRef.current) {
+      const ctx = timeSeriesCanvasRef.current.getContext("2d");
+      drawTimeSeries(timeSeriesCanvasRef.current, ctx);
+    }
+  }, [drawBalls, drawTimeSeries, showDerivativePlot, k, xMin, xMax, tau]);
 
   return (
     <ToolContainer
@@ -1064,7 +1197,7 @@ const OneDimensionalCalculator = () => {
         label="Equation"
         variable="X'"
         placeholder="e.g., k*X*(1-X)"
-        tooltip="Enter equation for X' = f(X, k)"
+        tooltip="Enter equation for X' = f(X, k). Use X_tau for X(t-τ)"
         theme={theme}
         fontSize="sm"
       />
@@ -1139,6 +1272,20 @@ const OneDimensionalCalculator = () => {
         </div>
       </GridButton>
 
+      {/* Time delay tau slider (2x1) - beneath Xmin/Xmax */}
+      <GridSliderHorizontal
+        x={6}
+        y={3}
+        w={2}
+        h={1}
+        value={tau * 100}
+        onChange={(value) => setTau(value / 100)}
+        variant="unipolar"
+        label={`Delay τ = ${tau.toFixed(2)}`}
+        tooltip="Time delay τ (0 to 1)"
+        theme={theme}
+      />
+
       {/* Clear Plots button */}
       <GridButton
         x={8}
@@ -1208,6 +1355,23 @@ const OneDimensionalCalculator = () => {
                   <div style={{ fontSize: "0.85em" }}>
                     Equilibria: {phaseLineAnalysis.equilibria.length}
                   </div>
+                  {tau > 0 && (
+                    <>
+                      <div style={{ fontSize: "0.85em", marginTop: "2px" }}>
+                        Delay parameter τ = {tau.toFixed(2)}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.75em",
+                          marginTop: "2px",
+                          fontStyle: "italic",
+                          opacity: 0.8,
+                        }}
+                      >
+                        Use "X_tau" in formula for delay variable.
+                      </div>
+                    </>
+                  )}
                   <div style={{ fontSize: "0.85em", marginTop: "2px" }}>
                     {phaseLineAnalysis.equilibria.map((eq, i) => (
                       <div key={i}>
