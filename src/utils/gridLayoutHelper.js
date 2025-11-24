@@ -10,6 +10,22 @@
 export const CELL_SIZE = 100;
 
 /**
+ * Convert data coordinates to pixel coordinates
+ * This matches GridGraph's internal dataToPixel function
+ * @param {number} value - Data value to convert
+ * @param {[number, number]} range - Data range [min, max]
+ * @param {[number, number]} pixelRange - Pixel range [min, max]
+ * @returns {number} Pixel coordinate
+ */
+export const dataToPixel = (value, range, pixelRange) => {
+  const [dataMin, dataMax] = range;
+  const [pixelMin, pixelMax] = pixelRange;
+  return (
+    pixelMin + ((value - dataMin) / (dataMax - dataMin)) * (pixelMax - pixelMin)
+  );
+};
+
+/**
  * Represents a component placement on the grid
  * @typedef {Object} GridComponent
  * @property {number} x - X position (grid units)
@@ -30,8 +46,13 @@ export const CELL_SIZE = 100;
  * @param {string} [type] - Component type
  * @returns {GridComponent}
  */
-export const createComponent = (x, y, w = 1, h = 1, name = '', type = '') => ({
-  x, y, w, h, name, type
+export const createComponent = (x, y, w = 1, h = 1, name = "", type = "") => ({
+  x,
+  y,
+  w,
+  h,
+  name,
+  type,
 });
 
 /**
@@ -78,7 +99,7 @@ export const findOverlaps = (components) => {
       if (componentsOverlap(components[i], components[j])) {
         overlaps.push({
           comp1: components[i],
-          comp2: components[j]
+          comp2: components[j],
         });
       }
     }
@@ -100,21 +121,25 @@ export const validateLayout = (components, canvasWidth, canvasHeight) => {
   // Check bounds
   components.forEach((comp, i) => {
     if (!isWithinBounds(comp, canvasWidth, canvasHeight)) {
-      errors.push(`Component ${i} (${comp.name || comp.type || 'unnamed'}) is out of bounds: ${comp.x},${comp.y} ${comp.w}x${comp.h}`);
+      errors.push(
+        `Component ${i} (${comp.name || comp.type || "unnamed"}) is out of bounds: ${comp.x},${comp.y} ${comp.w}x${comp.h}`,
+      );
     }
   });
 
   // Check overlaps
   const overlaps = findOverlaps(components);
-  overlaps.forEach(({comp1, comp2}) => {
-    const name1 = comp1.name || comp1.type || 'unnamed';
-    const name2 = comp2.name || comp2.type || 'unnamed';
-    errors.push(`Overlap detected between "${name1}" at ${comp1.x},${comp1.y} and "${name2}" at ${comp2.x},${comp2.y}`);
+  overlaps.forEach(({ comp1, comp2 }) => {
+    const name1 = comp1.name || comp1.type || "unnamed";
+    const name2 = comp2.name || comp2.type || "unnamed";
+    errors.push(
+      `Overlap detected between "${name1}" at ${comp1.x},${comp1.y} and "${name2}" at ${comp2.x},${comp2.y}`,
+    );
   });
 
   return {
     valid: errors.length === 0,
-    errors
+    errors,
   };
 };
 
@@ -127,18 +152,23 @@ export const validateLayout = (components, canvasWidth, canvasHeight) => {
  */
 export const visualizeLayout = (components, canvasWidth, canvasHeight) => {
   // Create empty grid
-  const grid = Array(canvasHeight).fill(null).map(() => Array(canvasWidth).fill('.'));
+  const grid = Array(canvasHeight)
+    .fill(null)
+    .map(() => Array(canvasWidth).fill("."));
 
   // Place components on grid
   components.forEach((comp, index) => {
-    const char = (index < 26) ? String.fromCharCode(65 + index) : String.fromCharCode(97 + (index - 26));
+    const char =
+      index < 26
+        ? String.fromCharCode(65 + index)
+        : String.fromCharCode(97 + (index - 26));
 
     for (let y = comp.y; y < comp.y + comp.h && y < canvasHeight; y++) {
       for (let x = comp.x; x < comp.x + comp.w && x < canvasWidth; x++) {
         if (y >= 0 && x >= 0) {
           // Mark overlaps with 'X'
-          if (grid[y][x] !== '.') {
-            grid[y][x] = 'X';
+          if (grid[y][x] !== ".") {
+            grid[y][x] = "X";
           } else {
             grid[y][x] = char;
           }
@@ -148,23 +178,26 @@ export const visualizeLayout = (components, canvasWidth, canvasHeight) => {
   });
 
   // Convert to string with coordinates
-  let result = '   ';
+  let result = "   ";
   for (let x = 0; x < canvasWidth; x++) {
     result += String(x % 10);
   }
-  result += '\n';
+  result += "\n";
 
   for (let y = 0; y < canvasHeight; y++) {
-    result += String(y % 10).padStart(2) + ' ' + grid[y].join('') + '\n';
+    result += String(y % 10).padStart(2) + " " + grid[y].join("") + "\n";
   }
 
   // Add legend
-  result += '\nLegend:\n';
-  result += '. = empty\n';
-  result += 'X = overlap\n';
+  result += "\nLegend:\n";
+  result += ". = empty\n";
+  result += "X = overlap\n";
   components.forEach((comp, index) => {
-    const char = (index < 26) ? String.fromCharCode(65 + index) : String.fromCharCode(97 + (index - 26));
-    const name = comp.name || comp.type || 'unnamed';
+    const char =
+      index < 26
+        ? String.fromCharCode(65 + index)
+        : String.fromCharCode(97 + (index - 26));
+    const name = comp.name || comp.type || "unnamed";
     result += `${char} = ${name} (${comp.x},${comp.y} ${comp.w}x${comp.h})\n`;
   });
 
@@ -181,8 +214,15 @@ export const visualizeLayout = (components, canvasWidth, canvasHeight) => {
  * @param {boolean} [rowFirst=true] - Search row-first vs column-first
  * @returns {{x: number, y: number} | null}
  */
-export const findNextAvailablePosition = (existingComponents, width, height, canvasWidth, canvasHeight, rowFirst = true) => {
-  const testComponent = { w: width, h: height, name: 'test' };
+export const findNextAvailablePosition = (
+  existingComponents,
+  width,
+  height,
+  canvasWidth,
+  canvasHeight,
+  rowFirst = true,
+) => {
+  const testComponent = { w: width, h: height, name: "test" };
 
   if (rowFirst) {
     // Search row by row
@@ -192,7 +232,9 @@ export const findNextAvailablePosition = (existingComponents, width, height, can
         testComponent.y = y;
 
         if (isWithinBounds(testComponent, canvasWidth, canvasHeight)) {
-          const hasOverlap = existingComponents.some(comp => componentsOverlap(testComponent, comp));
+          const hasOverlap = existingComponents.some((comp) =>
+            componentsOverlap(testComponent, comp),
+          );
           if (!hasOverlap) {
             return { x, y };
           }
@@ -207,7 +249,9 @@ export const findNextAvailablePosition = (existingComponents, width, height, can
         testComponent.y = y;
 
         if (isWithinBounds(testComponent, canvasWidth, canvasHeight)) {
-          const hasOverlap = existingComponents.some(comp => componentsOverlap(testComponent, comp));
+          const hasOverlap = existingComponents.some((comp) =>
+            componentsOverlap(testComponent, comp),
+          );
           if (!hasOverlap) {
             return { x, y };
           }
@@ -229,31 +273,36 @@ export const findNextAvailablePosition = (existingComponents, width, height, can
  * @param {number} [options.padding=0] - Padding between components
  * @returns {{success: boolean, arranged: GridComponent[], failed: GridComponent[]}}
  */
-export const autoLayout = (components, canvasWidth, canvasHeight, options = {}) => {
+export const autoLayout = (
+  components,
+  canvasWidth,
+  canvasHeight,
+  options = {},
+) => {
   const { rowFirst = true, padding = 0 } = options;
   const arranged = [];
   const failed = [];
 
   // Sort by size (largest first) for better packing
   const sortedComponents = [...components].sort((a, b) => {
-    return (b.w * b.h) - (a.w * a.h);
+    return b.w * b.h - a.w * a.h;
   });
 
-  sortedComponents.forEach(comp => {
+  sortedComponents.forEach((comp) => {
     const position = findNextAvailablePosition(
       arranged,
       comp.w + padding * 2,
       comp.h + padding * 2,
       canvasWidth,
       canvasHeight,
-      rowFirst
+      rowFirst,
     );
 
     if (position) {
       arranged.push({
         ...comp,
         x: position.x + padding,
-        y: position.y + padding
+        y: position.y + padding,
       });
     } else {
       failed.push(comp);
@@ -263,7 +312,7 @@ export const autoLayout = (components, canvasWidth, canvasHeight, options = {}) 
   return {
     success: failed.length === 0,
     arranged,
-    failed
+    failed,
   };
 };
 
@@ -283,7 +332,7 @@ export const COMPONENT_SIZES = {
   timePicker: { w: 1, h: 1 },
   staircase: { w: 1, h: 1 },
   screen: { w: 3, h: 2 },
-  window: { w: 4, h: 4 }
+  window: { w: 4, h: 4 },
 };
 
 /**
@@ -299,7 +348,7 @@ export class LayoutBuilder {
   /**
    * Add a component to the layout
    */
-  add(x, y, w = 1, h = 1, name = '', type = '') {
+  add(x, y, w = 1, h = 1, name = "", type = "") {
     this.components.push(createComponent(x, y, w, h, name, type));
     return this;
   }
@@ -307,7 +356,7 @@ export class LayoutBuilder {
   /**
    * Add a component with preset size
    */
-  addPreset(x, y, type, name = '') {
+  addPreset(x, y, type, name = "") {
     const size = COMPONENT_SIZES[type] || { w: 1, h: 1 };
     this.components.push(createComponent(x, y, size.w, size.h, name, type));
     return this;
@@ -324,7 +373,11 @@ export class LayoutBuilder {
    * Get ASCII visualization
    */
   visualize() {
-    return visualizeLayout(this.components, this.canvasWidth, this.canvasHeight);
+    return visualizeLayout(
+      this.components,
+      this.canvasWidth,
+      this.canvasHeight,
+    );
   }
 
   /**
@@ -338,7 +391,12 @@ export class LayoutBuilder {
    * Auto-arrange components
    */
   autoArrange(options = {}) {
-    const result = autoLayout(this.components, this.canvasWidth, this.canvasHeight, options);
+    const result = autoLayout(
+      this.components,
+      this.canvasWidth,
+      this.canvasHeight,
+      options,
+    );
     this.components = result.arranged;
     return result;
   }
@@ -348,19 +406,24 @@ export class LayoutBuilder {
  * Quick layout validation function for development
  * Logs results to console for easy debugging
  */
-export const debugLayout = (components, canvasWidth, canvasHeight, title = 'Layout') => {
+export const debugLayout = (
+  components,
+  canvasWidth,
+  canvasHeight,
+  title = "Layout",
+) => {
   console.group(`🔧 ${title} Debug`);
 
   const validation = validateLayout(components, canvasWidth, canvasHeight);
 
   if (validation.valid) {
-    console.log('✅ Layout is valid!');
+    console.log("✅ Layout is valid!");
   } else {
-    console.error('❌ Layout has errors:');
-    validation.errors.forEach(error => console.error('  -', error));
+    console.error("❌ Layout has errors:");
+    validation.errors.forEach((error) => console.error("  -", error));
   }
 
-  console.log('\n📋 Layout visualization:');
+  console.log("\n📋 Layout visualization:");
   console.log(visualizeLayout(components, canvasWidth, canvasHeight));
 
   console.groupEnd();
@@ -369,6 +432,7 @@ export const debugLayout = (components, canvasWidth, canvasHeight, title = 'Layo
 };
 
 export default {
+  dataToPixel,
   createComponent,
   isWithinBounds,
   componentsOverlap,
@@ -380,5 +444,5 @@ export default {
   COMPONENT_SIZES,
   LayoutBuilder,
   debugLayout,
-  CELL_SIZE
+  CELL_SIZE,
 };

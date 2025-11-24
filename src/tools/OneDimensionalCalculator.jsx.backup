@@ -1,0 +1,1318 @@
+// src/tools/OneDimensionalExplorer.jsx
+
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
+import {
+  GridEquationInput,
+  GridSliderHorizontal,
+  GridInput,
+  GridButton,
+  GridGraph,
+  GridDisplay,
+  GridWindow,
+} from "../components/grid";
+import ToolContainer from "../components/ui/ToolContainer";
+import { useTheme } from "../hooks/useTheme";
+import { DynamicalSystem1D } from "../utils/equationParser";
+import {
+  analyzePhaseLine1D,
+  findDegenerateIntervals1D,
+  filterEquilibriaFromDegenerateIntervals,
+} from "../utils/mathHelpers";
+
+const OneDimensionalCalculator = () => {
+  const { theme, currentTheme } = useTheme();
+
+  // Equation and parameters
+  const [equation, setEquation] = useState("k*X*(1-X)");
+  const [k, setK] = useState(0.5);
+
+  // Viewport parameters
+  const [xMin, setXMin] = useState(-0.5);
+  const [xMax, setXMax] = useState(1.5);
+
+  // Visualization toggles
+  const [showDerivativePlot, setShowDerivativePlot] = useState(false);
+
+  // Dynamical system and analysis
+  const [dynamicalSystem, setDynamicalSystem] = useState(null);
+  const [phaseLineAnalysis, setPhaseLineAnalysis] = useState(null);
+  const [degenerateIntervals, setDegenerateIntervals] = useState([]);
+  const [equationError, setEquationError] = useState("");
+
+  // Time series data
+  const [timeSeriesData, setTimeSeriesData] = useState([]);
+
+  // Animation state for trajectories (using ref pattern for performance)
+  const [isAnimating, setIsAnimating] = useState(false);
+  const animationStateRef = useRef({
+    trajectories: [],
+    animationId: null,
+    nextTrajectoryId: 0,
+    dynamicalSystem: null,
+    params: { k: 0.5 },
+    xMin: -0.5,
+    xMax: 1.5,
+  });
+
+  // Canvas refs for phase line (3 layers: X' plot background, static phase line, dynamic balls)
+  const phaseBackgroundCanvasRef = useRef(null);
+  const phaseLineCanvasRef = useRef(null);
+  const phaseBallsCanvasRef = useRef(null);
+
+  // Canvas refs for time series
+  const timeSeriesCanvasRef = useRef(null);
+
+  // Update dynamical system when equation changes
+  useEffect(() => {
+    try {
+      const system = new DynamicalSystem1D(equation, ["k"]);
+      setDynamicalSystem(system);
+
+      if (system.isValidSystem()) {
+        setEquationError("");
+      } else {
+        setEquationError(system.getError());
+      }
+    } catch (error) {
+      setEquationError(`Unexpected error: ${error.message}`);
+      setDynamicalSystem(null);
+    }
+  }, [equation]);
+
+  // Sync UI parameters to animation state ref
+  useEffect(() => {
+    animationStateRef.current.dynamicalSystem = dynamicalSystem;
+    animationStateRef.current.params = { k };
+    animationStateRef.current.xMin = xMin;
+    animationStateRef.current.xMax = xMax;
+  }, [dynamicalSystem, k, xMin, xMax]);
+
+  // Update phase line analysis when system or parameters change
+  useEffect(() => {
+    if (dynamicalSystem && dynamicalSystem.isValidSystem()) {
+      const analysis = analyzePhaseLine1D(dynamicalSystem, { k }, xMin, xMax);
+      setPhaseLineAnalysis(analysis);
+
+      // Detect degenerate intervals
+      const intervals = findDegenerateIntervals1D(
+        dynamicalSystem,
+        { k },
+        xMin,
+        xMax,
+      );
+      setDegenerateIntervals(intervals);
+    } else {
+      setPhaseLineAnalysis(null);
+      setDegenerateIntervals([]);
+    }
+  }, [dynamicalSystem, k, xMin, xMax]);
+
+  // Clear trajectories when equation or parameters change
+  useEffect(() => {
+    const state = animationStateRef.current;
+    state.trajectories = [];
+    if (state.animationId) {
+      cancelAnimationFrame(state.animationId);
+      state.animationId = null;
+    }
+    setIsAnimating(false);
+  }, [dynamicalSystem, k, xMin, xMax]);
+
+  // Handle click on phase line to start trajectory
+  const handlePhaseLineClick = useCallback((event) => {
+    const state = animationStateRef.current;
+    if (!state.dynamicalSystem || !state.dynamicalSystem.isValidSystem())
+      return;
+
+    const canvas = phaseLineCanvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+
+    // Calculate x position from click
+    const { width } = canvas;
+    const xRange = state.xMax - state.xMin;
+    const xMinExtended = state.xMin - 0.1 * xRange;
+    const xMaxExtended = state.xMax + 0.1 * xRange;
+    const marginLeft = 40;
+    const marginRight = 40;
+    const drawableWidth = width - marginLeft - marginRight;
+
+    const xData =
+      xMinExtended +
+      ((clickX - marginLeft) / drawableWidth) * (xMaxExtended - xMinExtended);
+
+    // Clamp to [xMin, xMax]
+    const clampedX = Math.max(state.xMin, Math.min(state.xMax, xData));
+
+    // Create new trajectory
+    const newTrajectory = {
+      id: state.nextTrajectoryId++,
+      x0: clampedX,
+      currentX: clampedX,
+      currentT: 0,
+      data: [{ t: 0, x: clampedX }],
+      active: true,
+    };
+
+    state.trajectories.push(newTrajectory);
+
+    // Start animation if not already running
+    if (!state.animationId) {
+      setIsAnimating(true);
+    }
+  }, []);
+
+  // Animation loop for trajectories (ref-based, no React state updates)
+  const animationLoop = useCallback(() => {
+    const state = animationStateRef.current;
+
+    if (!state.dynamicalSystem || !state.dynamicalSystem.isValidSystem()) {
+      state.animationId = null;
+      setIsAnimating(false);
+      return;
+    }
+
+    let anyActive = false;
+
+    // Update all trajectories
+    state.trajectories = state.trajectories.map((traj) => {
+      if (!traj.active || traj.currentT >= 10) {
+        return { ...traj, active: false };
+      }
+
+      anyActive = true;
+
+      // RK4 step
+      const dt = 0.05;
+      const newX = state.dynamicalSystem.rk4Step(
+        traj.currentX,
+        state.params,
+        dt,
+      );
+      const newT = traj.currentT + dt;
+
+      // Stop trajectory if it goes outside extended range or becomes non-finite
+      const xRange = state.xMax - state.xMin;
+      const xMinExtended = state.xMin - 0.1 * xRange;
+      const xMaxExtended = state.xMax + 0.1 * xRange;
+      if (!isFinite(newX) || newX < xMinExtended || newX > xMaxExtended) {
+        return { ...traj, active: false };
+      }
+
+      return {
+        ...traj,
+        currentX: newX,
+        currentT: newT,
+        data: [...traj.data, { t: newT, x: newX }],
+      };
+    });
+
+    // Redraw phase balls
+    if (phaseBallsCanvasRef.current) {
+      const ctx = phaseBallsCanvasRef.current.getContext("2d");
+      drawPhaseBalls(phaseBallsCanvasRef.current, ctx);
+    }
+
+    // Continue animation if any trajectory is still active
+    if (anyActive) {
+      state.animationId = requestAnimationFrame(animationLoop);
+    } else {
+      state.animationId = null;
+      setIsAnimating(false);
+    }
+  }, []);
+
+  // Start/stop animation based on isAnimating state
+  useEffect(() => {
+    if (isAnimating) {
+      animationStateRef.current.animationId =
+        requestAnimationFrame(animationLoop);
+    }
+
+    return () => {
+      const state = animationStateRef.current;
+      if (state.animationId) {
+        cancelAnimationFrame(state.animationId);
+        state.animationId = null;
+      }
+    };
+  }, [isAnimating, animationLoop]);
+
+  // Clear all trajectories
+  const handleClearPlots = useCallback(() => {
+    const state = animationStateRef.current;
+    state.trajectories = [];
+    if (state.animationId) {
+      cancelAnimationFrame(state.animationId);
+      state.animationId = null;
+    }
+    setIsAnimating(false);
+
+    // Redraw phase balls canvas (clear it)
+    if (phaseBallsCanvasRef.current) {
+      const ctx = phaseBallsCanvasRef.current.getContext("2d");
+      drawPhaseBalls(phaseBallsCanvasRef.current, ctx);
+    }
+  }, []);
+
+  // Draw background X' plot (humps between equilibria)
+  const drawDerivativePlot = useCallback(
+    (canvas, ctx) => {
+      if (!canvas || !showDerivativePlot) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+
+      const { width, height } = canvas;
+      ctx.clearRect(0, 0, width, height);
+
+      if (!dynamicalSystem || !dynamicalSystem.isValidSystem()) return;
+      if (!phaseLineAnalysis) return;
+
+      // Extend viewport by 10% on each side
+      const xRange = xMax - xMin;
+      const xMinExtended = xMin - 0.1 * xRange;
+      const xMaxExtended = xMax + 0.1 * xRange;
+
+      // Margins for drawing
+      const marginLeft = 40;
+      const marginRight = 40;
+      const drawableWidth = width - marginLeft - marginRight;
+
+      // Vertical center
+      const centerY = height / 2;
+
+      // Coordinate mapping
+      const xToPixel = (x) => {
+        return (
+          marginLeft +
+          ((x - xMinExtended) / (xMaxExtended - xMinExtended)) * drawableWidth
+        );
+      };
+
+      // Find max |X'| for scaling
+      const numSamples = 200;
+      const dx = (xMax - xMin) / numSamples;
+      let maxAbsDerivative = 0;
+      for (let i = 0; i <= numSamples; i++) {
+        const x = xMin + i * dx;
+        const derivative = dynamicalSystem.evaluateDerivative(x, { k });
+        if (isFinite(derivative)) {
+          maxAbsDerivative = Math.max(maxAbsDerivative, Math.abs(derivative));
+        }
+      }
+
+      if (maxAbsDerivative === 0) return;
+
+      const maxVerticalPixels = 100;
+      const yScale = maxVerticalPixels / maxAbsDerivative;
+
+      // Get filtered equilibria and create regions
+      const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
+        phaseLineAnalysis.equilibria,
+        degenerateIntervals,
+      );
+
+      // Create boundaries including xMin and xMax
+      const boundaries = [
+        xMin,
+        ...filteredEquilibria.map((eq) => eq.x),
+        xMax,
+      ].sort((a, b) => a - b);
+
+      // Draw hump for each region
+      for (let i = 0; i < boundaries.length - 1; i++) {
+        const regionStart = boundaries[i];
+        const regionEnd = boundaries[i + 1];
+        const regionSamples = 50;
+        const regionDx = (regionEnd - regionStart) / regionSamples;
+
+        // Sample X' in this region
+        const points = [];
+        for (let j = 0; j <= regionSamples; j++) {
+          const x = regionStart + j * regionDx;
+          const derivative = dynamicalSystem.evaluateDerivative(x, { k });
+          if (isFinite(derivative)) {
+            points.push({ x, derivative });
+          }
+        }
+
+        if (points.length === 0) continue;
+
+        // Determine if positive or negative region
+        const avgDerivative =
+          points.reduce((sum, p) => sum + p.derivative, 0) / points.length;
+        const isPositive = avgDerivative > 0;
+
+        // Draw filled hump
+        ctx.beginPath();
+        ctx.moveTo(xToPixel(regionStart), centerY);
+
+        points.forEach((point) => {
+          const px = xToPixel(point.x);
+          const py = centerY - point.derivative * yScale; // Negative because canvas Y is inverted
+          ctx.lineTo(px, py);
+        });
+
+        ctx.lineTo(xToPixel(regionEnd), centerY);
+        ctx.closePath();
+
+        // Fill with transparent green (positive) or red (negative)
+        if (isPositive) {
+          ctx.fillStyle = "rgba(0, 255, 0, 0.15)";
+        } else {
+          ctx.fillStyle = "rgba(255, 0, 0, 0.15)";
+        }
+        ctx.fill();
+      }
+    },
+    [
+      currentTheme,
+      xMin,
+      xMax,
+      phaseLineAnalysis,
+      degenerateIntervals,
+      dynamicalSystem,
+      k,
+      showDerivativePlot,
+    ],
+  );
+
+  // Draw phase line (1D number line with equilibrium points)
+  const drawPhaseLine = useCallback(
+    (canvas, ctx) => {
+      if (!canvas) return;
+
+      const { width, height } = canvas;
+      ctx.clearRect(0, 0, width, height);
+
+      // Extend viewport by 10% on each side
+      const xRange = xMax - xMin;
+      const xMinExtended = xMin - 0.1 * xRange;
+      const xMaxExtended = xMax + 0.1 * xRange;
+
+      // Margins for drawing
+      const marginLeft = 40;
+      const marginRight = 40;
+      const drawableWidth = width - marginLeft - marginRight;
+
+      // Vertical center
+      const centerY = height / 2;
+
+      // Coordinate mapping: X value -> canvas pixel
+      const xToPixel = (x) => {
+        return (
+          marginLeft +
+          ((x - xMinExtended) / (xMaxExtended - xMinExtended)) * drawableWidth
+        );
+      };
+
+      // Draw number line (heavy line weight)
+      ctx.strokeStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(xToPixel(xMinExtended), centerY);
+      ctx.lineTo(xToPixel(xMaxExtended), centerY);
+      ctx.stroke();
+
+      // Draw Xmin and Xmax markers (full-height vertical lines)
+      ctx.strokeStyle =
+        currentTheme === "dark"
+          ? "rgba(128, 128, 128, 0.2)"
+          : "rgba(128, 128, 128, 0.3)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(xToPixel(xMin), 0);
+      ctx.lineTo(xToPixel(xMin), height);
+      ctx.moveTo(xToPixel(xMax), 0);
+      ctx.lineTo(xToPixel(xMax), height);
+      ctx.stroke();
+
+      // Draw Xmin and Xmax labels (just the values)
+      ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+      ctx.font = "12px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(xMin.toFixed(1), xToPixel(xMin), centerY + 15);
+      ctx.fillText(xMax.toFixed(1), xToPixel(xMax), centerY + 15);
+
+      // Draw degenerate intervals (gray rectangles)
+      if (degenerateIntervals && degenerateIntervals.length > 0) {
+        degenerateIntervals.forEach((interval) => {
+          const xLeft = xToPixel(interval.xMin);
+          const xRight = xToPixel(interval.xMax);
+          const rectHeight = 30; // Height of rectangle
+
+          ctx.fillStyle =
+            currentTheme === "dark"
+              ? "rgba(128, 128, 128, 0.4)"
+              : "rgba(128, 128, 128, 0.3)";
+          ctx.fillRect(
+            xLeft,
+            centerY - rectHeight / 2,
+            xRight - xLeft,
+            rectHeight,
+          );
+
+          // Draw border around degenerate interval
+          ctx.strokeStyle = currentTheme === "dark" ? "#888888" : "#666666";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(
+            xLeft,
+            centerY - rectHeight / 2,
+            xRight - xLeft,
+            rectHeight,
+          );
+        });
+      }
+
+      // Draw equilibrium points if available (filtered to exclude degenerate intervals)
+      if (phaseLineAnalysis && phaseLineAnalysis.equilibria) {
+        const circleRadius = 8;
+
+        // Filter out equilibria that fall within degenerate intervals
+        const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
+          phaseLineAnalysis.equilibria,
+          degenerateIntervals,
+        );
+
+        filteredEquilibria.forEach((eq) => {
+          const pixelX = xToPixel(eq.x);
+
+          // Handle different stability types
+          if (eq.type === "semi-stable") {
+            // Semi-stable: half-filled circle
+            // Left half filled if flow is right (X' > 0 on both sides)
+            // Right half filled if flow is left (X' < 0 on both sides)
+
+            // Draw full circle background (empty)
+            ctx.beginPath();
+            ctx.arc(pixelX, centerY, circleRadius, 0, 2 * Math.PI);
+            ctx.fillStyle = currentTheme === "dark" ? "#000000" : "#ffffff";
+            ctx.fill();
+
+            // Fill appropriate half based on flow direction
+            ctx.save();
+            ctx.beginPath();
+            if (eq.flowDirection === "right") {
+              // Flow is right (X' > 0) → fill left half
+              ctx.arc(
+                pixelX,
+                centerY,
+                circleRadius,
+                Math.PI / 2,
+                (3 * Math.PI) / 2,
+              );
+            } else {
+              // Flow is left (X' < 0) → fill right half
+              ctx.arc(pixelX, centerY, circleRadius, -Math.PI / 2, Math.PI / 2);
+            }
+            ctx.closePath();
+            ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+            ctx.fill();
+            ctx.restore();
+
+            // Outline (heavy line weight)
+            ctx.beginPath();
+            ctx.arc(pixelX, centerY, circleRadius, 0, 2 * Math.PI);
+            ctx.strokeStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+          } else {
+            // Stable or unstable: fully filled or empty circle
+            ctx.beginPath();
+            ctx.arc(pixelX, centerY, circleRadius, 0, 2 * Math.PI);
+
+            // Fill based on stability
+            if (eq.stable) {
+              // Stable: black-filled circle
+              ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+              ctx.fill();
+            } else {
+              // Unstable: white-filled with black outline
+              ctx.fillStyle = currentTheme === "dark" ? "#000000" : "#ffffff";
+              ctx.fill();
+            }
+
+            // Outline (heavy line weight)
+            ctx.strokeStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+          }
+        });
+      }
+
+      // Draw directional arrows between equilibria (when X' plot is shown)
+      if (
+        showDerivativePlot &&
+        dynamicalSystem &&
+        dynamicalSystem.isValidSystem() &&
+        phaseLineAnalysis
+      ) {
+        const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
+          phaseLineAnalysis.equilibria,
+          degenerateIntervals,
+        );
+
+        // Get sorted equilibrium x-values
+        const equilibriumXValues = filteredEquilibria
+          .map((eq) => eq.x)
+          .sort((a, b) => a - b);
+
+        // Determine arrow positions and directions
+        const arrowPositions = [];
+
+        // If there are no equilibria, check flow at midpoint
+        if (equilibriumXValues.length === 0) {
+          const midpoint = (xMin + xMax) / 2;
+          const derivative = dynamicalSystem.evaluateDerivative(midpoint, {
+            k,
+          });
+          if (isFinite(derivative) && Math.abs(derivative) > 1e-10) {
+            arrowPositions.push({
+              x: midpoint,
+              direction: derivative > 0 ? "right" : "left",
+            });
+          }
+        } else {
+          // Arrow at left edge (before first equilibrium)
+          const firstEq = equilibriumXValues[0];
+          if (firstEq > xMin) {
+            const leftEdgePoint = xMin;
+            const derivative = dynamicalSystem.evaluateDerivative(
+              leftEdgePoint,
+              { k },
+            );
+            if (isFinite(derivative) && Math.abs(derivative) > 1e-10) {
+              arrowPositions.push({
+                x: leftEdgePoint,
+                direction: derivative > 0 ? "right" : "left",
+              });
+            }
+          }
+
+          // Arrows between consecutive equilibria
+          for (let i = 0; i < equilibriumXValues.length - 1; i++) {
+            const midpoint =
+              (equilibriumXValues[i] + equilibriumXValues[i + 1]) / 2;
+            const derivative = dynamicalSystem.evaluateDerivative(midpoint, {
+              k,
+            });
+            if (isFinite(derivative) && Math.abs(derivative) > 1e-10) {
+              arrowPositions.push({
+                x: midpoint,
+                direction: derivative > 0 ? "right" : "left",
+              });
+            }
+          }
+
+          // Arrow at right edge (after last equilibrium)
+          const lastEq = equilibriumXValues[equilibriumXValues.length - 1];
+          if (lastEq < xMax) {
+            const rightEdgePoint = xMax;
+            const derivative = dynamicalSystem.evaluateDerivative(
+              rightEdgePoint,
+              { k },
+            );
+            if (isFinite(derivative) && Math.abs(derivative) > 1e-10) {
+              arrowPositions.push({
+                x: rightEdgePoint,
+                direction: derivative > 0 ? "right" : "left",
+              });
+            }
+          }
+        }
+
+        // Draw arrows
+        const arrowY = centerY - 10; // 10 pixels above the axis
+        const arrowLength = 15;
+        const arrowHeadSize = 5;
+
+        arrowPositions.forEach((arrow) => {
+          const arrowX = xToPixel(arrow.x);
+
+          if (arrow.direction === "right") {
+            // Dark green arrow pointing right
+            ctx.strokeStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
+            ctx.fillStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
+            ctx.lineWidth = 2;
+
+            // Arrow shaft
+            ctx.beginPath();
+            ctx.moveTo(arrowX - arrowLength / 2, arrowY);
+            ctx.lineTo(arrowX + arrowLength / 2, arrowY);
+            ctx.stroke();
+
+            // Arrow head (triangle pointing right)
+            ctx.beginPath();
+            ctx.moveTo(arrowX + arrowLength / 2, arrowY);
+            ctx.lineTo(
+              arrowX + arrowLength / 2 - arrowHeadSize,
+              arrowY - arrowHeadSize / 2,
+            );
+            ctx.lineTo(
+              arrowX + arrowLength / 2 - arrowHeadSize,
+              arrowY + arrowHeadSize / 2,
+            );
+            ctx.closePath();
+            ctx.fill();
+          } else {
+            // Dark red arrow pointing left
+            ctx.strokeStyle = currentTheme === "dark" ? "#ef4444" : "#dc2626";
+            ctx.fillStyle = currentTheme === "dark" ? "#ef4444" : "#dc2626";
+            ctx.lineWidth = 2;
+
+            // Arrow shaft
+            ctx.beginPath();
+            ctx.moveTo(arrowX - arrowLength / 2, arrowY);
+            ctx.lineTo(arrowX + arrowLength / 2, arrowY);
+            ctx.stroke();
+
+            // Arrow head (triangle pointing left)
+            ctx.beginPath();
+            ctx.moveTo(arrowX - arrowLength / 2, arrowY);
+            ctx.lineTo(
+              arrowX - arrowLength / 2 + arrowHeadSize,
+              arrowY - arrowHeadSize / 2,
+            );
+            ctx.lineTo(
+              arrowX - arrowLength / 2 + arrowHeadSize,
+              arrowY + arrowHeadSize / 2,
+            );
+            ctx.closePath();
+            ctx.fill();
+          }
+        });
+      }
+    },
+    [
+      currentTheme,
+      xMin,
+      xMax,
+      phaseLineAnalysis,
+      degenerateIntervals,
+      showDerivativePlot,
+      dynamicalSystem,
+      k,
+    ],
+  );
+
+  // Draw animated trajectory balls (separate layer for performance)
+  const drawPhaseBalls = useCallback(
+    (canvas, ctx) => {
+      if (!canvas) return;
+
+      const { width, height } = canvas;
+      ctx.clearRect(0, 0, width, height);
+
+      const state = animationStateRef.current;
+
+      // Extend viewport by 10% on each side
+      const xRange = state.xMax - state.xMin;
+      const xMinExtended = state.xMin - 0.1 * xRange;
+      const xMaxExtended = state.xMax + 0.1 * xRange;
+
+      // Margins for drawing
+      const marginLeft = 40;
+      const marginRight = 40;
+      const drawableWidth = width - marginLeft - marginRight;
+
+      // Vertical center
+      const centerY = height / 2;
+
+      // Coordinate mapping: X value -> canvas pixel
+      const xToPixel = (x) => {
+        return (
+          marginLeft +
+          ((x - xMinExtended) / (xMaxExtended - xMinExtended)) * drawableWidth
+        );
+      };
+
+      // Draw animated trajectory balls
+      if (state.trajectories.length > 0) {
+        state.trajectories.forEach((traj) => {
+          const ballX = xToPixel(traj.currentX);
+          const ballRadius = 6;
+
+          // Create radial gradient for sphere effect
+          const gradient = ctx.createRadialGradient(
+            ballX - ballRadius * 0.3,
+            centerY - ballRadius * 0.3,
+            0,
+            ballX,
+            centerY,
+            ballRadius,
+          );
+          gradient.addColorStop(
+            0,
+            currentTheme === "dark" ? "#93c5fd" : "#60a5fa",
+          );
+          gradient.addColorStop(
+            1,
+            currentTheme === "dark" ? "#2563eb" : "#1e40af",
+          );
+
+          ctx.beginPath();
+          ctx.arc(ballX, centerY, ballRadius, 0, 2 * Math.PI);
+          ctx.fillStyle = gradient;
+          ctx.fill();
+        });
+      }
+    },
+    [currentTheme],
+  );
+
+  // Draw time series
+  const drawTimeSeries = useCallback(
+    (canvas, ctx) => {
+      const { width, height } = canvas;
+      ctx.clearRect(0, 0, width, height);
+
+      const state = animationStateRef.current;
+
+      // Extended range for Y-axis (10% beyond xMin/xMax) - must match GridGraph yRange
+      const xRange = state.xMax - state.xMin;
+      const xMinExtended = state.xMin - 0.1 * xRange;
+      const xMaxExtended = state.xMax + 0.1 * xRange;
+
+      // Fixed padding matching GridGraph (same as SharkTunaTrajectoryTool)
+      const paddingLeft = 45;
+      const paddingRight = 15;
+      const paddingTop = 15;
+      const paddingBottom = 35;
+
+      const plotWidth = width - paddingLeft - paddingRight;
+      const plotHeight = height - paddingTop - paddingBottom;
+
+      // Helper functions to convert data coordinates to canvas coordinates
+      const mapT = (t) => paddingLeft + (t / 10) * plotWidth;
+      const mapX = (x) =>
+        paddingTop +
+        plotHeight -
+        ((x - xMinExtended) / (xMaxExtended - xMinExtended)) * plotHeight;
+
+      // Draw each trajectory
+      if (state.trajectories.length > 0) {
+        state.trajectories.forEach((traj) => {
+          if (traj.data.length < 2) return;
+
+          ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#2563eb";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+
+          traj.data.forEach((point, index) => {
+            const canvasT = mapT(point.t);
+            const canvasX = mapX(point.x);
+
+            if (index === 0) {
+              ctx.moveTo(canvasT, canvasX);
+            } else {
+              ctx.lineTo(canvasT, canvasX);
+            }
+          });
+
+          ctx.stroke();
+
+          // Draw current position marker
+          if (traj.active && traj.data.length > 0) {
+            const lastPoint = traj.data[traj.data.length - 1];
+            const markerT = mapT(lastPoint.t);
+            const markerX = mapX(lastPoint.x);
+
+            ctx.beginPath();
+            ctx.arc(markerT, markerX, 4, 0, 2 * Math.PI);
+            ctx.fillStyle = currentTheme === "dark" ? "#60a5fa" : "#2563eb";
+            ctx.fill();
+          }
+        });
+      }
+    },
+    [currentTheme],
+  );
+
+  // Canvas initialization
+  useEffect(() => {
+    [
+      phaseBackgroundCanvasRef,
+      phaseLineCanvasRef,
+      phaseBallsCanvasRef,
+      timeSeriesCanvasRef,
+    ].forEach((ref) => {
+      if (ref.current) {
+        const canvas = ref.current;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+      }
+    });
+
+    // Draw initial background
+    if (phaseBackgroundCanvasRef.current) {
+      const ctx = phaseBackgroundCanvasRef.current.getContext("2d");
+      drawDerivativePlot(phaseBackgroundCanvasRef.current, ctx);
+    }
+
+    // Draw initial phase line (static elements)
+    if (phaseLineCanvasRef.current) {
+      const ctx = phaseLineCanvasRef.current.getContext("2d");
+      drawPhaseLine(phaseLineCanvasRef.current, ctx);
+    }
+
+    // Draw initial phase balls (dynamic elements)
+    if (phaseBallsCanvasRef.current) {
+      const ctx = phaseBallsCanvasRef.current.getContext("2d");
+      drawPhaseBalls(phaseBallsCanvasRef.current, ctx);
+    }
+
+    // Draw initial time series
+    if (timeSeriesCanvasRef.current) {
+      const ctx = timeSeriesCanvasRef.current.getContext("2d");
+      drawTimeSeries(timeSeriesCanvasRef.current, ctx);
+    }
+  }, [drawDerivativePlot, drawPhaseLine, drawPhaseBalls, drawTimeSeries]);
+
+  // Redraw time series when data changes
+  useEffect(() => {
+    if (timeSeriesCanvasRef.current) {
+      const ctx = timeSeriesCanvasRef.current.getContext("2d");
+      drawTimeSeries(timeSeriesCanvasRef.current, ctx);
+    }
+  }, [drawTimeSeries]);
+
+  // Redraw background when parameters or toggle change
+  useEffect(() => {
+    if (phaseBackgroundCanvasRef.current) {
+      const ctx = phaseBackgroundCanvasRef.current.getContext("2d");
+      drawDerivativePlot(phaseBackgroundCanvasRef.current, ctx);
+    }
+  }, [drawDerivativePlot, phaseLineAnalysis, showDerivativePlot]);
+
+  // Redraw phase line (static) when parameters change (NOT on trajectory updates)
+  useEffect(() => {
+    if (phaseLineCanvasRef.current) {
+      const ctx = phaseLineCanvasRef.current.getContext("2d");
+      drawPhaseLine(phaseLineCanvasRef.current, ctx);
+    }
+  }, [drawPhaseLine, phaseLineAnalysis]);
+
+  // Phase balls are now redrawn directly in the animation loop, not here
+
+  // Redraw time series when trajectories update
+  // TEMPORARILY DISABLED FOR DEBUGGING
+  // useEffect(() => {
+  //   if (timeSeriesCanvasRef.current) {
+  //     const ctx = timeSeriesCanvasRef.current.getContext("2d");
+  //     drawTimeSeries(timeSeriesCanvasRef.current, ctx);
+  //   }
+  // }, [drawTimeSeries, trajectories]);
+
+  return (
+    <ToolContainer
+      title="1D Dynamical System Explorer"
+      canvasWidth={9}
+      canvasHeight={6}
+    >
+      {/* Phase Line (6x3) */}
+      <GridWindow x={0} y={0} w={6} h={3} theme={theme}>
+        {/* Background layer - X' plot */}
+        <canvas
+          ref={phaseBackgroundCanvasRef}
+          style={{
+            position: "absolute",
+            width: "100%",
+            height: "100%",
+            top: 0,
+            left: 0,
+            zIndex: 1,
+          }}
+        />
+        {/* Middle layer - static number line and equilibria */}
+        <canvas
+          ref={phaseLineCanvasRef}
+          onClick={handlePhaseLineClick}
+          style={{
+            position: "absolute",
+            width: "100%",
+            height: "100%",
+            top: 0,
+            left: 0,
+            zIndex: 2,
+            cursor: "crosshair",
+          }}
+        />
+        {/* Top layer - animated trajectory balls */}
+        <canvas
+          ref={phaseBallsCanvasRef}
+          style={{
+            position: "absolute",
+            width: "100%",
+            height: "100%",
+            top: 0,
+            left: 0,
+            zIndex: 3,
+            pointerEvents: "none",
+          }}
+        />
+      </GridWindow>
+
+      {/* Time Series Graph (6x3) */}
+      <GridGraph
+        x={0}
+        y={3}
+        w={6}
+        h={3}
+        xLabel="t"
+        yLabel="X"
+        xTicks={[0, 5, 10]}
+        yTicks={(() => {
+          const ticks = [
+            xMin.toFixed(1).padStart(4, " "),
+            xMax.toFixed(1).padStart(4, " "),
+          ];
+
+          // Add equilibrium points as tick labels
+          if (phaseLineAnalysis && phaseLineAnalysis.equilibria) {
+            const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
+              phaseLineAnalysis.equilibria,
+              degenerateIntervals,
+            );
+
+            filteredEquilibria.forEach((eq) => {
+              ticks.push(eq.x.toFixed(1).padStart(4, " "));
+            });
+          }
+
+          return ticks;
+        })()}
+        xRange={[0, 10]}
+        yRange={(() => {
+          const xRange = xMax - xMin;
+          return [xMin - 0.1 * xRange, xMax + 0.1 * xRange];
+        })()}
+        leftAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
+        tooltip="Time Series"
+        theme={theme}
+      >
+        {/* Equilibrium lines and boundaries */}
+        {(() => {
+          const xRange = xMax - xMin;
+          const xMinExtended = xMin - 0.1 * xRange;
+          const xMaxExtended = xMax + 0.1 * xRange;
+
+          // Calculate GridGraph's internal dimensions - MUST match GridGraph's yTicks exactly
+          const yTickLabels = [
+            xMin.toFixed(1).padStart(4, " "),
+            xMax.toFixed(1).padStart(4, " "),
+          ];
+          if (phaseLineAnalysis && phaseLineAnalysis.equilibria) {
+            const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
+              phaseLineAnalysis.equilibria,
+              degenerateIntervals,
+            );
+            filteredEquilibria.forEach((eq) => {
+              yTickLabels.push(eq.x.toFixed(1).padStart(4, " "));
+            });
+          }
+
+          const maxYTickLength = Math.max(...yTickLabels.map((t) => t.length));
+          const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
+          const yAxisLabelWidth = 20;
+          const dynamicPaddingBottom = 35;
+          const dynamicPaddingLeft = yTickWidth + yAxisLabelWidth;
+          const dynamicPaddingRight = 15;
+          const dynamicPaddingTop = 15;
+
+          const graphWidth = 6 * 100 - 16;
+          const graphHeight = 3 * 100 - 16;
+          const axisWidth =
+            graphWidth - dynamicPaddingLeft - dynamicPaddingRight;
+          const axisHeight =
+            graphHeight - dynamicPaddingTop - dynamicPaddingBottom;
+
+          const lines = [];
+
+          // Lines at Xmin and Xmax
+          [xMin, xMax].forEach((value, idx) => {
+            const yPos =
+              ((value - xMinExtended) / (xMaxExtended - xMinExtended)) *
+              axisHeight;
+            lines.push(
+              <div
+                key={`boundary-${idx}`}
+                className="absolute pointer-events-none"
+                style={{
+                  left: `${dynamicPaddingLeft}px`,
+                  bottom: `${dynamicPaddingBottom + yPos}px`,
+                  width: `${axisWidth}px`,
+                  height: "1px",
+                  backgroundColor:
+                    currentTheme === "dark"
+                      ? "rgba(128, 128, 128, 0.2)"
+                      : "rgba(128, 128, 128, 0.3)",
+                }}
+              />,
+            );
+          });
+
+          // Equilibrium lines
+          if (phaseLineAnalysis && phaseLineAnalysis.equilibria) {
+            const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
+              phaseLineAnalysis.equilibria,
+              degenerateIntervals,
+            );
+
+            filteredEquilibria.forEach((eq) => {
+              const yPos =
+                ((eq.x - xMinExtended) / (xMaxExtended - xMinExtended)) *
+                axisHeight;
+
+              let borderStyle = "solid";
+              if (eq.type === "unstable") {
+                borderStyle = "dashed";
+              } else if (eq.type === "semi-stable") {
+                borderStyle = "dotted";
+              }
+
+              lines.push(
+                <div
+                  key={`eq-${eq.x}`}
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: `${dynamicPaddingLeft}px`,
+                    bottom: `${dynamicPaddingBottom + yPos}px`,
+                    width: `${axisWidth}px`,
+                    height: "0px",
+                    borderTop: `1.5px ${borderStyle} ${currentTheme === "dark" ? "rgba(128, 128, 128, 0.5)" : "rgba(128, 128, 128, 0.6)"}`,
+                  }}
+                />,
+              );
+            });
+          }
+
+          // Degenerate interval rectangles
+          if (degenerateIntervals && degenerateIntervals.length > 0) {
+            degenerateIntervals.forEach((interval, idx) => {
+              const yBottom =
+                ((interval.xMin - xMinExtended) /
+                  (xMaxExtended - xMinExtended)) *
+                axisHeight;
+              const yTop =
+                ((interval.xMax - xMinExtended) /
+                  (xMaxExtended - xMinExtended)) *
+                axisHeight;
+              const rectHeight = yTop - yBottom;
+
+              lines.push(
+                <div
+                  key={`degenerate-${idx}`}
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: `${dynamicPaddingLeft}px`,
+                    bottom: `${dynamicPaddingBottom + yBottom}px`,
+                    width: `${axisWidth}px`,
+                    height: `${rectHeight}px`,
+                    backgroundColor:
+                      currentTheme === "dark"
+                        ? "rgba(128, 128, 128, 0.2)"
+                        : "rgba(128, 128, 128, 0.15)",
+                  }}
+                />,
+              );
+            });
+          }
+
+          return lines;
+        })()}
+
+        <canvas
+          ref={timeSeriesCanvasRef}
+          className="absolute"
+          style={{
+            left: 1,
+            bottom: 1,
+            width: "calc(100% - 2px)",
+            height: "calc(100% - 2px)",
+            pointerEvents: "none",
+          }}
+        />
+      </GridGraph>
+
+      {/* Equation Input (3x1) */}
+      <GridEquationInput
+        x={6}
+        y={0}
+        w={3}
+        h={1}
+        value={equation}
+        onChange={setEquation}
+        label="Equation"
+        variable="X'"
+        placeholder="e.g., k*X*(1-X)"
+        tooltip="Enter equation for X' = f(X, k)"
+        theme={theme}
+        fontSize="sm"
+      />
+
+      {/* Parameter k slider (3x1) */}
+      <GridSliderHorizontal
+        x={6}
+        y={1}
+        w={3}
+        h={1}
+        value={k * 100}
+        onChange={(value) => setK(value / 100)}
+        variant="bipolar"
+        label={`k = ${k.toFixed(2)}`}
+        tooltip="Parameter k"
+        theme={theme}
+      />
+
+      {/* Xmin input */}
+      <GridInput
+        x={6}
+        y={2}
+        w={1}
+        h={1}
+        value={xMin}
+        onChange={(value) => {
+          const newValue = Math.max(-10, Math.min(10, value));
+          if (newValue < xMax) setXMin(newValue);
+        }}
+        min={-10}
+        max={10}
+        step={0.1}
+        variable="Xmin"
+        title="Minimum X value"
+        theme={theme}
+      />
+
+      {/* Xmax input */}
+      <GridInput
+        x={7}
+        y={2}
+        w={1}
+        h={1}
+        value={xMax}
+        onChange={(value) => {
+          const newValue = Math.max(-10, Math.min(10, value));
+          if (newValue > xMin) setXMax(newValue);
+        }}
+        min={-10}
+        max={10}
+        step={0.1}
+        variable="Xmax"
+        title="Maximum X value"
+        theme={theme}
+      />
+
+      {/* Show/Hide X' toggle button */}
+      <GridButton
+        x={8}
+        y={2}
+        w={1}
+        h={1}
+        type="toggle"
+        variant="function"
+        active={showDerivativePlot}
+        onToggle={setShowDerivativePlot}
+        theme={theme}
+      >
+        <div style={{ textAlign: "center", lineHeight: "1.1" }}>
+          <div>{showDerivativePlot ? "Hide" : "Show"}</div>
+          <div>X'</div>
+        </div>
+      </GridButton>
+
+      {/* Clear Plots button */}
+      <GridButton
+        x={6}
+        y={3}
+        w={3}
+        h={1}
+        type="momentary"
+        variant="function"
+        onPress={handleClearPlots}
+        theme={theme}
+      >
+        <div style={{ textAlign: "center" }}>Clear Plots</div>
+      </GridButton>
+
+      {/* Status/Error Display */}
+      {equationError && (
+        <GridDisplay
+          x={6}
+          y={4}
+          w={3}
+          h={1}
+          value={equationError}
+          variant="status"
+          align="left"
+          fontSize="xs"
+          theme={theme}
+          style={{
+            color: currentTheme === "dark" ? "#f87171" : "#dc2626",
+            backgroundColor:
+              currentTheme === "dark"
+                ? "rgba(127, 29, 29, 0.3)"
+                : "rgba(254, 226, 226, 0.9)",
+          }}
+        />
+      )}
+
+      {/* Valid status display */}
+      {!equationError &&
+        dynamicalSystem &&
+        dynamicalSystem.isValidSystem() &&
+        phaseLineAnalysis && (
+          <GridDisplay
+            x={6}
+            y={4}
+            w={3}
+            h={2}
+            variant="info"
+            align="left"
+            fontSize="small"
+            theme={theme}
+          >
+            <div style={{ padding: "4px" }}>
+              <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
+                System Status
+              </div>
+              {degenerateIntervals.length > 0 ? (
+                <div style={{ fontSize: "0.85em" }}>
+                  <div>Degenerate interval detected</div>
+                  <div style={{ marginTop: "2px" }}>
+                    X' = 0 on [{degenerateIntervals[0].xMin.toFixed(2)},{" "}
+                    {degenerateIntervals[0].xMax.toFixed(2)}]
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: "0.85em" }}>
+                    Equilibria: {phaseLineAnalysis.equilibria.length}
+                  </div>
+                  <div style={{ fontSize: "0.85em", marginTop: "2px" }}>
+                    {phaseLineAnalysis.equilibria.map((eq, i) => (
+                      <div key={i}>
+                        X* = {eq.x.toFixed(3)} ({eq.type})
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </GridDisplay>
+        )}
+    </ToolContainer>
+  );
+};
+
+export default OneDimensionalCalculator;

@@ -18,6 +18,7 @@ import TrajectoryTimeSeriesPracticeTool from "../tools/TrajectoryTimeSeriesPract
 import SelfInteractionSimulatorTool from "../tools/SelfInteractionSimulatorTool";
 import LogisticGrowthExplorerTool from "../tools/LogisticGrowthExplorerTool";
 import GeneralizedLotkaVolterraTool from "../tools/GeneralizedLotkaVolterraTool";
+import OneDimensionalCalculator from "../tools/OneDimensionalCalculator";
 
 /**
  * Complete tool definitions with all metadata
@@ -237,7 +238,20 @@ export const toolDefinitions = {
     categories: {
       topics: ["ecology"],
       toolType: "simulation",
-      lab: "lab4",
+      lab: "lab3",
+    },
+    visibility: "student",
+  },
+
+  "one-dimensional-calculator": {
+    name: "1D Dynamical System Calculator",
+    description:
+      "Explore single-variable dynamical systems with phase line analysis and time series visualization. Adjust parameters to see equilibria, stability, and flow dynamics.",
+    component: OneDimensionalCalculator,
+    categories: {
+      topics: [],
+      toolType: "calculator",
+      lab: "lab3",
     },
     visibility: "student",
   },
