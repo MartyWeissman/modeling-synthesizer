@@ -21,9 +21,9 @@ const LogisticGrowthExplorerTool = () => {
   const canvasRef = useRef(null);
 
   // Parameters for logistic growth model
-  // P(t) = C * e^(β(t-t0)) / (1 + e^(β(t-t0)))
+  // P(t) = C * e^(b(t-t0)) / (1 + e^(b(t-t0)))
   const [C, setC] = useState(100); // Carrying capacity
-  const [beta, setBeta] = useState(0.5); // Growth rate (stretch parameter)
+  const [b, setB] = useState(0.5); // Growth rate (stretch parameter)
   const [t0, setT0] = useState(10); // Time shift
 
   // Data table state - initial empty data
@@ -47,13 +47,13 @@ const LogisticGrowthExplorerTool = () => {
   // Logistic growth function
   const logisticFunction = useCallback(
     (t) => {
-      const exponent = beta * (t - t0);
+      const exponent = b * (t - t0);
       // Prevent overflow for large exponents
       if (exponent > 100) return C;
       if (exponent < -100) return 0;
       return (C * Math.exp(exponent)) / (1 + Math.exp(exponent));
     },
-    [C, beta, t0],
+    [C, b, t0],
   );
 
   // Calculate axis ranges based on data and model
@@ -561,7 +561,7 @@ const LogisticGrowthExplorerTool = () => {
         h={1}
         onPress={() => {
           setC(100);
-          setBeta(0.5);
+          setB(0.5);
           setT0(10);
         }}
         theme={theme}
@@ -572,18 +572,18 @@ const LogisticGrowthExplorerTool = () => {
         </div>
       </GridButton>
 
-      {/* Parameter: Growth Rate (β) */}
+      {/* Parameter: Growth Rate (b) */}
       <GridSliderHorizontal
         x={9}
         y={1}
         w={2}
         h={1}
-        value={beta * 100}
-        onChange={(value) => setBeta(value / 100)}
+        value={b * 100}
+        onChange={(value) => setB(value / 100)}
         min={0}
         max={200}
         variant="unipolar"
-        label={`β = ${beta.toFixed(2)}`}
+        label={`b = ${b.toFixed(2)}`}
         theme={theme}
       />
 
@@ -645,6 +645,39 @@ const LogisticGrowthExplorerTool = () => {
           }}
         >
           <Equation name="logistic-differential" size="small" />
+        </div>
+      </GridDisplay>
+
+      {/* Equation Display - Expanded Form with Parameter Values */}
+      <GridDisplay
+        x={9}
+        y={5}
+        w={2}
+        h={1}
+        variant="info"
+        align="center"
+        fontSize="small"
+        theme={theme}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "100%",
+            fontStyle: "italic",
+            fontSize: "0.85em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <span style={{ fontWeight: "bold" }}>P</span>
+          <span>′&nbsp;=&nbsp;</span>
+          <span>{b.toPrecision(2)}</span>
+          <span style={{ fontWeight: "bold" }}>P</span>
+          <span>&nbsp;−&nbsp;</span>
+          <span>{(b / C).toPrecision(2)}</span>
+          <span style={{ fontWeight: "bold" }}>P</span>
+          <sup>2</sup>
         </div>
       </GridDisplay>
     </ToolContainer>
