@@ -119,24 +119,54 @@ const GeneralizedLotkaVolterraTool = () => {
   const qmin = 0;
   const qmax = uiParams.qmax;
 
-  // Dynamic tick marks based on axis ranges
-  const pTicks = useMemo(() => {
-    const ticks = [];
-    const step = pmax <= 5 ? 1.0 : pmax <= 10 ? 2.0 : 5.0;
-    for (let i = 0; i <= pmax; i += step) {
-      ticks.push(i);
-    }
-    return ticks;
-  }, [pmax]);
+  // Dynamic tick marks based on axis ranges (5-10 ticks per axis)
+  const generateNiceTicks = useCallback((maxValue) => {
+    const targetTicks = 5;
+    const range = maxValue;
 
-  const qTicks = useMemo(() => {
+    // Calculate raw step size
+    const rawStep = range / targetTicks;
+
+    // Find magnitude (power of 10)
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+
+    // Normalize to 1-10 range
+    const normalized = rawStep / magnitude;
+
+    // Round to nice number (1, 2, 5, or 10)
+    let niceStep;
+    if (normalized <= 1) {
+      niceStep = 1 * magnitude;
+    } else if (normalized <= 2) {
+      niceStep = 2 * magnitude;
+    } else if (normalized <= 5) {
+      niceStep = 5 * magnitude;
+    } else {
+      niceStep = 10 * magnitude;
+    }
+
+    // Generate ticks
     const ticks = [];
-    const step = qmax <= 5 ? 1.0 : qmax <= 10 ? 2.0 : 5.0;
-    for (let i = 0; i <= qmax; i += step) {
+    for (let i = 0; i <= maxValue; i += niceStep) {
       ticks.push(i);
     }
+
+    // Ensure max value is included if not already
+    if (ticks[ticks.length - 1] < maxValue) {
+      ticks.push(maxValue);
+    }
+
     return ticks;
-  }, [qmax]);
+  }, []);
+
+  const pTicks = useMemo(
+    () => generateNiceTicks(pmax),
+    [pmax, generateNiceTicks],
+  );
+  const qTicks = useMemo(
+    () => generateNiceTicks(qmax),
+    [qmax, generateNiceTicks],
+  );
 
   // Helper: Create line object for nullclines (aP + bQ = c)
   const createLine = useCallback((a, b, c) => {
@@ -488,7 +518,7 @@ const GeneralizedLotkaVolterraTool = () => {
       ctx.fillRect(0, 0, width, height);
       ctx.globalCompositeOperation = prevComposite;
 
-      // Red click particles
+      // Green click trajectories
       const clickParticles = clickParticlesRef.current;
       clickParticles.forEach((particle) => {
         if (
@@ -505,18 +535,18 @@ const GeneralizedLotkaVolterraTool = () => {
           const intensity = Math.min(speed * 50, 1.0);
           const opacity = 0.8 + intensity * 0.2;
 
-          const baseRed =
-            currentTheme === "dark" ? [200, 80, 80] : [180, 30, 30];
-          const brightRed =
-            currentTheme === "dark" ? [255, 140, 140] : [240, 50, 50];
+          const baseGreen =
+            currentTheme === "dark" ? [80, 200, 100] : [30, 180, 50];
+          const brightGreen =
+            currentTheme === "dark" ? [140, 255, 160] : [50, 240, 80];
           const r = Math.round(
-            baseRed[0] + intensity * (brightRed[0] - baseRed[0]),
+            baseGreen[0] + intensity * (brightGreen[0] - baseGreen[0]),
           );
           const g = Math.round(
-            baseRed[1] + intensity * (brightRed[1] - baseRed[1]),
+            baseGreen[1] + intensity * (brightGreen[1] - baseGreen[1]),
           );
           const b = Math.round(
-            baseRed[2] + intensity * (brightRed[2] - baseRed[2]),
+            baseGreen[2] + intensity * (brightGreen[2] - baseGreen[2]),
           );
           const lineWidth = 1.0 + intensity * 0.5;
 
@@ -529,7 +559,7 @@ const GeneralizedLotkaVolterraTool = () => {
         }
       });
 
-      // Red dots at current positions
+      // Green dots at current positions
       clickParticles.forEach((particle) => {
         if (
           particle.p >= pmin &&
@@ -540,14 +570,14 @@ const GeneralizedLotkaVolterraTool = () => {
           ctx.beginPath();
           ctx.fillStyle =
             currentTheme === "dark"
-              ? "rgba(255, 100, 100, 0.9)"
-              : "rgba(200, 20, 20, 0.9)";
+              ? "rgba(100, 255, 120, 0.9)"
+              : "rgba(20, 200, 40, 0.9)";
           ctx.arc(mapX(particle.p), mapY(particle.q), 1.5, 0, 2 * Math.PI);
           ctx.fill();
         }
       });
 
-      // Blue grid particles
+      // Orange grid particles
       const gridParticles = gridParticlesRef.current;
       gridParticles.forEach((particle) => {
         if (
@@ -564,18 +594,18 @@ const GeneralizedLotkaVolterraTool = () => {
           const intensity = Math.min(speed * 50, 1.0);
           const opacity = 0.8 + intensity * 0.2;
 
-          const baseBlue =
-            currentTheme === "dark" ? [80, 140, 200] : [40, 100, 180];
-          const brightBlue =
-            currentTheme === "dark" ? [160, 230, 255] : [80, 160, 240];
+          const baseOrange =
+            currentTheme === "dark" ? [200, 140, 80] : [220, 120, 40];
+          const brightOrange =
+            currentTheme === "dark" ? [255, 200, 120] : [255, 160, 60];
           const r = Math.round(
-            baseBlue[0] + intensity * (brightBlue[0] - baseBlue[0]),
+            baseOrange[0] + intensity * (brightOrange[0] - baseOrange[0]),
           );
           const g = Math.round(
-            baseBlue[1] + intensity * (brightBlue[1] - baseBlue[1]),
+            baseOrange[1] + intensity * (brightOrange[1] - baseOrange[1]),
           );
           const b = Math.round(
-            baseBlue[2] + intensity * (brightBlue[2] - baseBlue[2]),
+            baseOrange[2] + intensity * (brightOrange[2] - baseOrange[2]),
           );
           const lineWidth = 0.8 + intensity * 0.4;
 
@@ -1151,10 +1181,11 @@ const GeneralizedLotkaVolterraTool = () => {
         onChange={(value) => updateParam("alpha", value)}
         min={-5.0}
         max={5.0}
-        step={0.1}
+        step={0.001}
         variable="α"
         title="P linear growth/decline rate"
         theme={theme}
+        compact={true}
       />
       <GridInput
         x={6}
@@ -1163,58 +1194,63 @@ const GeneralizedLotkaVolterraTool = () => {
         onChange={(value) => updateParam("beta", value)}
         min={-5.0}
         max={5.0}
-        step={0.1}
+        step={0.001}
         variable="β"
         title="Q linear growth/decline rate"
         theme={theme}
+        compact={true}
       />
       <GridInput
         x={5}
         y={1}
         value={uiParams.gamma}
         onChange={(value) => updateParam("gamma", value)}
-        min={-2.0}
-        max={2.0}
-        step={0.1}
+        min={-5.0}
+        max={5.0}
+        step={0.001}
         variable="γ"
         title="P intraspecific competition"
         theme={theme}
+        compact={true}
       />
       <GridInput
         x={6}
         y={1}
         value={uiParams.delta}
         onChange={(value) => updateParam("delta", value)}
-        min={-2.0}
-        max={2.0}
-        step={0.1}
+        min={-5.0}
+        max={5.0}
+        step={0.001}
         variable="δ"
         title="Q intraspecific competition"
         theme={theme}
+        compact={true}
       />
       <GridInput
         x={5}
         y={2}
         value={uiParams.u}
         onChange={(value) => updateParam("u", value)}
-        min={-2.0}
-        max={2.0}
-        step={0.1}
+        min={-5.0}
+        max={5.0}
+        step={0.001}
         variable="u"
         title="Interaction coefficient (P effect on P)"
         theme={theme}
+        compact={true}
       />
       <GridInput
         x={6}
         y={2}
         value={uiParams.v}
         onChange={(value) => updateParam("v", value)}
-        min={-2.0}
-        max={2.0}
-        step={0.1}
+        min={-5.0}
+        max={5.0}
+        step={0.001}
         variable="v"
         title="Interaction coefficient (Q effect on Q)"
         theme={theme}
+        compact={true}
       />
       <GridInput
         x={5}
@@ -1222,11 +1258,12 @@ const GeneralizedLotkaVolterraTool = () => {
         value={Math.round(uiParams.pmax)}
         onChange={(value) => updateParam("pmax", Math.round(value))}
         min={1}
-        max={999}
+        max={9999}
         step={1}
         variable="Pmax"
         title="Maximum P value for plot axes"
         theme={theme}
+        compact={true}
       />
       <GridInput
         x={6}
@@ -1234,11 +1271,12 @@ const GeneralizedLotkaVolterraTool = () => {
         value={Math.round(uiParams.qmax)}
         onChange={(value) => updateParam("qmax", Math.round(value))}
         min={1}
-        max={999}
+        max={9999}
         step={1}
         variable="Qmax"
         title="Maximum Q value for plot axes"
         theme={theme}
+        compact={true}
       />
 
       {/* Animation Speed Slider */}
@@ -1449,15 +1487,27 @@ const GeneralizedLotkaVolterraTool = () => {
           })()}
           <div style={{ marginTop: "6px", fontSize: "0.8em", opacity: 0.8 }}>
             <span
-              style={{ color: currentTheme === "dark" ? "#f87171" : "#dc2626" }}
+              style={{ color: currentTheme === "dark" ? "#60a5fa" : "#3b82f6" }}
             >
-              Red: Click trajectories
+              Blue: Population P
             </span>
             {" | "}
             <span
-              style={{ color: currentTheme === "dark" ? "#60a5fa" : "#3b82f6" }}
+              style={{ color: currentTheme === "dark" ? "#f87171" : "#dc2626" }}
             >
-              Blue: Grid particles (Start button)
+              Red: Population Q
+            </span>
+            {" | "}
+            <span
+              style={{ color: currentTheme === "dark" ? "#4ade80" : "#16a34a" }}
+            >
+              Green: Click trajectories
+            </span>
+            {" | "}
+            <span
+              style={{ color: currentTheme === "dark" ? "#fb923c" : "#ea580c" }}
+            >
+              Orange: Grid particles
             </span>
           </div>
         </div>

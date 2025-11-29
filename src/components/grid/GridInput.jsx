@@ -18,6 +18,7 @@ const GridInput = ({
   max = 100,
   step = 0.1,
   variable = "x", // Display name like "p", "alpha", etc.
+  compact = false, // When true, removes arrows and allows wider input (8 chars)
 }) => {
   const [inputValue, setInputValue] = useState("");
   const [isFocused, setIsFocused] = useState(false);
@@ -51,6 +52,9 @@ const GridInput = ({
 
   // Calculate appropriate decimal places based on range and step
   const getDecimalPlaces = () => {
+    // In compact mode, don't round - allow full precision
+    if (compact) return null;
+
     // If step is 1 or greater (integer step), use 0 decimals
     if (step >= 1) return 0;
 
@@ -66,6 +70,8 @@ const GridInput = ({
   const formatValue = useCallback(
     (val) => {
       if (val === null || val === undefined || isNaN(val)) return "";
+      // In compact mode, return the value as-is without rounding
+      if (decimalPlaces === null) return val.toString();
       return Number(val).toFixed(decimalPlaces);
     },
     [decimalPlaces],
@@ -303,69 +309,72 @@ const GridInput = ({
               onFocus={handleFocus}
               onBlur={handleBlur}
               onKeyDown={handleKeyDown}
-              className={`w-12 h-6 px-1 text-center text-xs ${isUnicornMode ? "bg-purple-50 text-purple-800 border-purple-200" : `${theme.component} ${theme.text}`} border rounded-l`}
+              className={`${compact ? "w-20" : "w-12"} h-6 px-1 text-center text-xs ${isUnicornMode ? "bg-purple-50 text-purple-800 border-purple-200" : `${theme.component} ${theme.text}`} border ${compact ? "rounded" : "rounded-l"}`}
               style={{
                 ...getFontStyle("mono", "400"),
                 fontSize: "13px", // Increased from 11px by 2 points
                 background: isUnicornMode ? "rgba(196,181,253,0.1)" : undefined,
               }}
-              maxLength={Math.max(
-                max.toString().length,
-                decimalPlaces > 0 ? 4 : 3,
-              )} // Based on max value
+              maxLength={
+                compact
+                  ? 8
+                  : Math.max(max.toString().length, decimalPlaces > 0 ? 4 : 3)
+              } // 8 chars for compact, based on max value otherwise
             />
 
-            {/* Up/Down arrows */}
-            <div className="flex flex-col">
-              <button
-                onMouseDown={handleIncrementMouseDown}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                disabled={value >= max}
-                className={`w-3 h-3 flex items-center justify-center text-xs ${
-                  value >= max
-                    ? "opacity-50 cursor-not-allowed"
-                    : "hover:opacity-70"
-                } border border-l-0 rounded-tr`}
-                style={{
-                  fontSize: "8px",
-                  lineHeight: "1",
-                  background: isUnicornMode
-                    ? "rgba(196,181,253,0.1)"
-                    : theme.component,
-                  color: arrowColor,
-                  borderColor: isUnicornMode
-                    ? "rgba(236,72,153,0.2)"
-                    : "rgba(0,0,0,0.1)",
-                }}
-              >
-                ▲
-              </button>
-              <button
-                onMouseDown={handleDecrementMouseDown}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                disabled={value <= min}
-                className={`w-3 h-3 flex items-center justify-center text-xs ${
-                  value <= min
-                    ? "opacity-50 cursor-not-allowed"
-                    : "hover:opacity-70"
-                } border border-l-0 border-t-0 rounded-br`}
-                style={{
-                  fontSize: "8px",
-                  lineHeight: "1",
-                  background: isUnicornMode
-                    ? "rgba(196,181,253,0.1)"
-                    : theme.component,
-                  color: arrowColor,
-                  borderColor: isUnicornMode
-                    ? "rgba(236,72,153,0.2)"
-                    : "rgba(0,0,0,0.1)",
-                }}
-              >
-                ▼
-              </button>
-            </div>
+            {/* Up/Down arrows (hidden in compact mode) */}
+            {!compact && (
+              <div className="flex flex-col">
+                <button
+                  onMouseDown={handleIncrementMouseDown}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseUp}
+                  disabled={value >= max}
+                  className={`w-3 h-3 flex items-center justify-center text-xs ${
+                    value >= max
+                      ? "opacity-50 cursor-not-allowed"
+                      : "hover:opacity-70"
+                  } border border-l-0 rounded-tr`}
+                  style={{
+                    fontSize: "8px",
+                    lineHeight: "1",
+                    background: isUnicornMode
+                      ? "rgba(196,181,253,0.1)"
+                      : theme.component,
+                    color: arrowColor,
+                    borderColor: isUnicornMode
+                      ? "rgba(236,72,153,0.2)"
+                      : "rgba(0,0,0,0.1)",
+                  }}
+                >
+                  ▲
+                </button>
+                <button
+                  onMouseDown={handleDecrementMouseDown}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseUp}
+                  disabled={value <= min}
+                  className={`w-3 h-3 flex items-center justify-center text-xs ${
+                    value <= min
+                      ? "opacity-50 cursor-not-allowed"
+                      : "hover:opacity-70"
+                  } border border-l-0 border-t-0 rounded-br`}
+                  style={{
+                    fontSize: "8px",
+                    lineHeight: "1",
+                    background: isUnicornMode
+                      ? "rgba(196,181,253,0.1)"
+                      : theme.component,
+                    color: arrowColor,
+                    borderColor: isUnicornMode
+                      ? "rgba(236,72,153,0.2)"
+                      : "rgba(0,0,0,0.1)",
+                  }}
+                >
+                  ▼
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Range display at bottom */}

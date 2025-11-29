@@ -80,6 +80,33 @@ const GridGraph = React.memo(
       return label;
     };
 
+    // Format tick labels to 4 characters max
+    const formatTickLabel = (value) => {
+      // Handle exact integers
+      if (Number.isInteger(value)) {
+        const str = value.toString();
+        if (str.length <= 4) return str;
+        // For large integers, use scientific notation or abbreviation
+        if (value >= 10000) {
+          return value.toExponential(0);
+        }
+        return str.slice(0, 4);
+      }
+
+      // Handle decimals
+      const str = value.toString();
+      if (str.length <= 4) return str;
+
+      // Try fixed decimal places
+      for (let decimals = 2; decimals >= 0; decimals--) {
+        const fixed = value.toFixed(decimals);
+        if (fixed.length <= 4) return fixed;
+      }
+
+      // Fall back to exponential notation
+      return value.toExponential(0);
+    };
+
     // Convert data coordinates to pixel coordinates
     const dataToPixel = (value, range, pixelRange) => {
       const [dataMin, dataMax] = range;
@@ -127,7 +154,7 @@ const GridGraph = React.memo(
               ...getFontStyle("mono", "500"),
             }}
           >
-            {tickValue}
+            {formatTickLabel(tickValue)}
           </div>,
         );
 
@@ -186,7 +213,7 @@ const GridGraph = React.memo(
               ...getFontStyle("mono", "500"),
             }}
           >
-            {tickValue}
+            {formatTickLabel(tickValue)}
           </div>,
         );
 
