@@ -4,12 +4,24 @@
   <mo>=</mo>
   <mi>q</mi>
   <mi>B</mi>
-  <mi>f</mi>
-  <mrow>
-    <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">(</mo>
-    <mi mathvariant="bold-italic">G</mi>
-    <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">)</mo>
-  </mrow>
+  <mfrac>
+    <mrow>
+      <msubsup>
+        <mi mathvariant="bold-italic">G</mi>
+        <mi>τ</mi>
+        <mn>2</mn>
+      </msubsup>
+    </mrow>
+    <mrow>
+      <mn>1</mn>
+      <mo>+</mo>
+      <msubsup>
+        <mi mathvariant="bold-italic">G</mi>
+        <mi>τ</mi>
+        <mn>2</mn>
+      </msubsup>
+    </mrow>
+  </mfrac>
   <mo>−</mo>
   <mi>γ</mi>
   <mi mathvariant="bold-italic">I</mi>
