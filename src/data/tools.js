@@ -19,6 +19,7 @@ import SelfInteractionSimulatorTool from "../tools/SelfInteractionSimulatorTool"
 import LogisticGrowthExplorerTool from "../tools/LogisticGrowthExplorerTool";
 import GeneralizedLotkaVolterraTool from "../tools/GeneralizedLotkaVolterraTool";
 import OneDimensionalCalculator from "../tools/OneDimensionalCalculator";
+import SimpleHarmonicOscillatorTool from "../tools/SimpleHarmonicOscillatorTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -252,6 +253,19 @@ export const toolDefinitions = {
       topics: [],
       toolType: "calculator",
       lab: "lab3",
+    },
+    visibility: "student",
+  },
+
+  "simple-harmonic-oscillator": {
+    name: "Simple Harmonic Oscillator",
+    description:
+      "Explore classical harmonic motion with position and momentum phase space visualization. Observe circular trajectories and perfect periodic oscillations.",
+    component: SimpleHarmonicOscillatorTool,
+    categories: {
+      topics: ["physical"],
+      toolType: "simulation",
+      lab: "lab4",
     },
     visibility: "student",
   },
