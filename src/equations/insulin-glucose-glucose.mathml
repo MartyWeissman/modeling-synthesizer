@@ -3,6 +3,26 @@
   <mo>′</mo>
   <mo>=</mo>
   <mi>m</mi>
+  <mo>+</mo>
+  <mfrac>
+    <mi>α</mi>
+    <mrow>
+      <mn>1</mn>
+      <mo>+</mo>
+      <msup>
+        <mi>e</mi>
+        <mrow>
+          <mi>k</mi>
+          <msub>
+            <mi mathvariant="bold-italic">I</mi>
+            <mi>σ</mi>
+          </msub>
+          <mo>−</mo>
+          <mi>c</mi>
+        </mrow>
+      </msup>
+    </mrow>
+  </mfrac>
   <mo>−</mo>
   <mi>s</mi>
   <mi mathvariant="bold-italic">I</mi>

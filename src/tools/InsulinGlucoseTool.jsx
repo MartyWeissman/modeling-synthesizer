@@ -7,6 +7,7 @@ import {
   GridGraphDualY,
   GridLabel,
   GridDisplay,
+  GridInput,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
@@ -15,35 +16,43 @@ import { useTheme } from "../hooks/useTheme";
 const InsulinGlucoseTool = () => {
   const { theme, currentTheme } = useTheme();
 
-  // Define default values
-  const DEFAULT_VALUES = {
-    m: 0.5,
-    s: 1.0,
-    q: 1.0,
-    B: 1.0,
-    gamma: 1.0,
-    tau: 0,
-    currentMode: "baseline",
-  };
-
   // Model parameters
-  const [m, setM] = useState(DEFAULT_VALUES.m); // Glucose production
-  const [s, setS] = useState(DEFAULT_VALUES.s); // Insulin sensitivity
-  const [q, setQ] = useState(DEFAULT_VALUES.q); // Insulin production rate
-  const [B, setB] = useState(DEFAULT_VALUES.B); // Beta cell mass
-  const [gamma, setGamma] = useState(DEFAULT_VALUES.gamma); // Insulin degradation rate
-  const [tau, setTau] = useState(DEFAULT_VALUES.tau); // Time delay parameter (minutes)
+  const [m, setM] = useState(0.5); // Glucose production
+  const [s, setS] = useState(1.0); // Insulin sensitivity
+  const [q, setQ] = useState(1.0); // Insulin production rate
+  const [B, setB] = useState(1.0); // Beta cell mass
+  const [gamma, setGamma] = useState(1.0); // Insulin degradation rate
+  const [tau, setTau] = useState(0); // Time delay parameter (minutes)
+
+  // Liver glucose production parameters
+  const [alpha, setAlpha] = useState(0.0); // Liver production amplitude
+  const [k, setK] = useState(1.0); // Insulin sensitivity of liver
+  const [c, setC] = useState(1.0); // Threshold parameter
+
+  // Time delay parameters
+  const [sigma, setSigma] = useState(0); // Insulin effect on glucose delay (minutes)
 
   // Simulation state
   const [isRunning, setIsRunning] = useState(false);
   const [timeSeriesData, setTimeSeriesData] = useState([]);
-  const [currentMode, setCurrentMode] = useState(DEFAULT_VALUES.currentMode); // "baseline", "meals", or "challenge"
+  const [currentMode, setCurrentMode] = useState("baseline"); // "baseline", "meals", or "challenge"
 
   // Differential equation solver using Euler's method with delay support
   const runSimulation = useCallback(
     (mode = "baseline", params = null) => {
       // Use provided params or current state values
-      const currentParams = params || { m, s, q, B, gamma, tau };
+      const currentParams = params || {
+        m,
+        s,
+        q,
+        B,
+        gamma,
+        tau,
+        alpha,
+        k,
+        c,
+        sigma,
+      };
       const dt = 0.1; // Time step in hours
       const tMax = 20;
       const steps = tMax / dt;
@@ -51,15 +60,26 @@ const InsulinGlucoseTool = () => {
       let G = 1; // Initial glucose concentration (normalized)
       let I = 0.5; // Initial insulin concentration (normalized)
 
-      // History buffer for delayed glucose values
+      // History buffer for delayed glucose values (G --> I delay)
       // Convert tau from minutes to hours
       const tauHours = currentParams.tau / 60;
-      const delaySteps = Math.round(tauHours / dt);
+      const tauDelaySteps = Math.round(tauHours / dt);
       const glucoseHistory = [];
 
-      // Initialize history with initial glucose value
-      for (let i = 0; i <= delaySteps; i++) {
+      // Initialize glucose history with initial glucose value
+      for (let i = 0; i <= tauDelaySteps; i++) {
         glucoseHistory.push(G);
+      }
+
+      // History buffer for delayed insulin values (I --> G delay)
+      // Convert sigma from minutes to hours
+      const sigmaHours = currentParams.sigma / 60;
+      const sigmaDelaySteps = Math.round(sigmaHours / dt);
+      const insulinHistory = [];
+
+      // Initialize insulin history with initial insulin value
+      for (let i = 0; i <= sigmaDelaySteps; i++) {
+        insulinHistory.push(I);
       }
 
       const dataPoints = [];
@@ -74,14 +94,24 @@ const InsulinGlucoseTool = () => {
           insulin: I * 6, // Convert to pmol/L
         });
 
-        // Get delayed glucose value G_tau
+        // Get delayed glucose value G_tau (for insulin production)
         let G_tau;
-        if (delaySteps === 0 || glucoseHistory.length <= delaySteps) {
+        if (tauDelaySteps === 0 || glucoseHistory.length <= tauDelaySteps) {
           // No delay or not enough history yet - use current value
           G_tau = G;
         } else {
           // Look back tau time units in history
-          G_tau = glucoseHistory[glucoseHistory.length - delaySteps - 1];
+          G_tau = glucoseHistory[glucoseHistory.length - tauDelaySteps - 1];
+        }
+
+        // Get delayed insulin value I_sigma (for liver glucose production)
+        let I_sigma;
+        if (sigmaDelaySteps === 0 || insulinHistory.length <= sigmaDelaySteps) {
+          // No delay or not enough history yet - use current value
+          I_sigma = I;
+        } else {
+          // Look back sigma time units in history
+          I_sigma = insulinHistory[insulinHistory.length - sigmaDelaySteps - 1];
         }
 
         // Hill equation for insulin production with delayed glucose
@@ -103,8 +133,14 @@ const InsulinGlucoseTool = () => {
           mEffective += mealSurge(6) + mealSurge(10) + mealSurge(16);
         }
 
+        // Liver glucose production term: alpha / (1 + e^(kI_sigma - c))
+        // Uses delayed insulin I_sigma
+        const liverProduction =
+          currentParams.alpha /
+          (1 + Math.exp(currentParams.k * I_sigma - currentParams.c));
+
         // Differential equations - glucose uses current insulin, insulin uses delayed glucose
-        const dGdt = mEffective - currentParams.s * I * G;
+        const dGdt = mEffective + liverProduction - currentParams.s * I * G;
         const dIdt =
           currentParams.q * currentParams.B * f - currentParams.gamma * I;
 
@@ -116,20 +152,23 @@ const InsulinGlucoseTool = () => {
         G = Math.max(0, G);
         I = Math.max(0, I);
 
-        // Add current glucose to history buffer
+        // Add current values to history buffers
         glucoseHistory.push(G);
+        insulinHistory.push(I);
 
-        // Keep history buffer from growing unboundedly
-        // Only need delaySteps + some buffer
-        if (glucoseHistory.length > delaySteps + 50) {
+        // Keep history buffers from growing unboundedly
+        if (glucoseHistory.length > tauDelaySteps + 50) {
           glucoseHistory.shift();
+        }
+        if (insulinHistory.length > sigmaDelaySteps + 50) {
+          insulinHistory.shift();
         }
       }
 
       setTimeSeriesData(dataPoints);
       setCurrentMode(mode);
     },
-    [m, s, q, B, gamma, tau],
+    [m, s, q, B, gamma, tau, alpha, k, c, sigma],
   );
 
   // Draw the time series on the dual Y-axis graph canvas
@@ -252,14 +291,15 @@ const InsulinGlucoseTool = () => {
       const legendY = 40; // Moved down 20px from 20
 
       // Legend background - match graph background
-      const isDarkMode = theme.component.includes("gray-700");
-      ctx.fillStyle = isDarkMode
-        ? "rgba(31, 41, 55, 0.9)"
-        : "rgba(255, 255, 255, 0.9)"; // Match graph bg
+      ctx.fillStyle =
+        currentTheme === "dark"
+          ? "rgba(31, 41, 55, 0.9)"
+          : "rgba(255, 255, 255, 0.9)"; // Match graph bg
       ctx.fillRect(legendX, legendY - 5, legendWidth, legendHeight);
-      ctx.strokeStyle = isDarkMode
-        ? "rgba(255, 255, 255, 0.3)"
-        : "rgba(0, 0, 0, 0.3)";
+      ctx.strokeStyle =
+        currentTheme === "dark"
+          ? "rgba(255, 255, 255, 0.3)"
+          : "rgba(0, 0, 0, 0.3)";
       ctx.lineWidth = 1;
       ctx.strokeRect(legendX, legendY - 5, legendWidth, legendHeight);
 
@@ -289,7 +329,7 @@ const InsulinGlucoseTool = () => {
       ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
       ctx.fillText("Insulin", legendX + 40, legendY + 30);
     }, 100);
-  }, [timeSeriesData, currentMode, currentTheme, theme.component]);
+  }, [timeSeriesData, currentMode, currentTheme]);
 
   // Run initial simulation only once on mount
   useEffect(() => {
@@ -304,7 +344,7 @@ const InsulinGlucoseTool = () => {
       runSimulation(currentMode);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [m, s, q, B, gamma, tau]);
+  }, [m, s, q, B, gamma, tau, alpha, k, c, sigma]);
 
   // Draw graph when data changes
   useEffect(() => {
@@ -326,17 +366,110 @@ const InsulinGlucoseTool = () => {
       canvasWidth={11}
       canvasHeight={5}
     >
-      {/* Row 0: Glucose production parameter */}
-      <GridSliderHorizontal
+      {/* Row 0: First 3 parameters */}
+      <GridInput
         x={0}
         y={0}
-        w={3}
-        h={1}
-        value={m * 100} // Convert 0-1 to 0-100 scale (default 0.5 becomes 50)
-        onChange={(value) => setM(value / 100)}
-        variant="unipolar"
-        label={`Glucose production m = ${m.toFixed(1)}`}
-        tooltip={`Glucose production rate parameter: ${m.toFixed(1)}`}
+        value={m}
+        onChange={setM}
+        min={0}
+        max={10}
+        step={0.1}
+        variable="m"
+        title="Glucose production"
+        theme={theme}
+      />
+
+      <GridInput
+        x={1}
+        y={0}
+        value={s}
+        onChange={setS}
+        min={0}
+        max={10}
+        step={0.1}
+        variable="s"
+        title="Insulin sensitivity"
+        theme={theme}
+      />
+
+      <GridInput
+        x={2}
+        y={0}
+        value={q}
+        onChange={setQ}
+        min={0}
+        max={10}
+        step={0.1}
+        variable="q"
+        title="Insulin production rate"
+        theme={theme}
+      />
+
+      {/* Row 1: Last 2 parameters */}
+      <GridInput
+        x={0}
+        y={1}
+        value={B}
+        onChange={setB}
+        min={0}
+        max={10}
+        step={0.1}
+        variable="B"
+        title="Beta cell mass"
+        theme={theme}
+      />
+
+      <GridInput
+        x={1}
+        y={1}
+        value={gamma}
+        onChange={setGamma}
+        min={0}
+        max={10}
+        step={0.1}
+        variable="γ"
+        title="Insulin degradation rate"
+        theme={theme}
+      />
+
+      {/* Row 2: Liver glucose production parameters */}
+      <GridInput
+        x={0}
+        y={2}
+        value={alpha}
+        onChange={setAlpha}
+        min={0}
+        max={10}
+        step={0.1}
+        variable="α"
+        title="Liver production amplitude"
+        theme={theme}
+      />
+
+      <GridInput
+        x={1}
+        y={2}
+        value={k}
+        onChange={setK}
+        min={0}
+        max={10}
+        step={0.1}
+        variable="k"
+        title="Insulin sensitivity of liver"
+        theme={theme}
+      />
+
+      <GridInput
+        x={2}
+        y={2}
+        value={c}
+        onChange={setC}
+        min={0}
+        max={10}
+        step={0.1}
+        variable="c"
+        title="Threshold parameter"
         theme={theme}
       />
 
@@ -364,61 +497,47 @@ const InsulinGlucoseTool = () => {
         theme={theme}
       />
 
-      {/* Row 1: Insulin sensitivity */}
-      <GridSliderHorizontal
-        x={0}
-        y={1}
-        w={3}
-        h={1}
-        value={s * 50} // Convert 0-2 to 0-100 scale (default 1.0 becomes 50)
-        onChange={(value) => setS(value / 50)}
-        variant="unipolar"
-        label={`Insulin sensitivity s = ${s.toFixed(1)}`}
-        tooltip={`Insulin sensitivity parameter: ${s.toFixed(1)}`}
-        theme={theme}
-      />
-
-      {/* Row 2: Insulin production rate */}
-      <GridSliderHorizontal
-        x={0}
-        y={2}
-        w={3}
-        h={1}
-        value={q * 50} // Convert 0-2 to 0-100 scale (default 1.0 becomes 50)
-        onChange={(value) => setQ(value / 50)}
-        variant="unipolar"
-        label={`Insulin production q = ${q.toFixed(1)}`}
-        tooltip={`Insulin production rate parameter: ${q.toFixed(1)}`}
-        theme={theme}
-      />
-
-      {/* Row 3: Beta cell mass */}
-      <GridSliderHorizontal
+      {/* Row 3-4: Equation display */}
+      <GridDisplay
         x={0}
         y={3}
         w={3}
-        h={1}
-        value={B * 50} // Convert 0-2 to 0-100 scale (default 1.0 becomes 50)
-        onChange={(value) => setB(value / 50)}
-        variant="unipolar"
-        label={`Beta cell mass B = ${B.toFixed(1)}`}
-        tooltip={`Beta cell mass parameter: ${B.toFixed(1)}`}
+        h={2}
+        variant="info"
+        align="center"
+        fontSize="small"
         theme={theme}
-      />
-
-      {/* Row 4: Insulin degradation */}
-      <GridSliderHorizontal
-        x={0}
-        y={4}
-        w={3}
-        h={1}
-        value={gamma * 50} // Convert 0-2 to 0-100 scale (default 1.0 becomes 50)
-        onChange={(value) => setGamma(value / 50)}
-        variant="unipolar"
-        label={`Insulin degradation γ = ${gamma.toFixed(1)}`}
-        tooltip={`Insulin degradation rate parameter: ${gamma.toFixed(1)}`}
-        theme={theme}
-      />
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "0px",
+            paddingTop: "8px",
+            paddingBottom: "2px",
+          }}
+        >
+          <div
+            style={{
+              fontWeight: "bold",
+              fontSize: "14px",
+              marginBottom: "4px",
+            }}
+          >
+            Insulin-Glucose Model
+          </div>
+          <Equation
+            name="insulin-glucose-glucose"
+            size="small"
+            style={{ lineHeight: "1", marginBottom: "-3px" }}
+          />
+          <Equation
+            name="insulin-glucose-insulin"
+            size="small"
+            style={{ lineHeight: "1" }}
+          />
+        </div>
+      </GridDisplay>
 
       {/* Control buttons */}
       <GridButton
@@ -463,7 +582,7 @@ const InsulinGlucoseTool = () => {
         {isRunning && currentMode === "challenge" ? "..." : "Challenge"}
       </GridButton>
 
-      {/* Tau parameter slider */}
+      {/* G --> I delay (tau) slider */}
       <GridSliderHorizontal
         x={6}
         y={4}
@@ -472,43 +591,24 @@ const InsulinGlucoseTool = () => {
         value={tau * (100 / 60)} // Convert 0-60 to 0-100 scale
         onChange={(value) => setTau(value * (60 / 100))}
         variant="unipolar"
-        label={`τ = ${tau.toFixed(0)} min`}
-        tooltip={`Time delay parameter: ${tau.toFixed(0)} minutes`}
+        label={`G → I delay (τ) = ${tau.toFixed(0)} min`}
+        tooltip={`Glucose to insulin delay (tau): ${tau.toFixed(0)} minutes`}
         theme={theme}
       />
 
-      {/* Differential equation display */}
-      <GridDisplay
+      {/* I --> G delay (sigma) slider */}
+      <GridSliderHorizontal
         x={8}
         y={4}
-        w={3}
+        w={2}
         h={1}
-        variant="info"
-        align="center"
-        fontSize="small"
+        value={sigma * (100 / 60)} // Convert 0-60 to 0-100 scale
+        onChange={(value) => setSigma(value * (60 / 100))}
+        variant="unipolar"
+        label={`I → G delay (σ) = ${sigma.toFixed(0)} min`}
+        tooltip={`Insulin to glucose delay (sigma): ${sigma.toFixed(0)} minutes`}
         theme={theme}
-      >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "0px",
-            paddingTop: "10px",
-            paddingBottom: "2px",
-          }}
-        >
-          <Equation
-            name="insulin-glucose-glucose"
-            size="small"
-            style={{ lineHeight: "1", marginBottom: "-8px" }}
-          />
-          <Equation
-            name="insulin-glucose-insulin"
-            size="small"
-            style={{ lineHeight: "1" }}
-          />
-        </div>
-      </GridDisplay>
+      />
     </ToolContainer>
   );
 };
