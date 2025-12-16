@@ -20,6 +20,7 @@ import LogisticGrowthExplorerTool from "../tools/LogisticGrowthExplorerTool";
 import GeneralizedLotkaVolterraTool from "../tools/GeneralizedLotkaVolterraTool";
 import OneDimensionalCalculator from "../tools/OneDimensionalCalculator";
 import SimpleHarmonicOscillatorTool from "../tools/SimpleHarmonicOscillatorTool";
+import MuscleTremorSimulatorTool from "../tools/MuscleTremorSimulatorTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -266,6 +267,19 @@ export const toolDefinitions = {
       topics: ["physical"],
       toolType: "simulation",
       lab: "lab4",
+    },
+    visibility: "student",
+  },
+
+  "muscle-tremor-simulator": {
+    name: "Muscle Tremor Simulator",
+    description:
+      "Explore delay differential equations in muscle physiology. Model the reflex arc with adjustable neural delay to observe tremor dynamics and stability boundaries.",
+    component: MuscleTremorSimulatorTool,
+    categories: {
+      topics: ["physiology"],
+      toolType: "simulation",
+      lab: "lab1",
     },
     visibility: "student",
   },

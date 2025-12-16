@@ -1,0 +1,17 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">L</mi>
+  <mo>′</mo>
+  <mo stretchy="false">(</mo>
+  <mi>t</mi>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <mi>r</mi>
+  <mo stretchy="false">(</mo>
+  <mn>20</mn>
+  <mo>−</mo>
+  <msub>
+    <mi mathvariant="bold-italic">L</mi>
+    <mi>τ</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math>
