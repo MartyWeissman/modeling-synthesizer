@@ -1,0 +1,19 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">X</mi>
+  <mo>′</mo>
+  <mo>=</mo>
+  <mo>−</mo>
+  <mi mathvariant="bold-italic">Y</mi>
+  <mo>+</mo>
+  <mi mathvariant="bold-italic">X</mi>
+  <mo>−</mo>
+  <mfrac>
+    <msup>
+      <mi mathvariant="bold-italic">X</mi>
+      <mn>3</mn>
+    </msup>
+    <mn>3</mn>
+  </mfrac>
+  <mo>+</mo>
+  <mi>z</mi>
+</math>

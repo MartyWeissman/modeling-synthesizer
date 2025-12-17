@@ -1,4 +1,4 @@
-// src/tools/HollingTannerTool.jsx
+// src/tools/FitzHughNagumoTool.jsx
 
 import React, {
   useState,
@@ -18,17 +18,15 @@ import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 
-const HollingTannerTool = () => {
+const FitzHughNagumoTool = () => {
   const { theme, currentTheme } = useTheme();
 
-  // UI State - parameters for Holling-Tanner model
+  // UI State - parameters for FitzHugh-Nagumo model
   const [uiParams, setUiParams] = useState({
-    alpha: 0.1, // α - Shark population growth rate
-    beta: 1.0, // β - Tuna population growth rate
-    c: 0.5, // c - Predation rate
-    h: 1.0, // h - Half-saturation constant
-    m: 7.0, // m - Tuna carrying capacity
-    q: 1.0, // q - Shark carrying capacity
+    u: 0.1, // Time-scale separation parameter
+    a: 0.7, // X-axis shift
+    b: 0.8, // Y feedback coefficient
+    z: 0.0, // External input current
     speed: 2, // Animation speed
   });
 
@@ -46,7 +44,7 @@ const HollingTannerTool = () => {
     trajectories: [],
     time: 0,
     animationId: null,
-    isRunning: false, // Start only when user clicks
+    isRunning: false,
     timeSeriesData: [],
     params: { ...uiParams },
     showNullclines: showNullclines,
@@ -62,50 +60,98 @@ const HollingTannerTool = () => {
     animationStateRef.current.showNullclines = showNullclines;
   }, [showNullclines]);
 
-  // Display constants for Shark (S) and Tuna (T) populations
-  const smin = 0,
-    smax = 6;
-  const tmin = 0,
-    tmax = 6;
+  // Display constants for X and Y
+  const xmin = -3,
+    xmax = 3;
+  const ymin = -3,
+    ymax = 3;
 
-  // Equilibrium points for Holling-Tanner model
+  // Equilibrium points for FitzHugh-Nagumo model
   const equilibria = useMemo(() => {
-    const { alpha, beta, c, h, m, q } = uiParams;
+    const { u, a, b, z } = uiParams;
     const points = [];
 
-    // Equilibrium 1: (0, 0) - extinction
-    points.push({ x: 0, y: 0, stability: "stable" });
+    // Find equilibrium by solving:
+    // X' = 0: -Y + X - X³/3 + z = 0  =>  Y = X - X³/3 + z
+    // Y' = 0: u(X + a - bY) = 0  =>  Y = (X + a)/b (if b ≠ 0)
 
-    // Equilibrium 2: (0, m) - predator extinction, prey at carrying capacity
-    if (m > 0 && m <= tmax) {
-      points.push({ x: 0, y: m, stability: "stable" });
-    }
+    if (b !== 0) {
+      // Substitute Y = (X + a)/b into Y = X - X³/3 + z
+      // (X + a)/b = X - X³/3 + z
+      // Multiply by b: X + a = bX - bX³/3 + bz
+      // Rearrange: bX³/3 + X(1 - b) + (a - bz) = 0
+      // Multiply by 3/b: X³ + 3X(1-b)/b + 3(a-bz)/b = 0
+      // Standard form: X³ + pX + q = 0
 
-    // Coexistence equilibrium - intersection of non-trivial nullclines
-    if (alpha > 0 && beta > 0 && c > 0 && h > 0 && m > 0 && q > 0) {
-      // Find intersection of S = qT and S = β(1 - T/m)(h+T)/c
-      // Set equal: qT = β(1 - T/m)(h+T)/c
-      // Solve: cqT = β(1 - T/m)(h+T)
-      // This gives: βT²/m - βT(1 - h/m) - βh + cqT = 0
-      const a = beta / m;
-      const b = -beta * (1 - h / m) + c * q;
-      const cCoeff = -beta * h;
+      const p = (3 * (1 - b)) / b;
+      const q = (3 * (a - b * z)) / b;
 
-      const discriminant = b * b - 4 * a * cCoeff;
+      // Solve using Cardano's formula
+      const discriminant = (q * q) / 4 + (p * p * p) / 27;
 
-      if (discriminant >= 0) {
-        const t1 = (-b + Math.sqrt(discriminant)) / (2 * a);
-        const t2 = (-b - Math.sqrt(discriminant)) / (2 * a);
+      if (discriminant > 0) {
+        // One real root
+        const sqrtDisc = Math.sqrt(discriminant);
+        const u1 = Math.cbrt(-q / 2 + sqrtDisc);
+        const v1 = Math.cbrt(-q / 2 - sqrtDisc);
+        const x1 = u1 + v1;
 
-        // Choose the positive, reasonable root
-        const tEq =
-          t1 > 0 && t1 <= tmax ? t1 : t2 > 0 && t2 <= tmax ? t2 : null;
-
-        if (tEq && tEq > 0) {
-          const sEq = q * tEq;
-          if (sEq > 0 && sEq <= smax && tEq <= tmax) {
-            points.push({ x: sEq, y: tEq, stability: "unstable" });
+        if (x1 >= xmin && x1 <= xmax) {
+          const y1 = (x1 + a) / b;
+          if (y1 >= ymin && y1 <= ymax) {
+            points.push({ x: x1, y: y1 });
           }
+        }
+      } else if (Math.abs(discriminant) < 1e-10) {
+        // Two or three real roots (degenerate case)
+        const u1 = Math.cbrt(-q / 2);
+        const x1 = 2 * u1;
+        const x2 = -u1;
+
+        [x1, x2].forEach((x) => {
+          if (x >= xmin && x <= xmax) {
+            const y = (x + a) / b;
+            if (y >= ymin && y <= ymax) {
+              // Avoid duplicates
+              const isDuplicate = points.some(
+                (pt) => Math.abs(pt.x - x) < 0.01,
+              );
+              if (!isDuplicate) {
+                points.push({ x: x, y: y });
+              }
+            }
+          }
+        });
+      } else {
+        // Three distinct real roots
+        const r = Math.sqrt((-p * p * p) / 27);
+        const phi = Math.acos(-q / (2 * r));
+        const rCbrt = Math.cbrt(r);
+
+        for (let k = 0; k < 3; k++) {
+          const x = 2 * rCbrt * Math.cos((phi + 2 * Math.PI * k) / 3);
+          if (x >= xmin && x <= xmax) {
+            const y = (x + a) / b;
+            if (y >= ymin && y <= ymax) {
+              points.push({ x: x, y: y });
+            }
+          }
+        }
+      }
+    } else if (a === 0) {
+      // Special case: b = 0, a = 0 => Y' = 0 requires X = 0
+      // From X' = 0: Y = 0 - 0³/3 + z = z
+      if (z >= ymin && z <= ymax) {
+        points.push({ x: 0, y: z });
+      }
+    } else {
+      // b = 0, a ≠ 0 => X = -a (vertical line)
+      // Substitute into X-nullcline: Y = -a - (-a)³/3 + z
+      const x = -a;
+      if (x >= xmin && x <= xmax) {
+        const y = x - (x * x * x) / 3 + z;
+        if (y >= ymin && y <= ymax) {
+          points.push({ x: x, y: y });
         }
       }
     }
@@ -117,7 +163,7 @@ const HollingTannerTool = () => {
   const drawStaticElements = useCallback(
     (canvas, ctx) => {
       const { width, height } = canvas;
-      const { alpha, beta, c, h, m, q } = animationStateRef.current.params;
+      const { u, a, b, z } = animationStateRef.current.params;
 
       // Account for graph padding (matching GridGraph calculation)
       const paddingLeft = 45;
@@ -133,8 +179,8 @@ const HollingTannerTool = () => {
 
       // Draw vector field
       const gridCoords = [
-        0.2, 0.6, 1.0, 1.4, 1.8, 2.2, 2.6, 3.0, 3.4, 3.8, 4.2, 4.6, 5.0, 5.4,
-        5.8,
+        -2.8, -2.4, -2.0, -1.6, -1.2, -0.8, -0.4, 0.0, 0.4, 0.8, 1.2, 1.6, 2.0,
+        2.4, 2.8,
       ];
       ctx.strokeStyle =
         currentTheme === "dark"
@@ -148,23 +194,23 @@ const HollingTannerTool = () => {
 
       for (let i = 0; i < gridCoords.length; i++) {
         for (let j = 0; j < gridCoords.length; j++) {
-          const s = gridCoords[i];
-          const t = gridCoords[j];
+          const x = gridCoords[i];
+          const y = gridCoords[j];
 
-          if (s < 0 || t < 0) continue;
-
-          // Holling-Tanner equations
-          const dsdt = alpha * s * (1 - s / (q * t));
-          const dtdt = beta * t * (1 - t / m) - (c * s * t) / (h + t);
-          const magnitude = Math.sqrt(dsdt * dsdt + dtdt * dtdt);
+          // FitzHugh-Nagumo equations
+          const dxdt = -y + x - (x * x * x) / 3 + z;
+          const dydt = u * (x + a - b * y);
+          const magnitude = Math.sqrt(dxdt * dxdt + dydt * dydt);
 
           if (magnitude === 0) continue;
 
-          const normalizedDx = dsdt / magnitude;
-          const normalizedDy = dtdt / magnitude;
+          const normalizedDx = dxdt / magnitude;
+          const normalizedDy = dydt / magnitude;
 
-          const canvasX = paddingLeft + (s / smax) * plotWidth;
-          const canvasY = paddingTop + plotHeight - (t / tmax) * plotHeight;
+          const canvasX =
+            paddingLeft + ((x - xmin) / (xmax - xmin)) * plotWidth;
+          const canvasY =
+            paddingTop + plotHeight - ((y - ymin) / (ymax - ymin)) * plotHeight;
           const arrowLength = 18;
           const endX = canvasX + normalizedDx * arrowLength;
           const endY = canvasY - normalizedDy * arrowLength;
@@ -191,40 +237,21 @@ const HollingTannerTool = () => {
 
       // Draw nullclines if enabled
       if (showNullclines) {
-        // S-nullcline: αS(1 - S/qT) = 0 => S = 0 or S = qT
-        // Non-trivial S-nullcline: S = qT (straight line)
+        // X-nullcline: -Y + X - X³/3 + z = 0 => Y = X - X³/3 + z
         ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
         ctx.lineWidth = 3;
         ctx.beginPath();
 
-        // Draw line S = qT from origin to boundary
-        for (let t = 0; t <= tmax; t += 0.01) {
-          const s = q * t;
-          if (s >= smin && s <= smax) {
-            const canvasX = paddingLeft + (s / smax) * plotWidth;
-            const canvasY = paddingTop + plotHeight - (t / tmax) * plotHeight;
-            if (t === 0) ctx.moveTo(canvasX, canvasY);
-            else ctx.lineTo(canvasX, canvasY);
-          }
-        }
-        ctx.stroke();
-
-        // T-nullcline: βT(1 - T/m) = cST/(h+T) = 0 => T = 0 or non-trivial parabola
-        // Non-trivial T-nullcline forms a sideways parabola
-        ctx.strokeStyle = currentTheme === "dark" ? "#f87171" : "#dc2626";
-        ctx.lineWidth = 3;
-
-        // Non-trivial T-nullcline: βT(1 - T/m) = cST/(h+T)
-        // Solve for S as a function of T: S = β(1 - T/m)(h+T)/c
-        ctx.beginPath();
         let firstPoint = true;
-        for (let t = 0.01; t <= tmax; t += 0.05) {
-          // For each T, compute: S = β(1 - T/m)(h+T)/c
-          const s = (beta * (1 - t / m) * (h + t)) / c;
-
-          if (s > 0 && s <= smax) {
-            const canvasX = paddingLeft + (s / smax) * plotWidth;
-            const canvasY = paddingTop + plotHeight - (t / tmax) * plotHeight;
+        for (let x = xmin; x <= xmax; x += 0.01) {
+          const y = x - (x * x * x) / 3 + z;
+          if (y >= ymin && y <= ymax) {
+            const canvasX =
+              paddingLeft + ((x - xmin) / (xmax - xmin)) * plotWidth;
+            const canvasY =
+              paddingTop +
+              plotHeight -
+              ((y - ymin) / (ymax - ymin)) * plotHeight;
             if (firstPoint) {
               ctx.moveTo(canvasX, canvasY);
               firstPoint = false;
@@ -234,56 +261,109 @@ const HollingTannerTool = () => {
           }
         }
         ctx.stroke();
-      }
 
-      // Draw equilibrium point at intersection of non-trivial nullclines
-      if (alpha > 0 && beta > 0 && c > 0 && h > 0 && m > 0 && q > 0) {
-        // Find intersection of S = qT and S = β(1 - T/m)(h+T)/c
-        // Set equal: qT = β(1 - T/m)(h+T)/c
-        // Solve: cqT = β(1 - T/m)(h+T)
-        // Expand: cqT = β(h + T - Th/m - T²/m)
-        // Rearrange: βT²/m - βT(1 - h/m) - βh + cqT = 0
+        // Y-nullcline: X + a - bY = 0
+        // This is a line through point (-a, 0) with normal vector (1, -b)
+        // Direction vector is perpendicular to normal: (b, 1)
+        ctx.strokeStyle = currentTheme === "dark" ? "#f87171" : "#dc2626";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
 
-        const a = beta / m;
-        const b = -beta * (1 - h / m) + c * q;
-        const cCoeff = -beta * h;
+        // Point on the line
+        const x0 = -a;
+        const y0 = 0;
 
-        const discriminant = b * b - 4 * a * cCoeff;
+        // Direction vector (perpendicular to normal (1, -b))
+        const dx = b;
+        const dy = 1;
 
-        if (discriminant >= 0) {
-          const t1 = (-b + Math.sqrt(discriminant)) / (2 * a);
-          const t2 = (-b - Math.sqrt(discriminant)) / (2 * a);
+        // Find intersections with plot boundaries
+        const intersections = [];
 
-          // Choose the positive, reasonable root
-          const tEq =
-            t1 > 0 && t1 <= tmax ? t1 : t2 > 0 && t2 <= tmax ? t2 : null;
-
-          if (tEq && tEq > 0) {
-            const sEq = q * tEq;
-
-            if (sEq > 0 && sEq <= smax && tEq <= tmax) {
-              const canvasX = paddingLeft + (sEq / smax) * plotWidth;
-              const canvasY =
-                paddingTop + plotHeight - (tEq / tmax) * plotHeight;
-
-              ctx.fillStyle = "#f59e0b"; // Unstable focus for oscillations
-              ctx.strokeStyle = "#d97706";
-              ctx.lineWidth = 2;
-              ctx.beginPath();
-              ctx.arc(canvasX, canvasY, 6, 0, 2 * Math.PI);
-              ctx.fill();
-              ctx.stroke();
-
-              ctx.fillStyle = "white";
-              ctx.beginPath();
-              ctx.arc(canvasX, canvasY, 2.5, 0, 2 * Math.PI);
-              ctx.fill();
-            }
+        // Intersection with left edge (x = xmin)
+        if (Math.abs(dx) > 1e-10) {
+          const t = (xmin - x0) / dx;
+          const y = y0 + t * dy;
+          if (y >= ymin && y <= ymax) {
+            intersections.push({ x: xmin, y: y });
           }
         }
+
+        // Intersection with right edge (x = xmax)
+        if (Math.abs(dx) > 1e-10) {
+          const t = (xmax - x0) / dx;
+          const y = y0 + t * dy;
+          if (y >= ymin && y <= ymax) {
+            intersections.push({ x: xmax, y: y });
+          }
+        }
+
+        // Intersection with bottom edge (y = ymin)
+        if (Math.abs(dy) > 1e-10) {
+          const t = (ymin - y0) / dy;
+          const x = x0 + t * dx;
+          if (x >= xmin && x <= xmax) {
+            intersections.push({ x: x, y: ymin });
+          }
+        }
+
+        // Intersection with top edge (y = ymax)
+        if (Math.abs(dy) > 1e-10) {
+          const t = (ymax - y0) / dy;
+          const x = x0 + t * dx;
+          if (x >= xmin && x <= xmax) {
+            intersections.push({ x: x, y: ymax });
+          }
+        }
+
+        // Draw line between first two valid intersections
+        if (intersections.length >= 2) {
+          const p1 = intersections[0];
+          const p2 = intersections[1];
+
+          const canvasX1 =
+            paddingLeft + ((p1.x - xmin) / (xmax - xmin)) * plotWidth;
+          const canvasY1 =
+            paddingTop +
+            plotHeight -
+            ((p1.y - ymin) / (ymax - ymin)) * plotHeight;
+          const canvasX2 =
+            paddingLeft + ((p2.x - xmin) / (xmax - xmin)) * plotWidth;
+          const canvasY2 =
+            paddingTop +
+            plotHeight -
+            ((p2.y - ymin) / (ymax - ymin)) * plotHeight;
+
+          ctx.moveTo(canvasX1, canvasY1);
+          ctx.lineTo(canvasX2, canvasY2);
+          ctx.stroke();
+        }
       }
+
+      // Draw equilibrium points
+      equilibria.forEach((eq) => {
+        const canvasX =
+          paddingLeft + ((eq.x - xmin) / (xmax - xmin)) * plotWidth;
+        const canvasY =
+          paddingTop +
+          plotHeight -
+          ((eq.y - ymin) / (ymax - ymin)) * plotHeight;
+
+        ctx.fillStyle = "#f59e0b";
+        ctx.strokeStyle = "#d97706";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(canvasX, canvasY, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        ctx.arc(canvasX, canvasY, 2.5, 0, 2 * Math.PI);
+        ctx.fill();
+      });
     },
-    [currentTheme, showNullclines],
+    [currentTheme, showNullclines, equilibria],
   );
 
   // Dynamic elements drawing function - redraws every frame
@@ -293,7 +373,7 @@ const HollingTannerTool = () => {
     const { width, height } = canvas;
     ctx.clearRect(0, 0, width, height);
 
-    // Account for graph padding (matching GridGraph calculation)
+    // Account for graph padding
     const paddingLeft = 45;
     const paddingRight = 15;
     const paddingTop = 15;
@@ -303,7 +383,7 @@ const HollingTannerTool = () => {
     const plotHeight = height - paddingTop - paddingBottom;
 
     // Draw trajectories
-    const colorHues = [120, 240, 60, 300, 180, 0]; // Green first, then others
+    const colorHues = [120, 240, 60, 300, 180, 0];
     animationStateRef.current.trajectories.forEach((trajectory, trajIndex) => {
       if (trajectory.trail && trajectory.trail.length > 1) {
         const hue = colorHues[trajIndex % colorHues.length];
@@ -313,15 +393,15 @@ const HollingTannerTool = () => {
 
         ctx.beginPath();
         trajectory.trail.forEach((point, index) => {
-          const x =
-            paddingLeft + ((point.x - smin) / (smax - smin)) * plotWidth;
-          const y =
+          const canvasX =
+            paddingLeft + ((point.x - xmin) / (xmax - xmin)) * plotWidth;
+          const canvasY =
             paddingTop +
             plotHeight -
-            ((point.y - tmin) / (tmax - tmin)) * plotHeight;
+            ((point.y - ymin) / (ymax - ymin)) * plotHeight;
 
-          if (index === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+          if (index === 0) ctx.moveTo(canvasX, canvasY);
+          else ctx.lineTo(canvasX, canvasY);
         });
         ctx.stroke();
         ctx.globalAlpha = 1.0;
@@ -329,19 +409,19 @@ const HollingTannerTool = () => {
         // Draw current position
         if (
           trajectory.isActive &&
-          trajectory.s !== undefined &&
-          trajectory.t !== undefined
+          trajectory.x !== undefined &&
+          trajectory.y !== undefined
         ) {
-          const x =
-            paddingLeft + ((trajectory.s - smin) / (smax - smin)) * plotWidth;
-          const y =
+          const canvasX =
+            paddingLeft + ((trajectory.x - xmin) / (xmax - xmin)) * plotWidth;
+          const canvasY =
             paddingTop +
             plotHeight -
-            ((trajectory.t - tmin) / (tmax - tmin)) * plotHeight;
+            ((trajectory.y - ymin) / (ymax - ymin)) * plotHeight;
 
           ctx.fillStyle = `hsl(${hue}, 70%, 40%)`;
           ctx.beginPath();
-          ctx.arc(x, y, 4, 0, 2 * Math.PI);
+          ctx.arc(canvasX, canvasY, 4, 0, 2 * Math.PI);
           ctx.fill();
         }
       }
@@ -361,7 +441,7 @@ const HollingTannerTool = () => {
       const currentTime = state.time;
       const minTime = Math.max(0, currentTime - timeWindow);
       const maxTime = Math.max(timeWindow, currentTime);
-      const maxPop = Math.max(smax, tmax);
+      const maxVal = Math.max(Math.abs(xmax), Math.abs(ymax));
 
       const paddingLeft = 45;
       const paddingRight = 15;
@@ -370,7 +450,7 @@ const HollingTannerTool = () => {
       const plotWidth = width - paddingLeft - paddingRight;
       const plotHeight = height - paddingTop - paddingBottom;
 
-      // Draw Sharks
+      // Draw X (Membrane Potential)
       ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -378,21 +458,23 @@ const HollingTannerTool = () => {
 
       state.timeSeriesData.forEach((point) => {
         if (point.time >= minTime && point.time <= maxTime) {
-          const x =
+          const canvasX =
             paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const y =
-            paddingTop + plotHeight - (point.sharks / maxPop) * plotHeight;
+          const canvasY =
+            paddingTop +
+            plotHeight -
+            ((point.x + maxVal) / (2 * maxVal)) * plotHeight;
           if (firstPoint) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(canvasX, canvasY);
             firstPoint = false;
           } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(canvasX, canvasY);
           }
         }
       });
       ctx.stroke();
 
-      // Draw Tuna
+      // Draw Y (Recovery Variable)
       ctx.strokeStyle = currentTheme === "dark" ? "#f87171" : "#dc2626";
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -400,15 +482,17 @@ const HollingTannerTool = () => {
 
       state.timeSeriesData.forEach((point) => {
         if (point.time >= minTime && point.time <= maxTime) {
-          const x =
+          const canvasX =
             paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const y =
-            paddingTop + plotHeight - (point.tuna / maxPop) * plotHeight;
+          const canvasY =
+            paddingTop +
+            plotHeight -
+            ((point.y + maxVal) / (2 * maxVal)) * plotHeight;
           if (firstPoint) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(canvasX, canvasY);
             firstPoint = false;
           } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(canvasX, canvasY);
           }
         }
       });
@@ -422,7 +506,7 @@ const HollingTannerTool = () => {
     const state = animationStateRef.current;
     if (!state.isRunning) return;
 
-    const { alpha, beta, c, h, m, q, speed } = state.params;
+    const { u, a, b, z, speed } = state.params;
     if (speed === 0) {
       state.animationId = requestAnimationFrame(animationLoop);
       return;
@@ -434,43 +518,38 @@ const HollingTannerTool = () => {
     state.trajectories = state.trajectories.map((traj) => {
       if (!traj.isActive) return traj;
 
-      // Holling-Tanner differential equations
-      const computeDerivatives = (s, t) => {
-        const dsdt = alpha * s * (1 - s / (q * t));
-        const dtdt = beta * t * (1 - t / m) - (c * s * t) / (h + t);
-        return [dsdt, dtdt];
+      // FitzHugh-Nagumo differential equations
+      const computeDerivatives = (x, y) => {
+        const dxdt = -y + x - (x * x * x) / 3 + z;
+        const dydt = u * (x + a - b * y);
+        return [dxdt, dydt];
       };
 
-      const [s_curr, t_curr] = [traj.s, traj.t];
+      const [x_curr, y_curr] = [traj.x, traj.y];
 
       // RK4 integration
-      const k1 = computeDerivatives(s_curr, t_curr);
+      const k1 = computeDerivatives(x_curr, y_curr);
       const k2 = computeDerivatives(
-        s_curr + (dt * k1[0]) / 2,
-        t_curr + (dt * k1[1]) / 2,
+        x_curr + (dt * k1[0]) / 2,
+        y_curr + (dt * k1[1]) / 2,
       );
       const k3 = computeDerivatives(
-        s_curr + (dt * k2[0]) / 2,
-        t_curr + (dt * k2[1]) / 2,
+        x_curr + (dt * k2[0]) / 2,
+        y_curr + (dt * k2[1]) / 2,
       );
-      const k4 = computeDerivatives(s_curr + dt * k3[0], t_curr + dt * k3[1]);
+      const k4 = computeDerivatives(x_curr + dt * k3[0], y_curr + dt * k3[1]);
 
-      let newS = Math.max(
-        0,
-        s_curr + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]),
-      );
-      let newT = Math.max(
-        0,
-        t_curr + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]),
-      );
+      let newX = x_curr + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]);
+      let newY = y_curr + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]);
 
-      const isInBounds = newS <= smax && newT <= tmax;
-      const newTrail = [...traj.trail.slice(-150), { x: newS, y: newT }];
+      const isInBounds =
+        newX >= xmin && newX <= xmax && newY >= ymin && newY <= ymax;
+      const newTrail = [...traj.trail.slice(-150), { x: newX, y: newY }];
 
       return {
         ...traj,
-        s: newS,
-        t: newT,
+        x: newX,
+        y: newY,
         trail: newTrail,
         isActive: isInBounds,
       };
@@ -486,20 +565,20 @@ const HollingTannerTool = () => {
     // Update time series data
     const activeTraj = state.trajectories.find((t) => t.isActive);
     if (activeTraj) {
-      const currentS = activeTraj.s || 0;
-      const currentT = activeTraj.t || 0;
+      const currentX = activeTraj.x || 0;
+      const currentY = activeTraj.y || 0;
 
       state.timeSeriesData = [
         ...state.timeSeriesData.slice(-500),
         {
           time: state.time,
-          sharks: currentS,
-          tuna: currentT,
+          x: currentX,
+          y: currentY,
         },
       ];
     }
 
-    // Draw only dynamic elements (efficient!)
+    // Draw only dynamic elements
     const dynamicCanvas = dynamicCanvasRef.current;
     const timeCanvas = timeSeriesCanvasRef.current;
 
@@ -541,8 +620,8 @@ const HollingTannerTool = () => {
       if (!canvas) return;
 
       const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
+      const clickX = event.clientX - rect.left;
+      const clickY = event.clientY - rect.top;
 
       const paddingLeft = 45;
       const paddingRight = 15;
@@ -553,17 +632,17 @@ const HollingTannerTool = () => {
       const plotHeight = rect.height - paddingTop - paddingBottom;
 
       if (
-        x < paddingLeft ||
-        x > paddingLeft + plotWidth ||
-        y < paddingTop ||
-        y > paddingTop + plotHeight
+        clickX < paddingLeft ||
+        clickX > paddingLeft + plotWidth ||
+        clickY < paddingTop ||
+        clickY > paddingTop + plotHeight
       )
         return;
 
-      const dataX = ((x - paddingLeft) / plotWidth) * smax;
-      const dataY = tmax - ((y - paddingTop) / plotHeight) * tmax;
+      const dataX = ((clickX - paddingLeft) / plotWidth) * (xmax - xmin) + xmin;
+      const dataY = ymax - ((clickY - paddingTop) / plotHeight) * (ymax - ymin);
 
-      if (dataX < 0 || dataY < 0 || dataX > smax || dataY > tmax) return;
+      if (dataX < xmin || dataY < ymin || dataX > xmax || dataY > ymax) return;
 
       const colorHues = [120, 240, 60, 300, 180, 0];
       const hue =
@@ -573,8 +652,8 @@ const HollingTannerTool = () => {
 
       const newTrajectory = {
         id: Date.now() + Math.random(),
-        s: dataX,
-        t: dataY,
+        x: dataX,
+        y: dataY,
         isActive: true,
         color: `hsl(${hue}, 70%, 50%)`,
         trail: [{ x: dataX, y: dataY }],
@@ -621,6 +700,27 @@ const HollingTannerTool = () => {
     setUiParams((prev) => ({ ...prev, [param]: value }));
   }, []);
 
+  // Preset parameter functions
+  const loadDefaultPreset = useCallback(() => {
+    setUiParams({
+      u: 0.1,
+      a: 0.7,
+      b: 0.8,
+      z: 0.0,
+      speed: 2,
+    });
+  }, []);
+
+  const loadVanDerPolPreset = useCallback(() => {
+    setUiParams({
+      u: 0.1,
+      a: 0.0,
+      b: 0.0,
+      z: 0.0,
+      speed: 2,
+    });
+  }, []);
+
   // Initialize canvases
   useEffect(() => {
     [staticCanvasRef, dynamicCanvasRef, timeSeriesCanvasRef].forEach((ref) => {
@@ -656,7 +756,7 @@ const HollingTannerTool = () => {
 
   return (
     <ToolContainer
-      title="Holling-Tanner Predator-Prey Model"
+      title="FitzHugh-Nagumo Neuron Model"
       canvasWidth={10}
       canvasHeight={7}
     >
@@ -666,16 +766,16 @@ const HollingTannerTool = () => {
         y={0}
         w={5}
         h={5}
-        xLabel="Sharks (S)"
-        yLabel="Tuna (T)"
-        xRange={[smin, smax]}
-        yRange={[tmin, tmax]}
-        xTicks={[0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}
-        yTicks={[0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}
+        xLabel="Membrane Potential (X)"
+        yLabel="Recovery Variable (Y)"
+        xRange={[xmin, xmax]}
+        yRange={[ymin, ymax]}
+        xTicks={[-3, -2, -1, 0, 1, 2, 3]}
+        yTicks={[-3, -2, -1, 0, 1, 2, 3]}
         theme={theme}
         tooltip="Click to start a trajectory from that point"
       >
-        {/* Static background layer - vector field, nullclines, equilibrium points */}
+        {/* Static background layer */}
         <canvas
           ref={staticCanvasRef}
           className="absolute pointer-events-none"
@@ -688,7 +788,7 @@ const HollingTannerTool = () => {
           width={600}
           height={400}
         />
-        {/* Dynamic foreground layer - trajectories and moving particles */}
+        {/* Dynamic foreground layer */}
         <canvas
           ref={dynamicCanvasRef}
           className="absolute cursor-crosshair"
@@ -711,13 +811,13 @@ const HollingTannerTool = () => {
         w={5}
         h={2}
         xLabel="Time"
-        yLabel="Population"
+        yLabel="X, Y"
         xRange={[Math.max(0, currentTime - 20), Math.max(20, currentTime)]}
-        yRange={[0, Math.max(smax, tmax)]}
+        yRange={[-3, 3]}
         xTicks={[]}
-        yTicks={[0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}
+        yTicks={[-3, -2, -1, 0, 1, 2, 3]}
         theme={theme}
-        tooltip="Population dynamics over time"
+        tooltip="Dynamics over time"
       >
         <canvas
           ref={timeSeriesCanvasRef}
@@ -733,82 +833,86 @@ const HollingTannerTool = () => {
         />
       </GridGraph>
 
-      {/* Parameter Controls - Mix of GridInputs and Sliders */}
-      <GridInput
+      {/* Preset Buttons */}
+      <GridButton
         x={5}
         y={0}
-        value={uiParams.alpha}
-        onChange={(value) => updateParam("alpha", value)}
+        w={1}
+        h={1}
+        onPress={loadDefaultPreset}
+        variant="default"
+        theme={theme}
+      >
+        <div style={{ textAlign: "center", lineHeight: "1.1" }}>
+          <div>Default</div>
+        </div>
+      </GridButton>
+
+      <GridButton
+        x={6}
+        y={0}
+        w={1}
+        h={1}
+        onPress={loadVanDerPolPreset}
+        variant="default"
+        theme={theme}
+      >
+        <div style={{ textAlign: "center", lineHeight: "1.1" }}>
+          <div>van der</div>
+          <div>Pol</div>
+        </div>
+      </GridButton>
+
+      {/* Parameter Controls */}
+      <GridInput
+        x={5}
+        y={1}
+        value={uiParams.u}
+        onChange={(value) => updateParam("u", value)}
         min={0.01}
         max={1.0}
         step={0.01}
-        variable="α"
-        title="Shark growth rate"
-        theme={theme}
-      />
-
-      <GridInput
-        x={6}
-        y={0}
-        value={uiParams.beta}
-        onChange={(value) => updateParam("beta", value)}
-        min={0.1}
-        max={3.0}
-        step={0.1}
-        variable="β"
-        title="Tuna growth rate"
-        theme={theme}
-      />
-
-      <GridInput
-        x={5}
-        y={1}
-        value={uiParams.c}
-        onChange={(value) => updateParam("c", value)}
-        min={0.1}
-        max={3.0}
-        step={0.1}
-        variable="c"
-        title="Predation rate"
+        variable="u"
+        title="Time-scale separation"
         theme={theme}
       />
 
       <GridInput
         x={6}
         y={1}
-        value={uiParams.h}
-        onChange={(value) => updateParam("h", value)}
-        min={0.1}
-        max={3.0}
+        value={uiParams.a}
+        onChange={(value) => updateParam("a", value)}
+        min={-2.0}
+        max={2.0}
         step={0.1}
-        variable="h"
-        title="Half-saturation constant"
+        variable="a"
+        title="X-axis shift parameter"
         theme={theme}
       />
 
       <GridInput
         x={5}
         y={2}
-        value={uiParams.m}
-        onChange={(value) => updateParam("m", value)}
-        min={0.5}
-        max={10.0}
+        value={uiParams.b}
+        onChange={(value) => updateParam("b", value)}
+        min={0.0}
+        max={2.0}
         step={0.1}
-        variable="m"
-        title="Tuna carrying capacity"
+        variable="b"
+        title="Y feedback coefficient"
         theme={theme}
       />
 
       <GridInput
         x={6}
         y={2}
-        value={uiParams.q}
-        onChange={(value) => updateParam("q", value)}
-        min={0.5}
-        max={5.0}
+        value={uiParams.z}
+        onChange={(value) => updateParam("z", value)}
+        min={-1.0}
+        max={1.0}
         step={0.1}
-        variable="q"
-        title="Shark carrying capacity"
+        variable="z"
+        title="External input current"
         theme={theme}
       />
 
@@ -847,7 +951,7 @@ const HollingTannerTool = () => {
       <GridSliderHorizontal
         x={5}
         y={4}
-        w={3}
+        w={2}
         h={1}
         value={uiParams.speed * 25}
         onChange={(value) => updateParam("speed", value / 25)}
@@ -876,13 +980,13 @@ const HollingTannerTool = () => {
               fontSize: "1.1em",
             }}
           >
-            Holling-Tanner Model
+            FitzHugh-Nagumo Model
           </div>
           <div style={{ marginBottom: "0px", lineHeight: "1.2" }}>
-            <Equation name="holling-tanner-predator" size="medium" />
+            <Equation name="fitzhugh-nagumo-membrane" size="medium" />
           </div>
           <div>
-            <Equation name="holling-tanner-prey" size="medium" />
+            <Equation name="fitzhugh-nagumo-recovery" size="medium" />
           </div>
         </div>
       </GridDisplay>
@@ -892,7 +996,7 @@ const HollingTannerTool = () => {
         x={7}
         y={2}
         w={3}
-        h={2}
+        h={3}
         variant="status"
         align="center"
         fontSize="small"
@@ -900,36 +1004,24 @@ const HollingTannerTool = () => {
       >
         <div style={{ textAlign: "center", lineHeight: "1.4" }}>
           <div style={{ fontWeight: "bold", marginBottom: "6px" }}>
-            Equilibrium Points
+            {equilibria.length === 1
+              ? "Equilibrium Point"
+              : "Equilibrium Points"}
           </div>
           {equilibria.length > 0 ? (
-            <>
-              <div
-                style={{
-                  marginBottom: "4px",
-                  fontSize: "0.9em",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <Equation
-                  name="equilibrium-s"
-                  size="small"
-                  style={{ marginRight: "4px" }}
-                />
-                {equilibria[equilibria.length - 1].x.toFixed(2)}
-              </div>
-              <div style={{ fontSize: "0.9em", whiteSpace: "nowrap" }}>
-                <Equation
-                  name="equilibrium-t"
-                  size="small"
-                  style={{ marginRight: "4px" }}
-                />
-                {equilibria[equilibria.length - 1].y.toFixed(2)}
-              </div>
-            </>
+            <div style={{ fontSize: "0.85em" }}>
+              {equilibria.map((eq, index) => (
+                <div key={index} style={{ marginBottom: "4px" }}>
+                  <div>
+                    {equilibria.length > 1 && `${index + 1}. `}
+                    X* = {eq.x.toFixed(2)}, Y* = {eq.y.toFixed(2)}
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
             <div style={{ fontSize: "0.9em", opacity: 0.7 }}>
-              No coexistence equilibrium
+              No equilibrium found
             </div>
           )}
         </div>
@@ -948,7 +1040,7 @@ const HollingTannerTool = () => {
       >
         <div style={{ padding: "4px" }}>
           <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
-            Predator-Prey Simulation Status
+            Neuron Model Simulation Status
           </div>
           <div
             style={{
@@ -968,38 +1060,32 @@ const HollingTannerTool = () => {
             <div>Current Time: {currentTime.toFixed(1)}</div>
             <div>Animation: {isAnimating ? "Running" : "Stopped"}</div>
           </div>
-          <div
-            style={{
-              marginTop: "4px",
-              fontSize: "0.85em",
-            }}
-          >
+          <div style={{ marginTop: "4px", fontSize: "0.85em" }}>
             <div>
-              Sharks:{" "}
+              Membrane Potential (X):{" "}
               {animationStateRef.current.trajectories
                 .find((t) => t.isActive)
-                ?.s?.toFixed(2) || "0.00"}
+                ?.x?.toFixed(2) || "0.00"}
             </div>
             <div>
-              Tuna:{" "}
+              Recovery Variable (Y):{" "}
               {animationStateRef.current.trajectories
                 .find((t) => t.isActive)
-                ?.t?.toFixed(2) || "0.00"}
+                ?.y?.toFixed(2) || "0.00"}
             </div>
           </div>
           <div style={{ marginTop: "6px", fontSize: "0.8em", opacity: 0.8 }}>
             <span
               style={{ color: currentTheme === "dark" ? "#60a5fa" : "#3b82f6" }}
             >
-              Blue: Sharks
+              Blue: X (Membrane)
             </span>{" "}
             |{" "}
             <span
               style={{ color: currentTheme === "dark" ? "#f87171" : "#dc2626" }}
             >
-              Red: Tuna
+              Red: Y (Recovery)
             </span>
-            {showNullclines && " | Red lines: Nullclines"}
           </div>
         </div>
       </GridDisplay>
@@ -1007,4 +1093,4 @@ const HollingTannerTool = () => {
   );
 };
 
-export default HollingTannerTool;
+export default FitzHughNagumoTool;

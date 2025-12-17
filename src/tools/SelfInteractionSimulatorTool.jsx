@@ -411,7 +411,7 @@ const SelfInteractionSimulatorTool = () => {
 
   return (
     <ToolContainer
-      title="Self-Interaction Simulator"
+      title="Self-Interaction Explorer"
       canvasWidth={7}
       canvasHeight={4}
     >

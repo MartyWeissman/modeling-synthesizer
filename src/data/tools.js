@@ -21,6 +21,8 @@ import GeneralizedLotkaVolterraTool from "../tools/GeneralizedLotkaVolterraTool"
 import OneDimensionalCalculator from "../tools/OneDimensionalCalculator";
 import SimpleHarmonicOscillatorTool from "../tools/SimpleHarmonicOscillatorTool";
 import MuscleTremorSimulatorTool from "../tools/MuscleTremorSimulatorTool";
+import FitzHughNagumoTool from "../tools/FitzHughNagumoTool";
+import DiscreteLogisticExplorerTool from "../tools/DiscreteLogisticExplorerTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -35,7 +37,7 @@ export const toolDefinitions = {
     categories: {
       topics: ["physiology"],
       toolType: "simulation",
-      lab: "lab1",
+      labs: ["lab1", "lab4"],
     },
     visibility: "student",
   },
@@ -126,7 +128,7 @@ export const toolDefinitions = {
     categories: {
       topics: [],
       toolType: "calculator",
-      labs: ["lab1", "lab2", "lab3", "lab4"],
+      lab: null,
     },
     visibility: "student",
   },
@@ -207,13 +209,13 @@ export const toolDefinitions = {
   },
 
   "self-interaction-simulator": {
-    name: "Self-Interaction Simulator",
+    name: "Self-Interaction Explorer",
     description:
       "Particle collision simulator showing random motion and interactions in a circular space. Track collision frequency over time.",
     component: SelfInteractionSimulatorTool,
     categories: {
       topics: [],
-      toolType: "simulation",
+      toolType: "explorer",
       lab: "lab3",
     },
     visibility: "student",
@@ -265,7 +267,7 @@ export const toolDefinitions = {
     component: SimpleHarmonicOscillatorTool,
     categories: {
       topics: ["physical"],
-      toolType: "simulation",
+      toolType: "explorer",
       lab: "lab4",
     },
     visibility: "student",
@@ -279,7 +281,33 @@ export const toolDefinitions = {
     categories: {
       topics: ["physiology"],
       toolType: "simulation",
-      lab: "lab1",
+      lab: "lab4",
+    },
+    visibility: "student",
+  },
+
+  "fitzhugh-nagumo": {
+    name: "FitzHugh-Nagumo Neuron Model",
+    description:
+      "Explore action potential dynamics with the FitzHugh-Nagumo neuron model. Visualize membrane potential and recovery variable interactions in phase space with nullclines and trajectories.",
+    component: FitzHughNagumoTool,
+    categories: {
+      topics: ["physiology"],
+      toolType: "simulation",
+      lab: "lab4",
+    },
+    visibility: "student",
+  },
+
+  "discrete-logistic-explorer": {
+    name: "Discrete Logistic Model Explorer",
+    description:
+      "Explore discrete-time logistic population growth with bifurcation diagrams. Observe period-doubling cascades and chaotic dynamics as the birth rate parameter varies.",
+    component: DiscreteLogisticExplorerTool,
+    categories: {
+      topics: ["ecology"],
+      toolType: "explorer",
+      lab: "lab5",
     },
     visibility: "student",
   },

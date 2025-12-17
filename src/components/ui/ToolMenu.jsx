@@ -24,7 +24,7 @@ const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
   const labKeys = Object.keys(labCategories);
 
   const getFilteredTools = () => {
-    return availableTools.filter((tool) => {
+    const filtered = availableTools.filter((tool) => {
       // Apply lab filter
       if (selectedLab !== "all") {
         const labTools = labCategories[selectedLab]?.tools || [];
@@ -44,6 +44,21 @@ const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
       }
 
       return true;
+    });
+
+    // Sort by tool type: calculator, explorer, simulation, study, development
+    const typeOrder = {
+      calculator: 1,
+      explorer: 2,
+      simulation: 3,
+      study: 4,
+      development: 5,
+    };
+
+    return filtered.sort((a, b) => {
+      const aOrder = typeOrder[a.categories.toolType] || 999;
+      const bOrder = typeOrder[b.categories.toolType] || 999;
+      return aOrder - bOrder;
     });
   };
 

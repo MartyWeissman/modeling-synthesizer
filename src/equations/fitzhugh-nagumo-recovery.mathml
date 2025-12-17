@@ -1,0 +1,14 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">Y</mi>
+  <mo>′</mo>
+  <mo>=</mo>
+  <mi>u</mi>
+  <mo stretchy="false">(</mo>
+  <mi mathvariant="bold-italic">X</mi>
+  <mo>+</mo>
+  <mi>a</mi>
+  <mo>−</mo>
+  <mi>b</mi>
+  <mi mathvariant="bold-italic">Y</mi>
+  <mo stretchy="false">)</mo>
+</math>
