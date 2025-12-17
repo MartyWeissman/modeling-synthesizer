@@ -1,0 +1,20 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">P</mi>
+  <mo>′</mo>
+  <mo>=</mo>
+  <mi>β</mi>
+  <mi mathvariant="bold-italic">P</mi>
+  <mrow>
+    <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">(</mo>
+    <mn>1</mn>
+    <mo>−</mo>
+    <mfrac>
+      <msub>
+        <mi mathvariant="bold-italic">P</mi>
+        <mi>τ</mi>
+      </msub>
+      <mi>k</mi>
+    </mfrac>
+    <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">)</mo>
+  </mrow>
+</math>

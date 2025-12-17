@@ -23,6 +23,7 @@ import SimpleHarmonicOscillatorTool from "../tools/SimpleHarmonicOscillatorTool"
 import MuscleTremorSimulatorTool from "../tools/MuscleTremorSimulatorTool";
 import FitzHughNagumoTool from "../tools/FitzHughNagumoTool";
 import DiscreteLogisticExplorerTool from "../tools/DiscreteLogisticExplorerTool";
+import HutchinsonGrowthTool from "../tools/HutchinsonGrowthTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -308,6 +309,19 @@ export const toolDefinitions = {
       topics: ["ecology"],
       toolType: "explorer",
       lab: "lab5",
+    },
+    visibility: "student",
+  },
+
+  "hutchinson-growth": {
+    name: "Hutchinson Population Growth Simulator",
+    description:
+      "Explore time-delayed population dynamics with the Hutchinson model. Observe how past population values influence current growth through adjustable delay parameter.",
+    component: HutchinsonGrowthTool,
+    categories: {
+      topics: ["ecology"],
+      toolType: "simulation",
+      lab: "lab4",
     },
     visibility: "student",
   },
