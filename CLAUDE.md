@@ -1245,6 +1245,39 @@ The menu system automatically generates categories from your tool definitions - 
 ✅ **Maintainable** - No duplication between files  
 ✅ **Type-safe** - Consistent structure enforced
 
+## Help File Writing
+
+### When to Write Help Files
+**Always use the `/write-help` command** when:
+- Creating a new tool (write help after the tool is complete and tested)
+- User asks to create or update help documentation for a tool
+- Fixing or improving existing help files
+
+**Never write help files manually** - the `/write-help` command enforces a strict workflow that prevents hallucination of features, parameter values, or behaviors that don't exist in the tool.
+
+### Usage
+```
+/write-help caffeine-metabolism
+/write-help insulin-glucose
+```
+
+### Help File Location
+Help files are stored in `public/help/{tool-id}.md` and are loaded by the HelpModal component when users click the (?) button.
+
+### What the Command Does
+1. Reads the tool source code first (mandatory)
+2. Extracts actual parameter names, defaults, and ranges from code
+3. Documents every UI component with its actual behavior
+4. Marks biological interpretations with [VERIFY] for human review
+5. Leaves References section empty (user provides if needed)
+
+### Adding References
+After the help file is generated, you can add references if the user provides them:
+```markdown
+## References
+- [Paper Title](https://url) - Brief description
+```
+
 ## Testing Checklist
 - [ ] Direct URL access works: `?tool=tool-id`
 - [ ] Reset button works (page reload)

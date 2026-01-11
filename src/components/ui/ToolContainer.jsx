@@ -1,7 +1,8 @@
 // src/components/ui/ToolContainer.jsx
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useTheme } from "../../hooks/useTheme";
+import HelpModal from "./HelpModal";
 import {
   LIGHT_NOISE_TEXTURE,
   DARK_NOISE_TEXTURE,
@@ -11,6 +12,7 @@ import {
 const ToolContainer = React.memo(
   ({ title, children, canvasWidth = 10, canvasHeight = 5 }) => {
     const { theme } = useTheme();
+    const [showHelp, setShowHelp] = useState(false);
     const isDarkMode = theme.component.includes("gray-700");
     const isUnicornMode = theme.text.includes("purple-800");
     const currentTexture = isDarkMode
@@ -19,6 +21,21 @@ const ToolContainer = React.memo(
 
     // Use cached texture for beveled top
     const beveledTexture = getBackgroundTexture(theme);
+
+    // Get current tool ID from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const toolId = urlParams.get("tool");
+
+    // Handle keyboard shortcut (?) for help
+    useEffect(() => {
+      const handleKeyPress = (e) => {
+        if (e.key === "?" && !showHelp) {
+          setShowHelp(true);
+        }
+      };
+      window.addEventListener("keypress", handleKeyPress);
+      return () => window.removeEventListener("keypress", handleKeyPress);
+    }, [showHelp]);
 
     // Calculate dynamic dimensions based on canvas size
     const CELL_SIZE = 100;
@@ -89,33 +106,51 @@ const ToolContainer = React.memo(
               {title}
             </h1>
 
-            {/* Universal reset button */}
-            <button
-              onClick={() => {
-                const urlParams = new URLSearchParams(window.location.search);
-                const currentTool = urlParams.get("tool");
-                const currentTheme = urlParams.get("theme");
+            {/* Help and reload buttons */}
+            <div className="flex gap-2">
+              {/* Help button */}
+              <button
+                onClick={() => setShowHelp(true)}
+                className={`w-8 h-8 flex items-center justify-center text-lg font-bold rounded-full ${
+                  isUnicornMode
+                    ? "bg-pink-100 hover:bg-pink-200 text-pink-800 border border-pink-300"
+                    : isDarkMode
+                      ? "bg-gray-600 hover:bg-gray-500 text-gray-100 border border-gray-500"
+                      : "bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300"
+                } transition-colors duration-150`}
+                title="Help (press ?)"
+              >
+                ?
+              </button>
 
-                // Reconstruct URL with preserved theme but fresh tool state
-                const newParams = new URLSearchParams();
-                if (currentTool) newParams.set("tool", currentTool);
-                if (currentTheme) newParams.set("theme", currentTheme);
-                if (urlParams.get("dev") === "true")
-                  newParams.set("dev", "true");
+              {/* Universal reset button */}
+              <button
+                onClick={() => {
+                  const urlParams = new URLSearchParams(window.location.search);
+                  const currentTool = urlParams.get("tool");
+                  const currentTheme = urlParams.get("theme");
 
-                window.location.search = newParams.toString();
-              }}
-              className={`w-8 h-8 flex items-center justify-center text-lg font-bold rounded-full ${
-                isUnicornMode
-                  ? "bg-pink-100 hover:bg-pink-200 text-pink-800 border border-pink-300"
-                  : isDarkMode
-                    ? "bg-gray-600 hover:bg-gray-500 text-gray-100 border border-gray-500"
-                    : "bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300"
-              } transition-colors duration-150`}
-              title="Reload tool"
-            >
-              ↻
-            </button>
+                  // Reconstruct URL with preserved theme but fresh tool state
+                  const newParams = new URLSearchParams();
+                  if (currentTool) newParams.set("tool", currentTool);
+                  if (currentTheme) newParams.set("theme", currentTheme);
+                  if (urlParams.get("dev") === "true")
+                    newParams.set("dev", "true");
+
+                  window.location.search = newParams.toString();
+                }}
+                className={`w-8 h-8 flex items-center justify-center text-lg font-bold rounded-full ${
+                  isUnicornMode
+                    ? "bg-pink-100 hover:bg-pink-200 text-pink-800 border border-pink-300"
+                    : isDarkMode
+                      ? "bg-gray-600 hover:bg-gray-500 text-gray-100 border border-gray-500"
+                      : "bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300"
+                } transition-colors duration-150`}
+                title="Reload tool"
+              >
+                ↻
+              </button>
+            </div>
           </div>
 
           {/* Main content area */}
@@ -131,6 +166,11 @@ const ToolContainer = React.memo(
             {children}
           </div>
         </div>
+
+        {/* Help modal overlay */}
+        {showHelp && toolId && (
+          <HelpModal toolId={toolId} onClose={() => setShowHelp(false)} />
+        )}
       </div>
     );
   },

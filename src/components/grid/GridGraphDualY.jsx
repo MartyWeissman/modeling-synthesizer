@@ -22,6 +22,7 @@ const GridGraphDualY = React.memo(
     xTicks = [],
     yTicksLeft = [],
     yTicksRight = [],
+    yTickLabelsRight = null, // Optional custom labels for right axis
     xRange = [0, 1],
     yRangeLeft = [0, 1],
     yRangeRight = [0, 1],
@@ -57,8 +58,12 @@ const GridGraphDualY = React.memo(
       const maxLeftTickLength = Math.max(
         ...yTicksLeft.map((tick) => tick.toString().length),
       );
+      // Use custom labels for right tick width calculation if provided
+      const rightTickStrings = yTickLabelsRight
+        ? yTickLabelsRight
+        : yTicksRight.map((tick) => tick.toString());
       const maxRightTickLength = Math.max(
-        ...yTicksRight.map((tick) => tick.toString().length),
+        ...rightTickStrings.map((label) => label.toString().length),
       );
 
       const leftTickWidth = Math.max(25, maxLeftTickLength * 6 + 10);
@@ -208,7 +213,11 @@ const GridGraphDualY = React.memo(
           />,
         );
 
-        // Tick label (colored)
+        // Tick label (colored) - use custom label if provided
+        const tickLabel =
+          yTickLabelsRight && yTickLabelsRight[index] !== undefined
+            ? yTickLabelsRight[index]
+            : tickValue;
         ticks.push(
           <div
             key={`y-right-tick-label-${index}`}
@@ -223,7 +232,7 @@ const GridGraphDualY = React.memo(
               ...getFontStyle("mono", "500"),
             }}
           >
-            {tickValue}
+            {tickLabel}
           </div>,
         );
       });

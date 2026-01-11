@@ -24,6 +24,7 @@ import MuscleTremorSimulatorTool from "../tools/MuscleTremorSimulatorTool";
 import FitzHughNagumoTool from "../tools/FitzHughNagumoTool";
 import DiscreteLogisticExplorerTool from "../tools/DiscreteLogisticExplorerTool";
 import HutchinsonGrowthTool from "../tools/HutchinsonGrowthTool";
+import RapidCoinFlipperTool from "../tools/RapidCoinFlipperTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -322,6 +323,19 @@ export const toolDefinitions = {
       topics: ["ecology"],
       toolType: "simulation",
       lab: "lab4",
+    },
+    visibility: "student",
+  },
+
+  "rapid-coin-flipper": {
+    name: "Rapid Coin Flipper",
+    description:
+      "Simulate coin flips with adjustable probabilities. Visualize random walks and compare observed outcomes with expected values and standard deviations.",
+    component: RapidCoinFlipperTool,
+    categories: {
+      topics: [],
+      toolType: "explorer",
+      lab: "lab5",
     },
     visibility: "student",
   },
