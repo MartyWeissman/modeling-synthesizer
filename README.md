@@ -48,7 +48,7 @@ These tools are designed for undergraduate courses in mathematical biology, dyna
 - **Phase portraits** - Vector fields, nullclines, and trajectory plotting
 - **Time series plots** - Watch variables evolve over time
 - **No installation required** - Runs entirely in your web browser
-- **Mobile friendly** - Works on tablets and phones
+- **NOT YET Mobile friendly** - Meant for desktops and laptops.  May work on tablets.  Not recommended for phones and other low-resolution devices.
 - **Dark mode** - Easy on the eyes for late-night studying
 - **Help system** - Built-in documentation for each tool
 
