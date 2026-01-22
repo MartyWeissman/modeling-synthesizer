@@ -25,6 +25,7 @@ import FitzHughNagumoTool from "../tools/FitzHughNagumoTool";
 import DiscreteLogisticExplorerTool from "../tools/DiscreteLogisticExplorerTool";
 import HutchinsonGrowthTool from "../tools/HutchinsonGrowthTool";
 import RapidCoinFlipperTool from "../tools/RapidCoinFlipperTool";
+import TreeRingSimulatorTool from "../tools/TreeRingSimulatorTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -335,6 +336,19 @@ export const toolDefinitions = {
     categories: {
       topics: [],
       toolType: "explorer",
+      lab: "lab5",
+    },
+    visibility: "student",
+  },
+
+  "tree-ring-simulator": {
+    name: "Tree Ring Simulator",
+    description:
+      "Simulate annual tree ring growth with random variation. Visualize growth patterns and compare total growth with expected values using z-scores.",
+    component: TreeRingSimulatorTool,
+    categories: {
+      topics: ["ecology"],
+      toolType: "simulation",
       lab: "lab5",
     },
     visibility: "student",
