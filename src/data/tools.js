@@ -26,6 +26,7 @@ import DiscreteLogisticExplorerTool from "../tools/DiscreteLogisticExplorerTool"
 import HutchinsonGrowthTool from "../tools/HutchinsonGrowthTool";
 import RapidCoinFlipperTool from "../tools/RapidCoinFlipperTool";
 import TreeRingSimulatorTool from "../tools/TreeRingSimulatorTool";
+import GrowthCollapseSimulatorTool from "../tools/GrowthCollapseSimulatorTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -348,6 +349,19 @@ export const toolDefinitions = {
     component: TreeRingSimulatorTool,
     categories: {
       topics: ["ecology"],
+      toolType: "simulation",
+      lab: "lab5",
+    },
+    visibility: "student",
+  },
+
+  "growth-collapse-simulator": {
+    name: "Growth & Collapse Simulator",
+    description:
+      "Simulate a Markov process where height grows by 1 with probability p or collapses to 0. Visualize sample outcomes and histogram across many trials.",
+    component: GrowthCollapseSimulatorTool,
+    categories: {
+      topics: [],
       toolType: "simulation",
       lab: "lab5",
     },
