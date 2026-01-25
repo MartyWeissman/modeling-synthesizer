@@ -39,6 +39,10 @@ const GlycolysisTool = () => {
   const dynamicCanvasRef = useRef(null);
   const timeSeriesCanvasRef = useRef(null);
 
+  // Transform refs for coordinate conversion
+  const phaseTransformRef = useRef(null);
+  const timeSeriesTransformRef = useRef(null);
+
   // Animation state - pure refs, never cause React re-renders
   const animationStateRef = useRef({
     trajectories: [],
@@ -99,20 +103,14 @@ const GlycolysisTool = () => {
   // Static elements drawing function - only redraws when parameters change
   const drawStaticElements = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = phaseTransformRef.current;
+      if (!transform) return;
+
+      const { plotWidth, plotHeight, dataToPixel } = transform;
       const { v, c, k } = animationStateRef.current.params;
 
-      // Account for graph padding (matching GridGraph calculation)
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
-
       // Clear canvas
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, plotWidth, plotHeight);
 
       // Draw nullclines FIRST (behind everything else) - using UI state for immediate response
       if (showNullclines) {
@@ -146,11 +144,9 @@ const GlycolysisTool = () => {
           ctx.lineWidth = 3;
           ctx.beginPath();
           fNullcline.forEach((point, i) => {
-            const canvasX = paddingLeft + (point.x / fmax) * plotWidth;
-            const canvasY =
-              paddingTop + plotHeight - (point.y / amax) * plotHeight;
-            if (i === 0) ctx.moveTo(canvasX, canvasY);
-            else ctx.lineTo(canvasX, canvasY);
+            const pos = dataToPixel(point.x, point.y);
+            if (i === 0) ctx.moveTo(pos.x, pos.y);
+            else ctx.lineTo(pos.x, pos.y);
           });
           ctx.stroke();
         }
@@ -161,11 +157,9 @@ const GlycolysisTool = () => {
           ctx.lineWidth = 3;
           ctx.beginPath();
           aNullcline.forEach((point, i) => {
-            const canvasX = paddingLeft + (point.x / fmax) * plotWidth;
-            const canvasY =
-              paddingTop + plotHeight - (point.y / amax) * plotHeight;
-            if (i === 0) ctx.moveTo(canvasX, canvasY);
-            else ctx.lineTo(canvasX, canvasY);
+            const pos = dataToPixel(point.x, point.y);
+            if (i === 0) ctx.moveTo(pos.x, pos.y);
+            else ctx.lineTo(pos.x, pos.y);
           });
           ctx.stroke();
         }
@@ -200,19 +194,18 @@ const GlycolysisTool = () => {
           const normalizedDx = df / magnitude;
           const normalizedDy = da / magnitude;
 
-          const canvasX = paddingLeft + (f / fmax) * plotWidth;
-          const canvasY = paddingTop + plotHeight - (a / amax) * plotHeight;
+          const pos = dataToPixel(f, a);
           const arrowLength = 18;
-          const endX = canvasX + normalizedDx * arrowLength;
-          const endY = canvasY - normalizedDy * arrowLength;
+          const endX = pos.x + normalizedDx * arrowLength;
+          const endY = pos.y - normalizedDy * arrowLength;
 
           ctx.beginPath();
-          ctx.moveTo(canvasX, canvasY);
+          ctx.moveTo(pos.x, pos.y);
           ctx.lineTo(endX, endY);
           ctx.stroke();
 
           // Arrowhead
-          const angle = Math.atan2(endY - canvasY, endX - canvasX);
+          const angle = Math.atan2(endY - pos.y, endX - pos.x);
           ctx.save();
           ctx.translate(endX, endY);
           ctx.rotate(angle);
@@ -226,43 +219,43 @@ const GlycolysisTool = () => {
         }
       }
 
-      // Draw period reference line when period detection is active - using UI state for immediate response
+      // Draw period reference line when period detection is active
       if (showPeriod && v > 0 && c > 0 && k > 0) {
-        const fEq = (k * k) / (c * v); // Calculate equilibrium F value directly
+        const fEq = (k * k) / (c * v);
         if (fEq >= 0 && fEq <= fmax) {
-          const canvasX = paddingLeft + (fEq / fmax) * plotWidth;
+          const topPos = dataToPixel(fEq, amax);
+          const bottomPos = dataToPixel(fEq, amin);
 
           ctx.strokeStyle = currentTheme === "dark" ? "#a78bfa" : "#8b5cf6";
           ctx.lineWidth = 2;
           ctx.setLineDash([5, 5]);
           ctx.beginPath();
-          ctx.moveTo(canvasX, paddingTop);
-          ctx.lineTo(canvasX, paddingTop + plotHeight);
+          ctx.moveTo(topPos.x, topPos.y);
+          ctx.lineTo(bottomPos.x, bottomPos.y);
           ctx.stroke();
-          ctx.setLineDash([]); // Reset line dash
+          ctx.setLineDash([]);
         }
       }
 
-      // Draw equilibrium point - computed dynamically using animation parameters
+      // Draw equilibrium point
       if (v > 0 && c > 0 && k > 0) {
-        const fEq = (k * k) / (c * v); // F* = k²/(cv)
-        const aEq = v / k; // A* = v/k
+        const fEq = (k * k) / (c * v);
+        const aEq = v / k;
 
         if (fEq > 0 && aEq > 0 && fEq <= fmax && aEq <= amax) {
-          const canvasX = paddingLeft + (fEq / fmax) * plotWidth;
-          const canvasY = paddingTop + plotHeight - (aEq / amax) * plotHeight;
+          const pos = dataToPixel(fEq, aEq);
 
-          ctx.fillStyle = "#f59e0b"; // Always unstable for oscillations
+          ctx.fillStyle = "#f59e0b";
           ctx.strokeStyle = "#d97706";
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.arc(canvasX, canvasY, 6, 0, 2 * Math.PI);
+          ctx.arc(pos.x, pos.y, 6, 0, 2 * Math.PI);
           ctx.fill();
           ctx.stroke();
 
           ctx.fillStyle = "white";
           ctx.beginPath();
-          ctx.arc(canvasX, canvasY, 2.5, 0, 2 * Math.PI);
+          ctx.arc(pos.x, pos.y, 2.5, 0, 2 * Math.PI);
           ctx.fill();
         }
       }
@@ -272,19 +265,13 @@ const GlycolysisTool = () => {
 
   // Dynamic elements drawing function - redraws every animation frame
   const drawDynamicElements = useCallback((canvas, ctx) => {
-    const { width, height } = canvas;
+    const transform = phaseTransformRef.current;
+    if (!transform) return;
 
-    // Account for graph padding (matching GridGraph calculation)
-    const paddingLeft = 45;
-    const paddingRight = 15;
-    const paddingTop = 15;
-    const paddingBottom = 35;
-
-    const plotWidth = width - paddingLeft - paddingRight;
-    const plotHeight = height - paddingTop - paddingBottom;
+    const { plotWidth, plotHeight, dataToPixel } = transform;
 
     // Clear canvas
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
 
     // Draw trajectories only
     const state = animationStateRef.current;
@@ -296,20 +283,18 @@ const GlycolysisTool = () => {
       ctx.beginPath();
 
       traj.trail.forEach((point, i) => {
-        const x = paddingLeft + (point.x / fmax) * plotWidth;
-        const y = paddingTop + plotHeight - (point.y / amax) * plotHeight;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        const pos = dataToPixel(point.x, point.y);
+        if (i === 0) ctx.moveTo(pos.x, pos.y);
+        else ctx.lineTo(pos.x, pos.y);
       });
       ctx.stroke();
 
       // Current position
       if (traj.isActive && traj.f !== undefined && traj.a !== undefined) {
-        const currentX = paddingLeft + (traj.f / fmax) * plotWidth;
-        const currentY = paddingTop + plotHeight - (traj.a / amax) * plotHeight;
+        const pos = dataToPixel(traj.f, traj.a);
         ctx.fillStyle = traj.color;
         ctx.beginPath();
-        ctx.arc(currentX, currentY, 4, 0, 2 * Math.PI);
+        ctx.arc(pos.x, pos.y, 4, 0, 2 * Math.PI);
         ctx.fill();
       }
     });
@@ -318,26 +303,27 @@ const GlycolysisTool = () => {
   // Draw time series
   const drawTimeSeries = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = timeSeriesTransformRef.current;
+      if (!transform) return;
+
+      const { plotWidth, plotHeight } = transform;
       const state = animationStateRef.current;
 
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, plotWidth, plotHeight);
 
       if (state.timeSeriesData.length < 2) return;
 
       const timeWindow = 20;
       const currentTime = state.time;
       const minTime = Math.max(0, currentTime - timeWindow);
-      const maxTime = Math.max(timeWindow, currentTime);
       const maxConc = Math.max(fmax, amax);
 
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
+      // Helper to convert time series data to pixel coordinates
+      const toPixel = (time, value) => {
+        const x = ((time - minTime) / timeWindow) * plotWidth;
+        const y = plotHeight - (value / maxConc) * plotHeight;
+        return { x, y };
+      };
 
       // Draw F6P concentration
       ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
@@ -345,16 +331,14 @@ const GlycolysisTool = () => {
       ctx.beginPath();
       let firstPoint = true;
       state.timeSeriesData.forEach((point) => {
+        const maxTime = Math.max(timeWindow, currentTime);
         if (point.time >= minTime && point.time <= maxTime) {
-          const x =
-            paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const y =
-            paddingTop + plotHeight - (point.f6p / maxConc) * plotHeight;
+          const pos = toPixel(point.time, point.f6p);
           if (firstPoint) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(pos.x, pos.y);
             firstPoint = false;
           } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(pos.x, pos.y);
           }
         }
       });
@@ -366,16 +350,14 @@ const GlycolysisTool = () => {
       ctx.beginPath();
       firstPoint = true;
       state.timeSeriesData.forEach((point) => {
+        const maxTime = Math.max(timeWindow, currentTime);
         if (point.time >= minTime && point.time <= maxTime) {
-          const x =
-            paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const y =
-            paddingTop + plotHeight - (point.adp / maxConc) * plotHeight;
+          const pos = toPixel(point.time, point.adp);
           if (firstPoint) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(pos.x, pos.y);
             firstPoint = false;
           } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(pos.x, pos.y);
           }
         }
       });
@@ -517,32 +499,20 @@ const GlycolysisTool = () => {
   const handleCanvasClick = useCallback(
     (event) => {
       const canvas = dynamicCanvasRef.current;
-      if (!canvas) return;
+      const transform = phaseTransformRef.current;
+      if (!canvas || !transform) return;
 
       const rect = canvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
 
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
+      const { plotWidth, plotHeight, pixelToData } = transform;
 
-      const plotWidth = rect.width - paddingLeft - paddingRight;
-      const plotHeight = rect.height - paddingTop - paddingBottom;
+      if (x < 0 || x > plotWidth || y < 0 || y > plotHeight) return;
 
-      if (
-        x < paddingLeft ||
-        x > paddingLeft + plotWidth ||
-        y < paddingTop ||
-        y > paddingTop + plotHeight
-      )
-        return;
+      const data = pixelToData(x, y);
 
-      const dataX = ((x - paddingLeft) / plotWidth) * fmax;
-      const dataY = amax - ((y - paddingTop) / plotHeight) * amax;
-
-      if (dataX < 0 || dataY < 0 || dataX > fmax || dataY > amax) return;
+      if (data.x < 0 || data.y < 0 || data.x > fmax || data.y > amax) return;
 
       const colorHues = [120, 240, 60, 300, 180, 0];
       const hue =
@@ -552,11 +522,11 @@ const GlycolysisTool = () => {
 
       const newTrajectory = {
         id: Date.now() + Math.random(),
-        f: dataX,
-        a: dataY,
+        f: data.x,
+        a: data.y,
         isActive: true,
         color: `hsl(${hue}, 70%, 50%)`,
-        trail: [{ x: dataX, y: dataY }],
+        trail: [{ x: data.x, y: data.y }],
       };
 
       animationStateRef.current.trajectories.push(newTrajectory);
@@ -608,27 +578,17 @@ const GlycolysisTool = () => {
     setUiParams((prev) => ({ ...prev, [param]: value }));
   }, []);
 
-  // Initialize canvases
+  // Draw static elements when transform becomes available
   useEffect(() => {
-    [staticCanvasRef, dynamicCanvasRef, timeSeriesCanvasRef].forEach((ref) => {
-      if (ref.current) {
-        const canvas = ref.current;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    });
-
-    // Draw initial static elements
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
   }, [drawStaticElements]);
 
-  // Redraw static elements when parameters or display options change (whether animating or not)
+  // Redraw static elements when parameters or display options change
   useEffect(() => {
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
@@ -662,34 +622,32 @@ const GlycolysisTool = () => {
         theme={theme}
         tooltip="Click to start a trajectory from that point"
       >
-        {/* Static background layer - vector field, nullclines, equilibrium points */}
-        <canvas
-          ref={staticCanvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-        />
+        {(transform) => {
+          phaseTransformRef.current = transform;
+          const { plotWidth, plotHeight, plotStyle } = transform;
+          return (
+            <>
+              {/* Static background layer - vector field, nullclines, equilibrium points */}
+              <canvas
+                ref={staticCanvasRef}
+                className="absolute pointer-events-none"
+                style={plotStyle}
+                width={plotWidth}
+                height={plotHeight}
+              />
 
-        {/* Dynamic foreground layer - trajectories and moving particles */}
-        <canvas
-          ref={dynamicCanvasRef}
-          className="absolute cursor-crosshair"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-          onClick={handleCanvasClick}
-        />
+              {/* Dynamic foreground layer - trajectories and moving particles */}
+              <canvas
+                ref={dynamicCanvasRef}
+                className="absolute cursor-crosshair"
+                style={plotStyle}
+                width={plotWidth}
+                height={plotHeight}
+                onClick={handleCanvasClick}
+              />
+            </>
+          );
+        }}
       </GridGraph>
 
       {/* Time Series Plot */}
@@ -707,18 +665,18 @@ const GlycolysisTool = () => {
         theme={theme}
         tooltip="Metabolite concentrations over time"
       >
-        <canvas
-          ref={timeSeriesCanvasRef}
-          className="absolute"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={240}
-        />
+        {(transform) => {
+          timeSeriesTransformRef.current = transform;
+          const { plotWidth, plotHeight, plotStyle } = transform;
+          return (
+            <canvas
+              ref={timeSeriesCanvasRef}
+              style={plotStyle}
+              width={plotWidth}
+              height={plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Parameter Controls */}

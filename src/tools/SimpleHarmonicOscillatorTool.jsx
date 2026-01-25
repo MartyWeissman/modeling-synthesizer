@@ -41,6 +41,10 @@ const SimpleHarmonicOscillatorTool = () => {
   const timeSeriesCanvasRef = useRef(null);
   const springCanvasRef = useRef(null);
 
+  // Transform refs for coordinate conversion
+  const phaseTransformRef = useRef(null);
+  const timeSeriesTransformRef = useRef(null);
+
   // Animation state - pure refs, never cause React re-renders
   const animationStateRef = useRef({
     trajectories: [],
@@ -84,39 +88,35 @@ const SimpleHarmonicOscillatorTool = () => {
   // Static elements drawing function - only redraws when parameters change
   const drawStaticElements = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = phaseTransformRef.current;
+      if (!transform) return;
+
+      const { dataToPixel, plotWidth, plotHeight } = transform;
       const { u, k } = animationStateRef.current.params;
 
-      // Account for graph padding (matching GridGraph calculation)
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
-
       // Clear canvas
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Draw nullclines if enabled
       if (showNullclines) {
         // X-nullcline: X' = uP = 0 => P = 0 (horizontal line through origin)
         ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
         ctx.lineWidth = 3;
+        const nullclineLeft = dataToPixel(xmin, 0);
+        const nullclineRight = dataToPixel(xmax, 0);
         ctx.beginPath();
-        const yZero = paddingTop + plotHeight / 2;
-        ctx.moveTo(paddingLeft, yZero);
-        ctx.lineTo(paddingLeft + plotWidth, yZero);
+        ctx.moveTo(nullclineLeft.x, nullclineLeft.y);
+        ctx.lineTo(nullclineRight.x, nullclineRight.y);
         ctx.stroke();
 
         // P-nullcline: P' = -kX = 0 => X = 0 (vertical line through origin)
         ctx.strokeStyle = currentTheme === "dark" ? "#f87171" : "#dc2626";
         ctx.lineWidth = 3;
+        const nullclineTop = dataToPixel(0, pmax);
+        const nullclineBottom = dataToPixel(0, pmin);
         ctx.beginPath();
-        const xZero = paddingLeft + plotWidth / 2;
-        ctx.moveTo(xZero, paddingTop);
-        ctx.lineTo(xZero, paddingTop + plotHeight);
+        ctx.moveTo(nullclineTop.x, nullclineTop.y);
+        ctx.lineTo(nullclineBottom.x, nullclineBottom.y);
         ctx.stroke();
       }
 
@@ -149,21 +149,18 @@ const SimpleHarmonicOscillatorTool = () => {
           const normalizedDx = dx / magnitude;
           const normalizedDy = dp / magnitude;
 
-          const canvasX =
-            paddingLeft + ((x - xmin) / (xmax - xmin)) * plotWidth;
-          const canvasY =
-            paddingTop + plotHeight - ((p - pmin) / (pmax - pmin)) * plotHeight;
+          const pixel = dataToPixel(x, p);
           const arrowLength = 18;
-          const endX = canvasX + normalizedDx * arrowLength;
-          const endY = canvasY - normalizedDy * arrowLength;
+          const endX = pixel.x + normalizedDx * arrowLength;
+          const endY = pixel.y - normalizedDy * arrowLength;
 
           ctx.beginPath();
-          ctx.moveTo(canvasX, canvasY);
+          ctx.moveTo(pixel.x, pixel.y);
           ctx.lineTo(endX, endY);
           ctx.stroke();
 
           // Arrowhead
-          const angle = Math.atan2(endY - canvasY, endX - canvasX);
+          const angle = Math.atan2(endY - pixel.y, endX - pixel.x);
           ctx.save();
           ctx.translate(endX, endY);
           ctx.rotate(angle);
@@ -178,32 +175,32 @@ const SimpleHarmonicOscillatorTool = () => {
       }
 
       // Draw equilibrium point at origin
-      const canvasX = paddingLeft + plotWidth / 2;
-      const canvasY = paddingTop + plotHeight / 2;
+      const eqPixel = dataToPixel(0, 0);
 
       ctx.fillStyle = "#10b981"; // Green for center (stable)
       ctx.strokeStyle = "#059669";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(canvasX, canvasY, 6, 0, 2 * Math.PI);
+      ctx.arc(eqPixel.x, eqPixel.y, 6, 0, 2 * Math.PI);
       ctx.fill();
       ctx.stroke();
 
       ctx.fillStyle = "white";
       ctx.beginPath();
-      ctx.arc(canvasX, canvasY, 2.5, 0, 2 * Math.PI);
+      ctx.arc(eqPixel.x, eqPixel.y, 2.5, 0, 2 * Math.PI);
       ctx.fill();
 
       // Draw period reference line when period detection is active
       if (showPeriod) {
-        const refLineX = paddingLeft + plotWidth / 2; // X = 0 vertical line
+        const refTop = dataToPixel(0, pmax);
+        const refBottom = dataToPixel(0, pmin);
 
         ctx.strokeStyle = currentTheme === "dark" ? "#a78bfa" : "#8b5cf6";
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
-        ctx.moveTo(refLineX, paddingTop);
-        ctx.lineTo(refLineX, paddingTop + plotHeight);
+        ctx.moveTo(refTop.x, refTop.y);
+        ctx.lineTo(refBottom.x, refBottom.y);
         ctx.stroke();
         ctx.setLineDash([]); // Reset line dash
       }
@@ -213,19 +210,13 @@ const SimpleHarmonicOscillatorTool = () => {
 
   // Dynamic elements drawing function - redraws every animation frame
   const drawDynamicElements = useCallback((canvas, ctx) => {
-    const { width, height } = canvas;
+    const transform = phaseTransformRef.current;
+    if (!transform) return;
 
-    // Account for graph padding (matching GridGraph calculation)
-    const paddingLeft = 45;
-    const paddingRight = 15;
-    const paddingTop = 15;
-    const paddingBottom = 35;
-
-    const plotWidth = width - paddingLeft - paddingRight;
-    const plotHeight = height - paddingTop - paddingBottom;
+    const { dataToPixel } = transform;
 
     // Clear canvas
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Draw trajectories only
     const state = animationStateRef.current;
@@ -237,27 +228,18 @@ const SimpleHarmonicOscillatorTool = () => {
       ctx.beginPath();
 
       traj.trail.forEach((point, i) => {
-        const x = paddingLeft + ((point.x - xmin) / (xmax - xmin)) * plotWidth;
-        const y =
-          paddingTop +
-          plotHeight -
-          ((point.y - pmin) / (pmax - pmin)) * plotHeight;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        const pixel = dataToPixel(point.x, point.y);
+        if (i === 0) ctx.moveTo(pixel.x, pixel.y);
+        else ctx.lineTo(pixel.x, pixel.y);
       });
       ctx.stroke();
 
       // Current position
       if (traj.isActive && traj.x !== undefined && traj.p !== undefined) {
-        const currentX =
-          paddingLeft + ((traj.x - xmin) / (xmax - xmin)) * plotWidth;
-        const currentY =
-          paddingTop +
-          plotHeight -
-          ((traj.p - pmin) / (pmax - pmin)) * plotHeight;
+        const pixel = dataToPixel(traj.x, traj.p);
         ctx.fillStyle = traj.color;
         ctx.beginPath();
-        ctx.arc(currentX, currentY, 4, 0, 2 * Math.PI);
+        ctx.arc(pixel.x, pixel.y, 4, 0, 2 * Math.PI);
         ctx.fill();
       }
     });
@@ -356,27 +338,27 @@ const SimpleHarmonicOscillatorTool = () => {
   // Draw time series
   const drawTimeSeries = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = timeSeriesTransformRef.current;
+      if (!transform) return;
+
+      const { plotWidth, plotHeight } = transform;
       const state = animationStateRef.current;
 
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       if (state.timeSeriesData.length < 2) return;
 
       const timeWindow = 20;
       const currentTime = state.time;
       const minTime = Math.max(0, currentTime - timeWindow);
-      const maxTime = Math.max(timeWindow, currentTime);
       const maxVal = 3;
       const minVal = -3;
 
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
+      // Local helper for sliding time window (axes change dynamically)
+      const toPixel = (t, val) => ({
+        x: ((t - minTime) / timeWindow) * plotWidth,
+        y: plotHeight - ((val - minVal) / (maxVal - minVal)) * plotHeight,
+      });
 
       // Draw position X
       ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
@@ -384,18 +366,13 @@ const SimpleHarmonicOscillatorTool = () => {
       ctx.beginPath();
       let firstPoint = true;
       state.timeSeriesData.forEach((point) => {
-        if (point.time >= minTime && point.time <= maxTime) {
-          const x =
-            paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const y =
-            paddingTop +
-            plotHeight -
-            ((point.position - minVal) / (maxVal - minVal)) * plotHeight;
+        if (point.time >= minTime && point.time <= minTime + timeWindow) {
+          const pixel = toPixel(point.time, point.position);
           if (firstPoint) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(pixel.x, pixel.y);
             firstPoint = false;
           } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(pixel.x, pixel.y);
           }
         }
       });
@@ -407,18 +384,13 @@ const SimpleHarmonicOscillatorTool = () => {
       ctx.beginPath();
       firstPoint = true;
       state.timeSeriesData.forEach((point) => {
-        if (point.time >= minTime && point.time <= maxTime) {
-          const x =
-            paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const y =
-            paddingTop +
-            plotHeight -
-            ((point.momentum - minVal) / (maxVal - minVal)) * plotHeight;
+        if (point.time >= minTime && point.time <= minTime + timeWindow) {
+          const pixel = toPixel(point.time, point.momentum);
           if (firstPoint) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(pixel.x, pixel.y);
             firstPoint = false;
           } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(pixel.x, pixel.y);
           }
         }
       });
@@ -428,8 +400,8 @@ const SimpleHarmonicOscillatorTool = () => {
       const legendCenterX = plotWidth / 2;
       const legendWidth = 180;
       const legendHeight = 35;
-      const legendX = paddingLeft + legendCenterX - legendWidth / 2;
-      const legendY = paddingTop - 10; // Moved up 20 pixels from +10
+      const legendX = legendCenterX - legendWidth / 2;
+      const legendY = -10; // Near top of canvas
 
       // Legend background - match graph background
       ctx.fillStyle =
@@ -615,30 +587,22 @@ const SimpleHarmonicOscillatorTool = () => {
   const handleCanvasClick = useCallback(
     (event) => {
       const canvas = dynamicCanvasRef.current;
-      if (!canvas) return;
+      const transform = phaseTransformRef.current;
+      if (!canvas || !transform) return;
+
+      const { pixelToData, plotWidth, plotHeight } = transform;
 
       const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
+      const clickX = event.clientX - rect.left;
+      const clickY = event.clientY - rect.top;
 
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = rect.width - paddingLeft - paddingRight;
-      const plotHeight = rect.height - paddingTop - paddingBottom;
-
-      if (
-        x < paddingLeft ||
-        x > paddingLeft + plotWidth ||
-        y < paddingTop ||
-        y > paddingTop + plotHeight
-      )
+      // Check bounds
+      if (clickX < 0 || clickX > plotWidth || clickY < 0 || clickY > plotHeight)
         return;
 
-      const dataX = xmin + ((x - paddingLeft) / plotWidth) * (xmax - xmin);
-      const dataY = pmax - ((y - paddingTop) / plotHeight) * (pmax - pmin);
+      const dataPoint = pixelToData(clickX, clickY);
+      const dataX = dataPoint.x;
+      const dataY = dataPoint.y;
 
       if (dataX < xmin || dataY < pmin || dataX > xmax || dataY > pmax) return;
 
@@ -715,22 +679,30 @@ const SimpleHarmonicOscillatorTool = () => {
 
   // Initialize canvases
   useEffect(() => {
-    [
-      staticCanvasRef,
-      dynamicCanvasRef,
-      timeSeriesCanvasRef,
-      springCanvasRef,
-    ].forEach((ref) => {
-      if (ref.current) {
-        const canvas = ref.current;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    });
+    // Set canvas sizes from transforms
+    if (staticCanvasRef.current && phaseTransformRef.current) {
+      staticCanvasRef.current.width = phaseTransformRef.current.plotWidth;
+      staticCanvasRef.current.height = phaseTransformRef.current.plotHeight;
+    }
+    if (dynamicCanvasRef.current && phaseTransformRef.current) {
+      dynamicCanvasRef.current.width = phaseTransformRef.current.plotWidth;
+      dynamicCanvasRef.current.height = phaseTransformRef.current.plotHeight;
+    }
+    if (timeSeriesCanvasRef.current && timeSeriesTransformRef.current) {
+      timeSeriesCanvasRef.current.width =
+        timeSeriesTransformRef.current.plotWidth;
+      timeSeriesCanvasRef.current.height =
+        timeSeriesTransformRef.current.plotHeight;
+    }
+    // Spring canvas uses GridWindow, set from bounding rect
+    if (springCanvasRef.current) {
+      const rect = springCanvasRef.current.getBoundingClientRect();
+      springCanvasRef.current.width = rect.width;
+      springCanvasRef.current.height = rect.height;
+    }
 
     // Draw initial static elements
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
@@ -738,7 +710,7 @@ const SimpleHarmonicOscillatorTool = () => {
 
   // Redraw static elements when parameters or display options change
   useEffect(() => {
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
@@ -772,34 +744,31 @@ const SimpleHarmonicOscillatorTool = () => {
         theme={theme}
         tooltip="Click to start a trajectory from that point"
       >
-        {/* Static background layer - vector field, nullclines, equilibrium point */}
-        <canvas
-          ref={staticCanvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-        />
+        {(transform) => {
+          phaseTransformRef.current = transform;
+          return (
+            <>
+              {/* Static background layer - vector field, nullclines, equilibrium point */}
+              <canvas
+                ref={staticCanvasRef}
+                className="absolute pointer-events-none"
+                style={transform.plotStyle}
+                width={transform.plotWidth}
+                height={transform.plotHeight}
+              />
 
-        {/* Dynamic foreground layer - trajectories and moving particles */}
-        <canvas
-          ref={dynamicCanvasRef}
-          className="absolute cursor-crosshair"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-          onClick={handleCanvasClick}
-        />
+              {/* Dynamic foreground layer - trajectories and moving particles */}
+              <canvas
+                ref={dynamicCanvasRef}
+                className="absolute cursor-crosshair"
+                style={transform.plotStyle}
+                width={transform.plotWidth}
+                height={transform.plotHeight}
+                onClick={handleCanvasClick}
+              />
+            </>
+          );
+        }}
       </GridGraph>
 
       {/* Time Series Plot */}
@@ -817,18 +786,18 @@ const SimpleHarmonicOscillatorTool = () => {
         theme={theme}
         tooltip="Position and momentum over time"
       >
-        <canvas
-          ref={timeSeriesCanvasRef}
-          className="absolute"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={240}
-        />
+        {(transform) => {
+          timeSeriesTransformRef.current = transform;
+          return (
+            <canvas
+              ref={timeSeriesCanvasRef}
+              className="absolute"
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Parameter Controls */}

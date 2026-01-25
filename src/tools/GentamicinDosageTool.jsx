@@ -1,6 +1,6 @@
 // src/tools/GentamicinDosageTool.jsx
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   GridSliderHorizontal,
   GridGraph,
@@ -11,6 +11,10 @@ import { useTheme } from "../hooks/useTheme";
 
 const GentamicinDosageTool = () => {
   const { theme, currentTheme } = useTheme();
+
+  // Canvas refs
+  const canvasRef = useRef(null);
+  const transformRef = useRef(null);
 
   // Parameters with defaults at 3/4 up sliders to show problems
   const [dosage, setDosage] = useState(240); // mg (3/4 up 30-300 range)
@@ -82,94 +86,62 @@ const GentamicinDosageTool = () => {
 
   // Draw the time series on the graph canvas
   const drawTimeSeries = useCallback(() => {
-    setTimeout(() => {
-      const graphComponent = document.querySelector(
-        '[title="Gentamicin concentration over time"]',
-      );
-      if (!graphComponent) return;
+    const canvas = canvasRef.current;
+    const transform = transformRef.current;
+    if (!canvas || !transform || timeSeriesData.length === 0) return;
 
-      let canvas = graphComponent.querySelector("canvas");
-      if (!canvas) {
-        canvas = document.createElement("canvas");
-        canvas.width = 400;
-        canvas.height = 200;
-        canvas.style.width = "100%";
-        canvas.style.height = "100%";
-        canvas.style.position = "absolute";
-        canvas.style.top = "30px";
-        canvas.style.left = "30px";
-        canvas.style.right = "10px";
-        canvas.style.bottom = "30px";
-        canvas.style.pointerEvents = "none";
+    const ctx = canvas.getContext("2d");
+    const { dataToPixel, plotWidth, plotHeight } = transform;
 
-        const graphContent = graphComponent.querySelector(
-          'div[style*="padding"]',
-        );
-        if (graphContent) {
-          graphContent.appendChild(canvas);
-        }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw therapeutic range backgrounds
+    const therapeuticMin = 4;
+    const therapeuticMax = 10;
+    const toxicLevel = 12;
+
+    // Therapeutic range (green background)
+    ctx.fillStyle =
+      currentTheme === "dark"
+        ? "rgba(34, 197, 94, 0.25)"
+        : "rgba(34, 197, 94, 0.15)";
+    const thMinPos = dataToPixel(0, therapeuticMin);
+    const thMaxPos = dataToPixel(48, therapeuticMax);
+    ctx.fillRect(0, thMaxPos.y, plotWidth, thMinPos.y - thMaxPos.y);
+
+    // Toxic range (red background)
+    ctx.fillStyle =
+      currentTheme === "dark"
+        ? "rgba(239, 68, 68, 0.25)"
+        : "rgba(239, 68, 68, 0.15)";
+    const toxicPos = dataToPixel(0, toxicLevel);
+    ctx.fillRect(0, 0, plotWidth, toxicPos.y);
+
+    // Draw concentration curve
+    ctx.strokeStyle = currentTheme === "dark" ? "#3b82f6" : "#2563eb";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+
+    timeSeriesData.forEach((point, index) => {
+      const pos = dataToPixel(point.time, point.concentration);
+
+      if (index === 0) {
+        ctx.moveTo(pos.x, pos.y);
+      } else {
+        ctx.lineTo(pos.x, pos.y);
       }
+    });
 
-      if (!canvas || timeSeriesData.length === 0) return;
+    ctx.stroke();
 
-      const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
-
-      ctx.clearRect(0, 0, width, height);
-
-      const graphWidth = width;
-      const graphHeight = height;
-
-      // Draw therapeutic range backgrounds
-      const therapeuticMin = 4;
-      const therapeuticMax = 10;
-      const toxicLevel = 12;
-      const maxLevel = 20; // Graph max
-
-      // Therapeutic range (green background)
-      ctx.fillStyle =
-        currentTheme === "dark"
-          ? "rgba(34, 197, 94, 0.25)"
-          : "rgba(34, 197, 94, 0.15)";
-      const thMin = graphHeight - (therapeuticMin / maxLevel) * graphHeight;
-      const thMax = graphHeight - (therapeuticMax / maxLevel) * graphHeight;
-      ctx.fillRect(0, thMax, graphWidth, thMin - thMax);
-
-      // Toxic range (red background)
-      ctx.fillStyle =
-        currentTheme === "dark"
-          ? "rgba(239, 68, 68, 0.25)"
-          : "rgba(239, 68, 68, 0.15)";
-      const toxicY = graphHeight - (toxicLevel / maxLevel) * graphHeight;
-      ctx.fillRect(0, 0, graphWidth, toxicY);
-
-      // Draw concentration curve
-      ctx.strokeStyle = currentTheme === "dark" ? "#3b82f6" : "#2563eb";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-
-      timeSeriesData.forEach((point, index) => {
-        const x = (point.time / 48) * graphWidth;
-        const y = graphHeight - (point.concentration / maxLevel) * graphHeight;
-
-        if (index === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      });
-
-      ctx.stroke();
-
-      // Draw dose markers
-      ctx.fillStyle = currentTheme === "dark" ? "#fbbf24" : "#f59e0b";
-      const numDoses = Math.floor(48 / frequency) + 1;
-      for (let i = 0; i < numDoses; i++) {
-        const doseTime = i * frequency;
-        const x = (doseTime / 48) * graphWidth;
-        ctx.fillRect(x - 1, 0, 2, graphHeight);
-      }
-    }, 200);
+    // Draw dose markers
+    ctx.fillStyle = currentTheme === "dark" ? "#fbbf24" : "#f59e0b";
+    const numDoses = Math.floor(48 / frequency) + 1;
+    for (let i = 0; i < numDoses; i++) {
+      const doseTime = i * frequency;
+      const pos = dataToPixel(doseTime, 0);
+      ctx.fillRect(pos.x - 1, 0, 2, plotHeight);
+    }
   }, [timeSeriesData, currentTheme, frequency]);
 
   // Auto-update and regenerate time series
@@ -264,7 +236,20 @@ const GentamicinDosageTool = () => {
         yRange={[0, 20]}
         tooltip="Gentamicin concentration over time"
         theme={theme}
-      />
+      >
+        {(transform) => {
+          transformRef.current = transform;
+          return (
+            <canvas
+              ref={canvasRef}
+              className="absolute pointer-events-none"
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
+      </GridGraph>
 
       {/* Therapeutic Information Display */}
       <GridDisplay

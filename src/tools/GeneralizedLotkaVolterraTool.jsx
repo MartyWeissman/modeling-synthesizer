@@ -91,6 +91,10 @@ const GeneralizedLotkaVolterraTool = () => {
   const dynamicCanvasRef = useRef(null);
   const timeSeriesCanvasRef = useRef(null);
 
+  // Transform refs - store coordinate transformations from GridGraph
+  const phaseTransformRef = useRef(null);
+  const timeSeriesTransformRef = useRef(null);
+
   // Particle system refs (EXACT copy from DSC)
   const clickParticlesRef = useRef([]); // Red particles from clicks
   const gridParticlesRef = useRef([]); // Blue particles from Start button
@@ -300,7 +304,10 @@ const GeneralizedLotkaVolterraTool = () => {
   // Static elements (vector field, nullclines, equilibria) - FROM GLV
   const drawStaticElements = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = phaseTransformRef.current;
+      if (!transform) return;
+
+      const { plotWidth, plotHeight, dataToPixel } = transform;
       const {
         alpha,
         beta,
@@ -312,18 +319,10 @@ const GeneralizedLotkaVolterraTool = () => {
         qmax: currentQmax,
       } = animationStateRef.current.params;
 
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      ctx.clearRect(0, 0, width, height);
-
-      const mapX = (p) => paddingLeft + (p / currentPmax) * plotWidth;
-      const mapY = (q) =>
-        paddingTop + plotHeight - (q / currentQmax) * plotHeight;
+      // Map data coordinates to canvas pixels using transform
+      const mapXY = (p, q) => dataToPixel(p, q);
 
       // Draw background grid when vector field is hidden
       if (!showVectorField) {
@@ -337,9 +336,10 @@ const GeneralizedLotkaVolterraTool = () => {
         const gridStepP =
           currentPmax <= 5 ? 1.0 : currentPmax <= 10 ? 2.0 : 5.0;
         for (let p = 0; p <= currentPmax; p += gridStepP) {
+          const pos = mapXY(p, 0);
           ctx.beginPath();
-          ctx.moveTo(mapX(p), paddingTop);
-          ctx.lineTo(mapX(p), paddingTop + plotHeight);
+          ctx.moveTo(pos.x, 0);
+          ctx.lineTo(pos.x, plotHeight);
           ctx.stroke();
         }
 
@@ -347,9 +347,10 @@ const GeneralizedLotkaVolterraTool = () => {
         const gridStepQ =
           currentQmax <= 5 ? 1.0 : currentQmax <= 10 ? 2.0 : 5.0;
         for (let q = 0; q <= currentQmax; q += gridStepQ) {
+          const pos = mapXY(0, q);
           ctx.beginPath();
-          ctx.moveTo(paddingLeft, mapY(q));
-          ctx.lineTo(paddingLeft + plotWidth, mapY(q));
+          ctx.moveTo(0, pos.y);
+          ctx.lineTo(plotWidth, pos.y);
           ctx.stroke();
         }
       }
@@ -387,18 +388,18 @@ const GeneralizedLotkaVolterraTool = () => {
 
             const normalizedDx = dpdt / magnitude;
             const normalizedDy = dqdt / magnitude;
-            const canvasX = mapX(p);
-            const canvasY = mapY(q);
+            const pos = mapXY(p, q);
             const arrowLength = 18;
-            const endX = canvasX + normalizedDx * arrowLength;
-            const endY = canvasY - normalizedDy * arrowLength;
+            // Note: canvas Y increases downward, so we subtract normalizedDy
+            const endX = pos.x + normalizedDx * arrowLength;
+            const endY = pos.y - normalizedDy * arrowLength;
 
             ctx.beginPath();
-            ctx.moveTo(canvasX, canvasY);
+            ctx.moveTo(pos.x, pos.y);
             ctx.lineTo(endX, endY);
             ctx.stroke();
 
-            const angle = Math.atan2(endY - canvasY, endX - canvasX);
+            const angle = Math.atan2(endY - pos.y, endX - pos.x);
             ctx.save();
             ctx.translate(endX, endY);
             ctx.rotate(angle);
@@ -434,10 +435,12 @@ const GeneralizedLotkaVolterraTool = () => {
             );
             if (points.length >= 2) {
               points.sort((a, b) => a.p - b.p);
+              const startPos = mapXY(points[0].p, points[0].q);
               ctx.beginPath();
-              ctx.moveTo(mapX(points[0].p), mapY(points[0].q));
+              ctx.moveTo(startPos.x, startPos.y);
               for (let i = 1; i < points.length; i++) {
-                ctx.lineTo(mapX(points[i].p), mapY(points[i].q));
+                const pos = mapXY(points[i].p, points[i].q);
+                ctx.lineTo(pos.x, pos.y);
               }
               ctx.stroke();
             }
@@ -457,10 +460,12 @@ const GeneralizedLotkaVolterraTool = () => {
             );
             if (points.length >= 2) {
               points.sort((a, b) => a.p - b.p);
+              const startPos = mapXY(points[0].p, points[0].q);
               ctx.beginPath();
-              ctx.moveTo(mapX(points[0].p), mapY(points[0].q));
+              ctx.moveTo(startPos.x, startPos.y);
               for (let i = 1; i < points.length; i++) {
-                ctx.lineTo(mapX(points[i].p), mapY(points[i].q));
+                const pos = mapXY(points[i].p, points[i].q);
+                ctx.lineTo(pos.x, pos.y);
               }
               ctx.stroke();
             }
@@ -470,18 +475,17 @@ const GeneralizedLotkaVolterraTool = () => {
 
       // Draw equilibrium points
       equilibria.forEach((eq) => {
-        const canvasX = mapX(eq.x);
-        const canvasY = mapY(eq.y);
+        const pos = mapXY(eq.x, eq.y);
         ctx.fillStyle = "#f59e0b";
         ctx.strokeStyle = "#d97706";
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(canvasX, canvasY, 6, 0, 2 * Math.PI);
+        ctx.arc(pos.x, pos.y, 6, 0, 2 * Math.PI);
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = "white";
         ctx.beginPath();
-        ctx.arc(canvasX, canvasY, 2.5, 0, 2 * Math.PI);
+        ctx.arc(pos.x, pos.y, 2.5, 0, 2 * Math.PI);
         ctx.fill();
       });
     },
@@ -491,22 +495,15 @@ const GeneralizedLotkaVolterraTool = () => {
   // Dynamic elements (particles with trails) - EXACT copy from DSC
   const drawDynamicElements = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = phaseTransformRef.current;
+      if (!transform) return;
+
+      const { dataToPixel } = transform;
       const { pmax: currentPmax, qmax: currentQmax } =
         animationStateRef.current.params;
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
 
-      const mapX = (p) =>
-        paddingLeft + ((p - pmin) / (currentPmax - pmin)) * plotWidth;
-      const mapY = (q) =>
-        paddingTop +
-        plotHeight -
-        ((q - qmin) / (currentQmax - qmin)) * plotHeight;
+      // Map data coordinates to canvas pixels
+      const mapXY = (p, q) => dataToPixel(p, q);
 
       // Wind-js trail fading
       const prevComposite = ctx.globalCompositeOperation;
@@ -515,7 +512,7 @@ const GeneralizedLotkaVolterraTool = () => {
           ? "rgba(0, 0, 0, 0.85)"
           : "rgba(255, 255, 255, 0.91)";
       ctx.globalCompositeOperation = "destination-in";
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.globalCompositeOperation = prevComposite;
 
       // Green click trajectories
@@ -550,11 +547,13 @@ const GeneralizedLotkaVolterraTool = () => {
           );
           const lineWidth = 1.0 + intensity * 0.5;
 
+          const pos = mapXY(particle.p, particle.q);
+          const posNext = mapXY(particle.pt, particle.qt);
           ctx.beginPath();
           ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
           ctx.lineWidth = lineWidth;
-          ctx.moveTo(mapX(particle.p), mapY(particle.q));
-          ctx.lineTo(mapX(particle.pt), mapY(particle.qt));
+          ctx.moveTo(pos.x, pos.y);
+          ctx.lineTo(posNext.x, posNext.y);
           ctx.stroke();
         }
       });
@@ -567,12 +566,13 @@ const GeneralizedLotkaVolterraTool = () => {
           particle.q >= qmin &&
           particle.q <= currentQmax
         ) {
+          const pos = mapXY(particle.p, particle.q);
           ctx.beginPath();
           ctx.fillStyle =
             currentTheme === "dark"
               ? "rgba(100, 255, 120, 0.9)"
               : "rgba(20, 200, 40, 0.9)";
-          ctx.arc(mapX(particle.p), mapY(particle.q), 1.5, 0, 2 * Math.PI);
+          ctx.arc(pos.x, pos.y, 1.5, 0, 2 * Math.PI);
           ctx.fill();
         }
       });
@@ -609,11 +609,13 @@ const GeneralizedLotkaVolterraTool = () => {
           );
           const lineWidth = 0.8 + intensity * 0.4;
 
+          const pos = mapXY(particle.p, particle.q);
+          const posNext = mapXY(particle.pt, particle.qt);
           ctx.beginPath();
           ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
           ctx.lineWidth = lineWidth;
-          ctx.moveTo(mapX(particle.p), mapY(particle.q));
-          ctx.lineTo(mapX(particle.pt), mapY(particle.qt));
+          ctx.moveTo(pos.x, pos.y);
+          ctx.lineTo(posNext.x, posNext.y);
           ctx.stroke();
         }
       });
@@ -676,25 +678,18 @@ const GeneralizedLotkaVolterraTool = () => {
   // Draw time series (tracking red particles)
   const drawTimeSeries = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = timeSeriesTransformRef.current;
+      if (!transform) return;
+
+      const { dataToPixel, plotWidth, plotHeight } = transform;
       const state = animationStateRef.current;
-      const { pmax: currentPmax, qmax: currentQmax } = state.params;
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       if (state.timeSeriesData.length < 2) return;
 
       const timeWindow = 20;
       const currentTime = state.time;
       const minTime = Math.max(0, currentTime - timeWindow);
-      const maxTime = Math.max(timeWindow, currentTime);
-      const maxPop = Math.max(currentPmax, currentQmax);
-
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
 
       // Draw P population
       ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
@@ -703,16 +698,15 @@ const GeneralizedLotkaVolterraTool = () => {
       let firstPoint = true;
 
       state.timeSeriesData.forEach((point) => {
-        if (point.time >= minTime && point.time <= maxTime) {
-          const x =
-            paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const y =
-            paddingTop + plotHeight - (point.pPop / maxPop) * plotHeight;
+        if (point.time >= minTime && point.time <= minTime + timeWindow) {
+          // Map time to x position (0-20 window maps to 0-plotWidth)
+          const normalizedTime = (point.time - minTime) / timeWindow;
+          const pos = dataToPixel(normalizedTime * 20, point.pPop);
           if (firstPoint) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(pos.x, pos.y);
             firstPoint = false;
           } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(pos.x, pos.y);
           }
         }
       });
@@ -725,16 +719,14 @@ const GeneralizedLotkaVolterraTool = () => {
       firstPoint = true;
 
       state.timeSeriesData.forEach((point) => {
-        if (point.time >= minTime && point.time <= maxTime) {
-          const x =
-            paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const y =
-            paddingTop + plotHeight - (point.qPop / maxPop) * plotHeight;
+        if (point.time >= minTime && point.time <= minTime + timeWindow) {
+          const normalizedTime = (point.time - minTime) / timeWindow;
+          const pos = dataToPixel(normalizedTime * 20, point.qPop);
           if (firstPoint) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(pos.x, pos.y);
             firstPoint = false;
           } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(pos.x, pos.y);
           }
         }
       });
@@ -974,37 +966,40 @@ const GeneralizedLotkaVolterraTool = () => {
   const handleCanvasClick = useCallback(
     (event) => {
       const canvas = dynamicCanvasRef.current;
-      if (!canvas) return;
+      const transform = phaseTransformRef.current;
+      if (!canvas || !transform) return;
 
+      const { pixelToData, plotWidth, plotHeight } = transform;
       const { pmax: currentPmax, qmax: currentQmax } =
         animationStateRef.current.params;
 
       const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
+      // Convert click position to canvas pixel coordinates
+      const canvasX = (event.clientX - rect.left) * (canvas.width / rect.width);
+      const canvasY =
+        (event.clientY - rect.top) * (canvas.height / rect.height);
 
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-      const plotWidth = rect.width - paddingLeft - paddingRight;
-      const plotHeight = rect.height - paddingTop - paddingBottom;
-
+      // Check if click is within plot bounds
       if (
-        x < paddingLeft ||
-        x > paddingLeft + plotWidth ||
-        y < paddingTop ||
-        y > paddingTop + plotHeight
+        canvasX < 0 ||
+        canvasX > plotWidth ||
+        canvasY < 0 ||
+        canvasY > plotHeight
       )
         return;
 
-      const dataX = ((x - paddingLeft) / plotWidth) * currentPmax;
-      const dataY = currentQmax - ((y - paddingTop) / plotHeight) * currentQmax;
+      // Convert to data coordinates
+      const dataPoint = pixelToData(canvasX, canvasY);
 
-      if (dataX < 0 || dataY < 0 || dataX > currentPmax || dataY > currentQmax)
+      if (
+        dataPoint.x < 0 ||
+        dataPoint.y < 0 ||
+        dataPoint.x > currentPmax ||
+        dataPoint.y > currentQmax
+      )
         return;
 
-      addClickParticle(dataX, dataY);
+      addClickParticle(dataPoint.x, dataPoint.y);
     },
     [addClickParticle],
   );
@@ -1061,18 +1056,9 @@ const GeneralizedLotkaVolterraTool = () => {
     [examplePresets, uiParams.speed],
   );
 
-  // Canvas initialization
+  // Initial draw of static elements
   useEffect(() => {
-    [staticCanvasRef, dynamicCanvasRef, timeSeriesCanvasRef].forEach((ref) => {
-      if (ref.current) {
-        const canvas = ref.current;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    });
-
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
@@ -1080,7 +1066,7 @@ const GeneralizedLotkaVolterraTool = () => {
 
   // Redraw static elements when parameters change
   useEffect(() => {
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
@@ -1117,31 +1103,28 @@ const GeneralizedLotkaVolterraTool = () => {
         theme={theme}
         tooltip="Click to start a trajectory from that point"
       >
-        <canvas
-          ref={staticCanvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-        />
-        <canvas
-          ref={dynamicCanvasRef}
-          className="absolute cursor-crosshair"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-          onClick={handleCanvasClick}
-        />
+        {(transform) => {
+          phaseTransformRef.current = transform;
+          return (
+            <>
+              <canvas
+                ref={staticCanvasRef}
+                className="pointer-events-none"
+                style={transform.plotStyle}
+                width={transform.plotWidth}
+                height={transform.plotHeight}
+              />
+              <canvas
+                ref={dynamicCanvasRef}
+                className="cursor-crosshair"
+                style={transform.plotStyle}
+                width={transform.plotWidth}
+                height={transform.plotHeight}
+                onClick={handleCanvasClick}
+              />
+            </>
+          );
+        }}
       </GridGraph>
 
       {/* Time Series Plot */}
@@ -1159,18 +1142,17 @@ const GeneralizedLotkaVolterraTool = () => {
         theme={theme}
         tooltip="Population dynamics over time"
       >
-        <canvas
-          ref={timeSeriesCanvasRef}
-          className="absolute"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={240}
-        />
+        {(transform) => {
+          timeSeriesTransformRef.current = transform;
+          return (
+            <canvas
+              ref={timeSeriesCanvasRef}
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Parameter Controls */}

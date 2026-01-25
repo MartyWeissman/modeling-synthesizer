@@ -18,7 +18,6 @@ import {
   findDegenerateIntervals1D,
   filterEquilibriaFromDegenerateIntervals,
 } from "../utils/mathHelpers";
-import { dataToPixel } from "../utils/gridLayoutHelper";
 
 const OneDimensionalCalculator = () => {
   const { theme, currentTheme } = useTheme();
@@ -43,6 +42,7 @@ const OneDimensionalCalculator = () => {
   const phaseLineCanvasRef = useRef(null);
   const ballCanvasRef = useRef(null);
   const timeSeriesCanvasRef = useRef(null);
+  const timeSeriesTransformRef = useRef(null);
 
   // Animation state - pure refs for smooth performance
   const animationStateRef = useRef({
@@ -195,69 +195,82 @@ const OneDimensionalCalculator = () => {
   // Draw time series trajectories
   const drawTimeSeries = useCallback(
     (canvas, ctx) => {
+      const transform = timeSeriesTransformRef.current;
+      if (!transform) return;
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const state = animationStateRef.current;
-      if (state.balls.length === 0) return;
+      const { dataToPixel } = transform;
 
-      // Get actual canvas dimensions (it's smaller than GridGraph due to 1px offsets)
-      const canvasWidth = canvas.width;
-      const canvasHeight = canvas.height;
+      // Draw boundary lines at xMin and xMax
+      [xMin, xMax].forEach((value) => {
+        const leftPos = dataToPixel(0, value);
+        const rightPos = dataToPixel(10, value);
+        ctx.strokeStyle =
+          currentTheme === "dark"
+            ? "rgba(128, 128, 128, 0.2)"
+            : "rgba(128, 128, 128, 0.3)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(leftPos.x, leftPos.y);
+        ctx.lineTo(rightPos.x, rightPos.y);
+        ctx.stroke();
+      });
 
-      // Use EXACT same calculations as GridGraph and equilibrium lines
-      const xRange = xMax - xMin;
-      const xMinExtended = xMin - 0.1 * xRange;
-      const xMaxExtended = xMax + 0.1 * xRange;
-
-      const yTickLabels = [
-        xMin.toFixed(1).padStart(4, " "),
-        xMax.toFixed(1).padStart(4, " "),
-      ];
+      // Draw equilibrium lines
       if (phaseLineAnalysis && phaseLineAnalysis.equilibria) {
         const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
           phaseLineAnalysis.equilibria,
           degenerateIntervals,
         );
+
         filteredEquilibria.forEach((eq) => {
-          yTickLabels.push(eq.x.toFixed(1).padStart(4, " "));
+          const leftPos = dataToPixel(0, eq.x);
+          const rightPos = dataToPixel(10, eq.x);
+
+          ctx.strokeStyle =
+            currentTheme === "dark"
+              ? "rgba(128, 128, 128, 0.5)"
+              : "rgba(128, 128, 128, 0.6)";
+          ctx.lineWidth = 1.5;
+
+          if (eq.type === "unstable") {
+            ctx.setLineDash([5, 5]);
+          } else if (eq.type === "semi-stable") {
+            ctx.setLineDash([2, 2]);
+          } else {
+            ctx.setLineDash([]);
+          }
+
+          ctx.beginPath();
+          ctx.moveTo(leftPos.x, leftPos.y);
+          ctx.lineTo(rightPos.x, rightPos.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
         });
       }
 
-      const maxYTickLength = Math.max(...yTickLabels.map((t) => t.length));
-      const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
-      const yAxisLabelWidth = 20;
+      // Draw degenerate interval rectangles
+      if (degenerateIntervals && degenerateIntervals.length > 0) {
+        degenerateIntervals.forEach((interval) => {
+          const topLeft = dataToPixel(0, interval.xMax);
+          const bottomRight = dataToPixel(10, interval.xMin);
 
-      // These must match GridGraph's calculatePadding() exactly
-      const dynamicPadding = {
-        left: yTickWidth + yAxisLabelWidth,
-        right: 15,
-        top: 15,
-        bottom: 35,
-      };
-
-      const axisWidth =
-        canvasWidth - dynamicPadding.left - dynamicPadding.right;
-      const axisHeight =
-        canvasHeight - dynamicPadding.top - dynamicPadding.bottom + 3; // Stretch vertically by 3px
-
-      const tMax = 10; // Time range from 0 to 10
-
-      // Transform functions - Use GridGraph's exact dataToPixel logic
-      // For t-axis (horizontal): simple linear mapping
-      const tToPixel = (t) =>
-        dynamicPadding.left + dataToPixel(t, [0, tMax], [0, axisWidth]);
-
-      // For x-axis (vertical): Coordinate transformation
-      const xToPixel = (x) => {
-        const yPos = dataToPixel(
-          x,
-          [xMinExtended, xMaxExtended],
-          [0, axisHeight],
-        );
-        return canvasHeight - (dynamicPadding.bottom + yPos);
-      };
+          ctx.fillStyle =
+            currentTheme === "dark"
+              ? "rgba(128, 128, 128, 0.2)"
+              : "rgba(128, 128, 128, 0.15)";
+          ctx.fillRect(
+            topLeft.x,
+            topLeft.y,
+            bottomRight.x - topLeft.x,
+            bottomRight.y - topLeft.y,
+          );
+        });
+      }
 
       // Draw trajectories
+      const state = animationStateRef.current;
       state.balls.forEach((ball) => {
         if (ball.history.length < 2) return;
 
@@ -266,20 +279,19 @@ const OneDimensionalCalculator = () => {
         ctx.beginPath();
 
         ball.history.forEach((point, index) => {
-          const px = tToPixel(point.t);
-          const py = xToPixel(point.x);
+          const pos = dataToPixel(point.t, point.x);
 
           if (index === 0) {
-            ctx.moveTo(px, py);
+            ctx.moveTo(pos.x, pos.y);
           } else {
-            ctx.lineTo(px, py);
+            ctx.lineTo(pos.x, pos.y);
           }
         });
 
         ctx.stroke();
       });
     },
-    [xMin, xMax, phaseLineAnalysis, degenerateIntervals],
+    [xMin, xMax, currentTheme, phaseLineAnalysis, degenerateIntervals],
   );
 
   // Animation loop
@@ -901,12 +913,11 @@ const OneDimensionalCalculator = () => {
       },
     );
 
-    // Time series canvas - use getBoundingClientRect but draw using JSX dimensions
-    if (timeSeriesCanvasRef.current) {
+    // Time series canvas - use transform dimensions
+    if (timeSeriesCanvasRef.current && timeSeriesTransformRef.current) {
       const canvas = timeSeriesCanvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+      canvas.width = timeSeriesTransformRef.current.plotWidth;
+      canvas.height = timeSeriesTransformRef.current.plotHeight;
     }
 
     if (phaseBackgroundCanvasRef.current) {
@@ -1035,155 +1046,18 @@ const OneDimensionalCalculator = () => {
         tooltip="Time Series"
         theme={theme}
       >
-        {/* Canvas for trajectory drawing */}
-        <canvas
-          ref={timeSeriesCanvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-        />
-
-        {/* Equilibrium lines and boundaries */}
-        {(() => {
-          const xRange = xMax - xMin;
-          const xMinExtended = xMin - 0.1 * xRange;
-          const xMaxExtended = xMax + 0.1 * xRange;
-
-          const yTickLabels = [
-            xMin.toFixed(1).padStart(4, " "),
-            xMax.toFixed(1).padStart(4, " "),
-          ];
-          if (phaseLineAnalysis && phaseLineAnalysis.equilibria) {
-            const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
-              phaseLineAnalysis.equilibria,
-              degenerateIntervals,
-            );
-            filteredEquilibria.forEach((eq) => {
-              yTickLabels.push(eq.x.toFixed(1).padStart(4, " "));
-            });
-          }
-
-          const maxYTickLength = Math.max(...yTickLabels.map((t) => t.length));
-          const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
-          const yAxisLabelWidth = 20;
-          const dynamicPaddingBottom = 35;
-          const dynamicPaddingLeft = yTickWidth + yAxisLabelWidth;
-          const dynamicPaddingRight = 15;
-          const dynamicPaddingTop = 15;
-
-          const graphWidth = 6 * 100 - 16;
-          const graphHeight = 3 * 100 - 16;
-          const axisWidth =
-            graphWidth - dynamicPaddingLeft - dynamicPaddingRight;
-          const axisHeight =
-            graphHeight - dynamicPaddingTop - dynamicPaddingBottom;
-
-          const lines = [];
-
-          // Boundary lines at xMin and xMax
-          [xMin, xMax].forEach((value, idx) => {
-            const yPos = dataToPixel(
-              value,
-              [xMinExtended, xMaxExtended],
-              [0, axisHeight],
-            );
-            lines.push(
-              <div
-                key={`boundary-${idx}`}
-                className="absolute pointer-events-none"
-                style={{
-                  left: `${dynamicPaddingLeft}px`,
-                  bottom: `${dynamicPaddingBottom + yPos}px`,
-                  width: `${axisWidth}px`,
-                  height: "1px",
-                  backgroundColor:
-                    currentTheme === "dark"
-                      ? "rgba(128, 128, 128, 0.2)"
-                      : "rgba(128, 128, 128, 0.3)",
-                }}
-              />,
-            );
-          });
-
-          // Equilibrium lines
-          if (phaseLineAnalysis && phaseLineAnalysis.equilibria) {
-            const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
-              phaseLineAnalysis.equilibria,
-              degenerateIntervals,
-            );
-
-            filteredEquilibria.forEach((eq) => {
-              const yPos = dataToPixel(
-                eq.x,
-                [xMinExtended, xMaxExtended],
-                [0, axisHeight],
-              );
-
-              let borderStyle = "solid";
-              if (eq.type === "unstable") {
-                borderStyle = "dashed";
-              } else if (eq.type === "semi-stable") {
-                borderStyle = "dotted";
-              }
-
-              lines.push(
-                <div
-                  key={`eq-${eq.x}`}
-                  className="absolute pointer-events-none"
-                  style={{
-                    left: `${dynamicPaddingLeft}px`,
-                    bottom: `${dynamicPaddingBottom + yPos}px`,
-                    width: `${axisWidth}px`,
-                    height: "0px",
-                    borderTop: `1.5px ${borderStyle} ${
-                      currentTheme === "dark"
-                        ? "rgba(128, 128, 128, 0.5)"
-                        : "rgba(128, 128, 128, 0.6)"
-                    }`,
-                  }}
-                />,
-              );
-            });
-          }
-
-          // Degenerate interval rectangles
-          if (degenerateIntervals && degenerateIntervals.length > 0) {
-            degenerateIntervals.forEach((interval, idx) => {
-              const yBottom =
-                ((interval.xMin - xMinExtended) /
-                  (xMaxExtended - xMinExtended)) *
-                axisHeight;
-              const yTop =
-                ((interval.xMax - xMinExtended) /
-                  (xMaxExtended - xMinExtended)) *
-                axisHeight;
-              const rectHeight = yTop - yBottom;
-
-              lines.push(
-                <div
-                  key={`degenerate-${idx}`}
-                  className="absolute pointer-events-none"
-                  style={{
-                    left: `${dynamicPaddingLeft}px`,
-                    bottom: `${dynamicPaddingBottom + yBottom}px`,
-                    width: `${axisWidth}px`,
-                    height: `${rectHeight}px`,
-                    backgroundColor:
-                      currentTheme === "dark"
-                        ? "rgba(128, 128, 128, 0.2)"
-                        : "rgba(128, 128, 128, 0.15)",
-                  }}
-                />,
-              );
-            });
-          }
-
-          return lines;
-        })()}
+        {(transform) => {
+          timeSeriesTransformRef.current = transform;
+          return (
+            <canvas
+              ref={timeSeriesCanvasRef}
+              className="absolute pointer-events-none"
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Equation Input (3x1) */}

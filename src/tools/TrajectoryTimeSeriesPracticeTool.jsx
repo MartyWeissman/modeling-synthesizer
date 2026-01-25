@@ -14,6 +14,8 @@ const TrajectoryTimeSeriesPracticeTool = () => {
   // Canvas refs
   const trajectoryCanvasRef = useRef(null);
   const timeSeriesCanvasRef = useRef(null);
+  const trajectoryTransformRef = useRef(null);
+  const timeSeriesTransformRef = useRef(null);
 
   // State for show/hide toggles
   const [showTrajectory, setShowTrajectory] = useState(false);
@@ -120,33 +122,15 @@ const TrajectoryTimeSeriesPracticeTool = () => {
   // Draw trajectory plot
   const drawTrajectory = useCallback(() => {
     const canvas = trajectoryCanvasRef.current;
-    if (!canvas || !currentProblem) return;
+    const transform = trajectoryTransformRef.current;
+    if (!canvas || !transform || !currentProblem) return;
 
     const ctx = canvas.getContext("2d");
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
+    const { dataToPixel } = transform;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!showTrajectory) return;
-
-    // Calculate padding to match GridGraph
-    const maxYTickLength = 3; // "100"
-    const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
-    const yAxisLabelWidth = 20;
-    const xTickHeight = 15;
-    const xAxisLabelHeight = 20;
-
-    const padding = {
-      left: yTickWidth + yAxisLabelWidth,
-      right: 15,
-      top: 15,
-      bottom: xTickHeight + xAxisLabelHeight,
-    };
-
-    const plotWidth = canvas.width - padding.left - padding.right;
-    const plotHeight = canvas.height - padding.top - padding.bottom;
 
     // Draw trajectory in green
     ctx.strokeStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
@@ -154,13 +138,12 @@ const TrajectoryTimeSeriesPracticeTool = () => {
     ctx.beginPath();
 
     currentProblem.points.forEach((point, index) => {
-      const x = padding.left + (point.x / 100) * plotWidth;
-      const y = padding.top + plotHeight - (point.y / 100) * plotHeight;
+      const pos = dataToPixel(point.x, point.y);
 
       if (index === 0) {
-        ctx.moveTo(x, y);
+        ctx.moveTo(pos.x, pos.y);
       } else {
-        ctx.lineTo(x, y);
+        ctx.lineTo(pos.x, pos.y);
       }
     });
 
@@ -168,46 +151,25 @@ const TrajectoryTimeSeriesPracticeTool = () => {
 
     // Draw start point (darker green)
     const startPoint = currentProblem.points[0];
-    const startX = padding.left + (startPoint.x / 100) * plotWidth;
-    const startY = padding.top + plotHeight - (startPoint.y / 100) * plotHeight;
+    const startPos = dataToPixel(startPoint.x, startPoint.y);
     ctx.fillStyle = currentTheme === "dark" ? "#15803d" : "#14532d";
     ctx.beginPath();
-    ctx.arc(startX, startY, 5, 0, 2 * Math.PI);
+    ctx.arc(startPos.x, startPos.y, 5, 0, 2 * Math.PI);
     ctx.fill();
   }, [currentProblem, showTrajectory, currentTheme]);
 
   // Draw time series plot
   const drawTimeSeries = useCallback(() => {
     const canvas = timeSeriesCanvasRef.current;
-    if (!canvas || !currentProblem) return;
+    const transform = timeSeriesTransformRef.current;
+    if (!canvas || !transform || !currentProblem) return;
 
     const ctx = canvas.getContext("2d");
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
+    const { dataToPixel } = transform;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!showTimeSeries) return;
-
-    // Calculate padding to match GridGraph - need to account for arrow
-    const maxYTickLength = 3;
-    const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
-    const yAxisLabelWidth = 20;
-    const xTickHeight = 15;
-    const xAxisLabelHeight = 20;
-
-    const padding = {
-      left: yTickWidth + yAxisLabelWidth,
-      right: 15,
-      top: 15,
-      bottom: xTickHeight + xAxisLabelHeight,
-    };
-
-    const axisWidth = canvas.width - padding.left - padding.right;
-    const axisHeight = canvas.height - padding.top - padding.bottom;
-    const plotWidth = axisWidth - 1; // Subtract 1 for axis arrow like GridGraph
-    const plotHeight = axisHeight - 1;
 
     // Draw both time series (x and y vs time)
     const colors = [
@@ -221,14 +183,12 @@ const TrajectoryTimeSeriesPracticeTool = () => {
     ctx.beginPath();
 
     currentProblem.points.forEach((point, index) => {
-      const t = point.t; // t is already 0-10
-      const x = padding.left + (t / 10) * plotWidth;
-      const y = padding.top + plotHeight - (point.x / 100) * plotHeight;
+      const pos = dataToPixel(point.t, point.x);
 
       if (index === 0) {
-        ctx.moveTo(x, y);
+        ctx.moveTo(pos.x, pos.y);
       } else {
-        ctx.lineTo(x, y);
+        ctx.lineTo(pos.x, pos.y);
       }
     });
 
@@ -240,14 +200,12 @@ const TrajectoryTimeSeriesPracticeTool = () => {
     ctx.beginPath();
 
     currentProblem.points.forEach((point, index) => {
-      const t = point.t; // t is already 0-10
-      const x = padding.left + (t / 10) * plotWidth;
-      const y = padding.top + plotHeight - (point.y / 100) * plotHeight;
+      const pos = dataToPixel(point.t, point.y);
 
       if (index === 0) {
-        ctx.moveTo(x, y);
+        ctx.moveTo(pos.x, pos.y);
       } else {
-        ctx.lineTo(x, y);
+        ctx.lineTo(pos.x, pos.y);
       }
     });
 
@@ -256,34 +214,20 @@ const TrajectoryTimeSeriesPracticeTool = () => {
     // Draw start markers at t=0 for both series
     if (currentProblem.points.length > 0) {
       const startPoint = currentProblem.points[0];
-      const t = 0;
-      const x = padding.left + (t / 10) * plotWidth;
 
       // Animal1 start marker (blue)
-      const y1 = padding.top + plotHeight - (startPoint.x / 100) * plotHeight;
+      const pos1 = dataToPixel(0, startPoint.x);
       ctx.fillStyle = colors[0];
       ctx.beginPath();
-      ctx.arc(x, y1, 5, 0, 2 * Math.PI);
+      ctx.arc(pos1.x, pos1.y, 5, 0, 2 * Math.PI);
       ctx.fill();
 
       // Animal2 start marker (red)
-      const y2 = padding.top + plotHeight - (startPoint.y / 100) * plotHeight;
+      const pos2 = dataToPixel(0, startPoint.y);
       ctx.fillStyle = colors[1];
       ctx.beginPath();
-      ctx.arc(x, y2, 5, 0, 2 * Math.PI);
+      ctx.arc(pos2.x, pos2.y, 5, 0, 2 * Math.PI);
       ctx.fill();
-    }
-
-    // Draw tick marks at every integer time (1,2,3,4,6,7,8,9) - skip 0,5,10 as they're drawn by GridGraph
-    ctx.strokeStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
-    ctx.lineWidth = 1;
-    for (let i = 1; i <= 9; i++) {
-      if (i === 5) continue; // Skip 5 - GridGraph already draws this
-      const x = padding.left + (i / 10) * plotWidth;
-      ctx.beginPath();
-      ctx.moveTo(x, padding.top + plotHeight);
-      ctx.lineTo(x, padding.top + plotHeight + 5);
-      ctx.stroke();
     }
   }, [currentProblem, showTimeSeries, currentTheme]);
 
@@ -415,19 +359,18 @@ const TrajectoryTimeSeriesPracticeTool = () => {
         variant="default"
         theme={theme}
       >
-        <canvas
-          ref={trajectoryCanvasRef}
-          className="absolute"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-            pointerEvents: "none",
-          }}
-          width={600}
-          height={400}
-        />
+        {(transform) => {
+          trajectoryTransformRef.current = transform;
+          return (
+            <canvas
+              ref={trajectoryCanvasRef}
+              className="absolute pointer-events-none"
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Legend for Time Series */}
@@ -546,19 +489,18 @@ const TrajectoryTimeSeriesPracticeTool = () => {
         variant="time-series-static"
         theme={theme}
       >
-        <canvas
-          ref={timeSeriesCanvasRef}
-          className="absolute"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-            pointerEvents: "none",
-          }}
-          width={600}
-          height={400}
-        />
+        {(transform) => {
+          timeSeriesTransformRef.current = transform;
+          return (
+            <canvas
+              ref={timeSeriesCanvasRef}
+              className="absolute pointer-events-none"
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
       </GridGraph>
     </ToolContainer>
   );

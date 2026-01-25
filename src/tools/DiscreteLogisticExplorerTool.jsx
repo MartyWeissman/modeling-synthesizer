@@ -27,6 +27,10 @@ const DiscreteLogisticExplorerTool = () => {
   const timeSeriesCanvasRef = useRef(null);
   const bifurcationCanvasRef = useRef(null);
 
+  // Transform refs for coordinate conversion
+  const timeSeriesTransformRef = useRef(null);
+  const bifurcationTransformRef = useRef(null);
+
   // Bifurcation data cache and range
   const bifurcationDataRef = useRef(null);
   const bifurcationRangeRef = useRef({ min: 0.0, max: 3.0 });
@@ -104,30 +108,11 @@ const DiscreteLogisticExplorerTool = () => {
   // Draw time series
   const drawTimeSeries = useCallback(
     (canvas, ctx) => {
-      if (!canvas || timeSeriesData.length === 0) return;
+      const transform = timeSeriesTransformRef.current;
+      if (!canvas || !transform || timeSeriesData.length === 0) return;
 
-      const { width, height } = canvas;
-      ctx.clearRect(0, 0, width, height);
-
-      // Calculate padding to match GridGraph's internal calculations
-      const yTicks = [0, 0.5, 1.0, 1.5];
-      const maxYTickLength = Math.max(
-        ...yTicks.map((t) => t.toString().length),
-      );
-      const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
-      const yAxisLabelWidth = 20;
-
-      const paddingLeft = yTickWidth + yAxisLabelWidth;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
-
-      const tMax = 50;
-      const PMin = 0;
-      const PMax = 1.5;
+      const { dataToPixel } = transform;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Draw points and lines
       ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
@@ -136,29 +121,21 @@ const DiscreteLogisticExplorerTool = () => {
 
       ctx.beginPath();
       timeSeriesData.forEach((point, index) => {
-        const canvasX = paddingLeft + (point.t / tMax) * plotWidth;
-        const canvasY =
-          paddingTop +
-          plotHeight -
-          ((point.P - PMin) / (PMax - PMin)) * plotHeight;
+        const pixel = dataToPixel(point.t, point.P);
 
         // Draw point
         ctx.beginPath();
-        ctx.arc(canvasX, canvasY, 3, 0, 2 * Math.PI);
+        ctx.arc(pixel.x, pixel.y, 3, 0, 2 * Math.PI);
         ctx.fill();
 
         // Draw line to next point
         if (index < timeSeriesData.length - 1) {
           const nextPoint = timeSeriesData[index + 1];
-          const nextCanvasX = paddingLeft + (nextPoint.t / tMax) * plotWidth;
-          const nextCanvasY =
-            paddingTop +
-            plotHeight -
-            ((nextPoint.P - PMin) / (PMax - PMin)) * plotHeight;
+          const nextPixel = dataToPixel(nextPoint.t, nextPoint.P);
 
           ctx.beginPath();
-          ctx.moveTo(canvasX, canvasY);
-          ctx.lineTo(nextCanvasX, nextCanvasY);
+          ctx.moveTo(pixel.x, pixel.y);
+          ctx.lineTo(nextPixel.x, nextPixel.y);
           ctx.stroke();
         }
       });
@@ -169,32 +146,11 @@ const DiscreteLogisticExplorerTool = () => {
   // Draw bifurcation diagram
   const drawBifurcation = useCallback(
     (canvas, ctx) => {
-      if (!canvas || !bifurcationDataRef.current) return;
+      const transform = bifurcationTransformRef.current;
+      if (!canvas || !transform || !bifurcationDataRef.current) return;
 
-      const { width, height } = canvas;
-      ctx.clearRect(0, 0, width, height);
-
-      // Calculate padding to match GridGraph's internal calculations
-      const yTicks = [0, 0.5, 1.0, 1.5];
-      const maxYTickLength = Math.max(
-        ...yTicks.map((t) => t.toString().length),
-      );
-      const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
-      const yAxisLabelWidth = 20;
-
-      const paddingLeft = yTickWidth + yAxisLabelWidth;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
-
-      // Use the range that was used to generate the bifurcation data
-      const betaMin = bifurcationRangeRef.current.min;
-      const betaMax = bifurcationRangeRef.current.max;
-      const PMin = 0;
-      const PMax = 1.5;
+      const { dataToPixel, plotHeight } = transform;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Draw bifurcation points as single pixels with alpha for additive darkening
       ctx.fillStyle =
@@ -203,21 +159,22 @@ const DiscreteLogisticExplorerTool = () => {
           : "rgba(0, 0, 0, 0.15)";
 
       bifurcationDataRef.current.forEach((point) => {
-        const canvasX =
-          paddingLeft +
-          ((point.beta - betaMin) / (betaMax - betaMin)) * plotWidth;
-        const canvasY =
-          paddingTop +
-          plotHeight -
-          ((point.P - PMin) / (PMax - PMin)) * plotHeight;
-
+        const pixel = dataToPixel(point.beta, point.P);
         // Draw single pixel using fillRect for precise positioning
-        ctx.fillRect(Math.round(canvasX), Math.round(canvasY), 1, 1);
+        ctx.fillRect(Math.round(pixel.x), Math.round(pixel.y), 1, 1);
       });
 
       // Draw green triangular marker at current beta value
-      const currentBetaX =
-        paddingLeft + ((beta - betaMin) / (betaMax - betaMin)) * plotWidth;
+      // Use the range that was used to generate the bifurcation data
+      const betaMin = bifurcationRangeRef.current.min;
+      const betaMax = bifurcationRangeRef.current.max;
+      const PMin = 0;
+      const PMax = 1.5;
+
+      // Get x position from dataToPixel using a y value in range
+      const topPixel = dataToPixel(beta, PMax);
+      const bottomPixel = dataToPixel(beta, PMin);
+      const currentBetaX = topPixel.x;
 
       ctx.fillStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
       ctx.strokeStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
@@ -225,7 +182,7 @@ const DiscreteLogisticExplorerTool = () => {
 
       // Draw triangular marker at bottom
       const triangleSize = 8;
-      const triangleY = paddingTop + plotHeight;
+      const triangleY = bottomPixel.y;
 
       ctx.beginPath();
       ctx.moveTo(currentBetaX, triangleY + 5);
@@ -236,15 +193,15 @@ const DiscreteLogisticExplorerTool = () => {
 
       // Draw triangular marker at top
       ctx.beginPath();
-      ctx.moveTo(currentBetaX, paddingTop - 5);
-      ctx.lineTo(currentBetaX - triangleSize, paddingTop - 5 - triangleSize);
-      ctx.lineTo(currentBetaX + triangleSize, paddingTop - 5 - triangleSize);
+      ctx.moveTo(currentBetaX, topPixel.y - 5);
+      ctx.lineTo(currentBetaX - triangleSize, topPixel.y - 5 - triangleSize);
+      ctx.lineTo(currentBetaX + triangleSize, topPixel.y - 5 - triangleSize);
       ctx.closePath();
       ctx.fill();
 
       // Draw vertical line connecting the markers
       ctx.beginPath();
-      ctx.moveTo(currentBetaX, paddingTop - 5);
+      ctx.moveTo(currentBetaX, topPixel.y - 5);
       ctx.lineTo(currentBetaX, triangleY + 5);
       ctx.stroke();
     },
@@ -264,22 +221,27 @@ const DiscreteLogisticExplorerTool = () => {
 
   // Initialize canvases
   useEffect(() => {
-    [timeSeriesCanvasRef, bifurcationCanvasRef].forEach((ref) => {
-      if (ref.current) {
-        const canvas = ref.current;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    });
+    // Set canvas sizes from transforms
+    if (timeSeriesCanvasRef.current && timeSeriesTransformRef.current) {
+      timeSeriesCanvasRef.current.width =
+        timeSeriesTransformRef.current.plotWidth;
+      timeSeriesCanvasRef.current.height =
+        timeSeriesTransformRef.current.plotHeight;
+    }
+    if (bifurcationCanvasRef.current && bifurcationTransformRef.current) {
+      bifurcationCanvasRef.current.width =
+        bifurcationTransformRef.current.plotWidth;
+      bifurcationCanvasRef.current.height =
+        bifurcationTransformRef.current.plotHeight;
+    }
 
     // Draw initial data
-    if (timeSeriesCanvasRef.current) {
+    if (timeSeriesCanvasRef.current && timeSeriesTransformRef.current) {
       const ctx = timeSeriesCanvasRef.current.getContext("2d");
       drawTimeSeries(timeSeriesCanvasRef.current, ctx);
     }
 
-    if (bifurcationCanvasRef.current) {
+    if (bifurcationCanvasRef.current && bifurcationTransformRef.current) {
       const ctx = bifurcationCanvasRef.current.getContext("2d");
       drawBifurcation(bifurcationCanvasRef.current, ctx);
     }
@@ -287,14 +249,14 @@ const DiscreteLogisticExplorerTool = () => {
 
   // Redraw when data or theme changes
   useEffect(() => {
-    if (timeSeriesCanvasRef.current) {
+    if (timeSeriesCanvasRef.current && timeSeriesTransformRef.current) {
       const ctx = timeSeriesCanvasRef.current.getContext("2d");
       drawTimeSeries(timeSeriesCanvasRef.current, ctx);
     }
   }, [drawTimeSeries]);
 
   useEffect(() => {
-    if (bifurcationCanvasRef.current) {
+    if (bifurcationCanvasRef.current && bifurcationTransformRef.current) {
       const ctx = bifurcationCanvasRef.current.getContext("2d");
       drawBifurcation(bifurcationCanvasRef.current, ctx);
     }
@@ -335,31 +297,35 @@ const DiscreteLogisticExplorerTool = () => {
         tooltip="Bifurcation Diagram"
         theme={theme}
       >
-        {/* Title */}
-        <div
-          className="absolute pointer-events-none"
-          style={{
-            top: "20px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            fontSize: "16px",
-            fontWeight: "bold",
-            color: currentTheme === "dark" ? "#ffffff" : "#000000",
-          }}
-        >
-          Bifurcation Plot
-        </div>
+        {(transform) => {
+          bifurcationTransformRef.current = transform;
+          return (
+            <>
+              {/* Title */}
+              <div
+                className="absolute pointer-events-none"
+                style={{
+                  top: "20px",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  fontSize: "16px",
+                  fontWeight: "bold",
+                  color: currentTheme === "dark" ? "#ffffff" : "#000000",
+                }}
+              >
+                Bifurcation Plot
+              </div>
 
-        <canvas
-          ref={bifurcationCanvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-        />
+              <canvas
+                ref={bifurcationCanvasRef}
+                className="absolute pointer-events-none"
+                style={transform.plotStyle}
+                width={transform.plotWidth}
+                height={transform.plotHeight}
+              />
+            </>
+          );
+        }}
       </GridGraph>
 
       {/* Time Series Graph (7x2) */}
@@ -378,16 +344,18 @@ const DiscreteLogisticExplorerTool = () => {
         tooltip="Time Series"
         theme={theme}
       >
-        <canvas
-          ref={timeSeriesCanvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-        />
+        {(transform) => {
+          timeSeriesTransformRef.current = transform;
+          return (
+            <canvas
+              ref={timeSeriesCanvasRef}
+              className="absolute pointer-events-none"
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Instruction Label */}

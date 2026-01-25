@@ -1,6 +1,6 @@
 // src/components/grid/GridGraph.jsx
 
-import React, { useRef } from "react";
+import React, { useRef, useMemo } from "react";
 import GridComponent from "./GridComponent";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
 import { getFontStyle } from "../../utils/typography";
@@ -22,12 +22,16 @@ const GridGraph = React.memo(
 
     xTicks = [], // Array of tick positions for x-axis
     yTicks = [], // Array of tick positions for y-axis
+    xTickLabels = null, // Optional custom labels for x-axis ticks
+    yTickLabels = null, // Optional custom labels for y-axis ticks
     xRange = [0, 1], // [min, max] for x-axis
     yRange = [0, 1], // [min, max] for y-axis
     tooltip,
     theme,
     children,
   }) => {
+    const [xMin, xMax] = xRange;
+    const [yMin, yMax] = yRange;
     const isDarkMode = theme.component.includes("gray-700");
     const isUnicornMode = theme.text.includes("purple-800");
     const currentTexture = isDarkMode
@@ -71,6 +75,76 @@ const GridGraph = React.memo(
     const dynamicPadding = calculatePadding();
     const axisWidth = graphWidth - dynamicPadding.left - dynamicPadding.right;
     const axisHeight = graphHeight - dynamicPadding.top - dynamicPadding.bottom;
+
+    // Create transformation functions and positioning info for child canvases
+    const transform = useMemo(() => {
+      // Plot area dimensions (inside the axes)
+      const plotWidth = axisWidth;
+      const plotHeight = axisHeight;
+
+      // dataToPixel: convert data (x, y) to plot canvas pixel coordinates
+      // Returns { x: pixelX, y: pixelY } where (0,0) is top-left of plot canvas
+      // xMin maps to x=0, xMax maps to x=plotWidth
+      // yMin maps to y=plotHeight, yMax maps to y=0 (canvas Y is flipped)
+      const dataToPixel = (dataX, dataY) => {
+        const pixelX = ((dataX - xMin) / (xMax - xMin)) * plotWidth;
+        const pixelY =
+          plotHeight - ((dataY - yMin) / (yMax - yMin)) * plotHeight;
+        return { x: pixelX, y: pixelY };
+      };
+
+      // pixelToData: convert plot canvas pixel coordinates to data (x, y)
+      const pixelToData = (pixelX, pixelY) => {
+        const dataX = xMin + (pixelX / plotWidth) * (xMax - xMin);
+        const dataY =
+          yMin + ((plotHeight - pixelY) / plotHeight) * (yMax - yMin);
+        return { x: dataX, y: dataY };
+      };
+
+      // CSS style for positioning the plot canvas (inside axes)
+      const plotStyle = {
+        position: "absolute",
+        left: `${dynamicPadding.left}px`,
+        bottom: `${dynamicPadding.bottom}px`,
+        width: `${plotWidth}px`,
+        height: `${plotHeight}px`,
+      };
+
+      // CSS style for positioning background canvas (full graph interior)
+      const backgroundStyle = {
+        position: "absolute",
+        left: 0,
+        top: 0,
+        width: `${graphWidth}px`,
+        height: `${graphHeight}px`,
+      };
+
+      return {
+        // Transformation functions
+        dataToPixel,
+        pixelToData,
+        // Plot area (inside axes) - use for main data visualization
+        plotWidth,
+        plotHeight,
+        plotStyle,
+        // Background area (full graph interior) - use for backgrounds behind axes
+        backgroundWidth: graphWidth,
+        backgroundHeight: graphHeight,
+        backgroundStyle,
+        // Raw padding values if tools need custom positioning
+        padding: dynamicPadding,
+      };
+    }, [
+      xMin,
+      xMax,
+      yMin,
+      yMax,
+      axisWidth,
+      axisHeight,
+      graphWidth,
+      graphHeight,
+      dynamicPadding,
+    ]);
 
     // Format axis labels with units
     const formatAxisLabel = (label, unit) => {
@@ -141,6 +215,9 @@ const GridGraph = React.memo(
         );
 
         // Tick label
+        const xLabel = xTickLabels
+          ? xTickLabels[index]
+          : formatTickLabel(tickValue);
         ticks.push(
           <div
             key={`x-tick-label-${index}`}
@@ -154,7 +231,7 @@ const GridGraph = React.memo(
               ...getFontStyle("mono", "500"),
             }}
           >
-            {formatTickLabel(tickValue)}
+            {xLabel}
           </div>,
         );
 
@@ -200,6 +277,9 @@ const GridGraph = React.memo(
         );
 
         // Tick label
+        const yLabel = yTickLabels
+          ? yTickLabels[index]
+          : formatTickLabel(tickValue);
         ticks.push(
           <div
             key={`y-tick-label-${index}`}
@@ -213,7 +293,7 @@ const GridGraph = React.memo(
               ...getFontStyle("mono", "500"),
             }}
           >
-            {formatTickLabel(tickValue)}
+            {yLabel}
           </div>,
         );
 
@@ -407,8 +487,8 @@ const GridGraph = React.memo(
               {formatAxisLabel(yLabel, yUnit)}
             </div>
 
-            {/* Custom graph content can go here */}
-            {children}
+            {/* Custom graph content - supports both regular children and render prop pattern */}
+            {typeof children === "function" ? children(transform) : children}
           </div>
         </div>
       </GridComponent>

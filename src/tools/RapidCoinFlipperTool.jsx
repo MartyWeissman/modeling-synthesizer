@@ -22,6 +22,10 @@ const COIN_FLIP_SCALES = Array.from({ length: 90 }, (_, i) => {
 const RapidCoinFlipperTool = () => {
   const { theme, currentTheme } = useTheme();
 
+  // Canvas refs
+  const canvasRef = useRef(null);
+  const transformRef = useRef(null);
+
   // Parameters - linked probabilities
   const [probHeads, setProbHeads] = useState(0.5);
   const [numFlips, setNumFlips] = useState(100);
@@ -219,117 +223,97 @@ const RapidCoinFlipperTool = () => {
     return ["-3σ", "-2σ", "-1σ", "μ", "+1σ", "+2σ", "+3σ"];
   }, [statistics]);
 
-  // Draw random walk on canvas (using GridGraphDualY's internal canvas)
+  // Draw random walk on canvas
   const drawRandomWalk = useCallback(() => {
-    setTimeout(() => {
-      const graphComponent = document.querySelector(
-        '[title="Random walk of cumulative heads minus tails"]',
-      );
-      if (!graphComponent) return;
+    const canvas = canvasRef.current;
+    const transform = transformRef.current;
+    if (!canvas || !transform || randomWalkData.length === 0) return;
 
-      const canvas = graphComponent.querySelector("canvas");
-      if (!canvas || randomWalkData.length === 0) return;
+    const ctx = canvas.getContext("2d");
+    const { dataToPixelLeft, plotWidth, plotHeight } = transform;
 
-      const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      ctx.clearRect(0, 0, width, height);
+    // Draw sigma lines if we have statistics
+    if (statistics) {
+      const exp = statistics.expectedDiff;
+      const std = statistics.stdDev;
 
-      // Canvas is already positioned correctly by GridGraphDualY
-      // Use full canvas dimensions
-      const chartWidth = width;
-      const chartHeight = height;
-
-      // Data ranges - use the same range as the graph axes
-      const yRange = getYRange();
-      const [minDiff, maxDiff] = yRange;
-      const diffRange = maxDiff - minDiff;
-      const maxFlip = numFlips;
-
-      // Helper to convert y value to pixel position
-      const yToPixel = (yVal) => {
-        return chartHeight - ((yVal - minDiff) / diffRange) * chartHeight;
-      };
-
-      // Draw sigma lines if we have statistics
-      if (statistics) {
-        const exp = statistics.expectedDiff;
-        const std = statistics.stdDev;
-
-        // Draw expectation line (gray)
-        ctx.strokeStyle = currentTheme === "dark" ? "#888888" : "#666666";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(0, yToPixel(exp));
-        ctx.lineTo(chartWidth, yToPixel(exp));
-        ctx.stroke();
-
-        // Draw positive sigma lines (faded green)
-        [1, 2, 3].forEach((sigma) => {
-          const opacity = 0.6 - sigma * 0.15; // Fade more for higher sigma
-          ctx.strokeStyle =
-            currentTheme === "dark"
-              ? `rgba(74, 222, 128, ${opacity})`
-              : `rgba(34, 197, 94, ${opacity})`;
-          ctx.lineWidth = 1;
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath();
-          ctx.moveTo(0, yToPixel(exp + sigma * std));
-          ctx.lineTo(chartWidth, yToPixel(exp + sigma * std));
-          ctx.stroke();
-        });
-
-        // Draw negative sigma lines (faded red)
-        [1, 2, 3].forEach((sigma) => {
-          const opacity = 0.6 - sigma * 0.15; // Fade more for higher sigma
-          ctx.strokeStyle =
-            currentTheme === "dark"
-              ? `rgba(248, 113, 113, ${opacity})`
-              : `rgba(239, 68, 68, ${opacity})`;
-          ctx.lineWidth = 1;
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath();
-          ctx.moveTo(0, yToPixel(exp - sigma * std));
-          ctx.lineTo(chartWidth, yToPixel(exp - sigma * std));
-          ctx.stroke();
-        });
-
-        ctx.setLineDash([]);
-      }
-
-      // Draw random walk path
-      ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
-      ctx.lineWidth = 2;
+      // Draw expectation line (gray)
+      ctx.strokeStyle = currentTheme === "dark" ? "#888888" : "#666666";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 5]);
+      const expLeft = dataToPixelLeft(0, exp);
+      const expRight = dataToPixelLeft(numFlips, exp);
       ctx.beginPath();
-
-      randomWalkData.forEach((point, index) => {
-        const x = (point.flip / maxFlip) * chartWidth;
-        const y =
-          chartHeight - ((point.diff - minDiff) / diffRange) * chartHeight;
-
-        if (index === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      });
+      ctx.moveTo(expLeft.x, expLeft.y);
+      ctx.lineTo(expRight.x, expRight.y);
       ctx.stroke();
 
-      // Draw current position marker
-      if (randomWalkData.length > 0) {
-        const lastPoint = randomWalkData[randomWalkData.length - 1];
-        const x = (lastPoint.flip / maxFlip) * chartWidth;
-        const y =
-          chartHeight - ((lastPoint.diff - minDiff) / diffRange) * chartHeight;
-
-        ctx.fillStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
+      // Draw positive sigma lines (faded green)
+      [1, 2, 3].forEach((sigma) => {
+        const opacity = 0.6 - sigma * 0.15; // Fade more for higher sigma
+        ctx.strokeStyle =
+          currentTheme === "dark"
+            ? `rgba(74, 222, 128, ${opacity})`
+            : `rgba(34, 197, 94, ${opacity})`;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        const left = dataToPixelLeft(0, exp + sigma * std);
+        const right = dataToPixelLeft(numFlips, exp + sigma * std);
         ctx.beginPath();
-        ctx.arc(x, y, 4, 0, 2 * Math.PI);
-        ctx.fill();
+        ctx.moveTo(left.x, left.y);
+        ctx.lineTo(right.x, right.y);
+        ctx.stroke();
+      });
+
+      // Draw negative sigma lines (faded red)
+      [1, 2, 3].forEach((sigma) => {
+        const opacity = 0.6 - sigma * 0.15; // Fade more for higher sigma
+        ctx.strokeStyle =
+          currentTheme === "dark"
+            ? `rgba(248, 113, 113, ${opacity})`
+            : `rgba(239, 68, 68, ${opacity})`;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        const left = dataToPixelLeft(0, exp - sigma * std);
+        const right = dataToPixelLeft(numFlips, exp - sigma * std);
+        ctx.beginPath();
+        ctx.moveTo(left.x, left.y);
+        ctx.lineTo(right.x, right.y);
+        ctx.stroke();
+      });
+
+      ctx.setLineDash([]);
+    }
+
+    // Draw random walk path
+    ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    randomWalkData.forEach((point, index) => {
+      const pos = dataToPixelLeft(point.flip, point.diff);
+
+      if (index === 0) {
+        ctx.moveTo(pos.x, pos.y);
+      } else {
+        ctx.lineTo(pos.x, pos.y);
       }
-    }, 100);
-  }, [randomWalkData, numFlips, currentTheme, getYRange, statistics]);
+    });
+    ctx.stroke();
+
+    // Draw current position marker
+    if (randomWalkData.length > 0) {
+      const lastPoint = randomWalkData[randomWalkData.length - 1];
+      const pos = dataToPixelLeft(lastPoint.flip, lastPoint.diff);
+
+      ctx.fillStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 4, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }, [randomWalkData, numFlips, currentTheme, statistics]);
 
   // Update canvas when data changes
   useEffect(() => {
@@ -605,7 +589,20 @@ const RapidCoinFlipperTool = () => {
         rightAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
         theme={theme}
         tooltip="Random walk of cumulative heads minus tails"
-      />
+      >
+        {(transform) => {
+          transformRef.current = transform;
+          return (
+            <canvas
+              ref={canvasRef}
+              className="absolute pointer-events-none"
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
+      </GridGraphDualY>
 
       {/* Statistics display at (6,3) as 3x3 */}
       <GridDisplay

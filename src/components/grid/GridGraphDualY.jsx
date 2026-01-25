@@ -1,6 +1,6 @@
 // src/components/grid/GridGraphDualY.jsx
 
-import React, { useRef } from "react";
+import React, { useRef, useMemo } from "react";
 import GridComponent from "./GridComponent";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
 import { getFontStyle } from "../../utils/typography";
@@ -34,6 +34,9 @@ const GridGraphDualY = React.memo(
     theme,
     children,
   }) => {
+    const [xMin, xMax] = xRange;
+    const [yMinLeft, yMaxLeft] = yRangeLeft;
+    const [yMinRight, yMaxRight] = yRangeRight;
     const isDarkMode = theme.component.includes("gray-700");
     const isUnicornMode = theme.text.includes("purple-800");
     const currentTexture = isDarkMode
@@ -81,6 +84,97 @@ const GridGraphDualY = React.memo(
     const dynamicPadding = calculatePadding();
     const axisWidth = graphWidth - dynamicPadding.left - dynamicPadding.right;
     const axisHeight = graphHeight - dynamicPadding.top - dynamicPadding.bottom;
+
+    // Create transformation functions and positioning info for child canvases
+    const transform = useMemo(() => {
+      const plotWidth = axisWidth;
+      const plotHeight = axisHeight;
+
+      // dataToPixelLeft: convert data (x, yLeft) to plot canvas pixel coordinates
+      const dataToPixelLeft = (dataX, dataY) => {
+        const pixelX = ((dataX - xMin) / (xMax - xMin)) * plotWidth;
+        const pixelY =
+          plotHeight -
+          ((dataY - yMinLeft) / (yMaxLeft - yMinLeft)) * plotHeight;
+        return { x: pixelX, y: pixelY };
+      };
+
+      // dataToPixelRight: convert data (x, yRight) to plot canvas pixel coordinates
+      const dataToPixelRight = (dataX, dataY) => {
+        const pixelX = ((dataX - xMin) / (xMax - xMin)) * plotWidth;
+        const pixelY =
+          plotHeight -
+          ((dataY - yMinRight) / (yMaxRight - yMinRight)) * plotHeight;
+        return { x: pixelX, y: pixelY };
+      };
+
+      // pixelToDataLeft: convert canvas pixels to data (x, yLeft)
+      const pixelToDataLeft = (pixelX, pixelY) => {
+        const dataX = xMin + (pixelX / plotWidth) * (xMax - xMin);
+        const dataY =
+          yMinLeft +
+          ((plotHeight - pixelY) / plotHeight) * (yMaxLeft - yMinLeft);
+        return { x: dataX, y: dataY };
+      };
+
+      // pixelToDataRight: convert canvas pixels to data (x, yRight)
+      const pixelToDataRight = (pixelX, pixelY) => {
+        const dataX = xMin + (pixelX / plotWidth) * (xMax - xMin);
+        const dataY =
+          yMinRight +
+          ((plotHeight - pixelY) / plotHeight) * (yMaxRight - yMinRight);
+        return { x: dataX, y: dataY };
+      };
+
+      // CSS style for positioning the plot canvas
+      const plotStyle = {
+        position: "absolute",
+        left: `${dynamicPadding.left}px`,
+        bottom: `${dynamicPadding.bottom}px`,
+        width: `${plotWidth}px`,
+        height: `${plotHeight}px`,
+      };
+
+      // CSS style for positioning background canvas
+      const backgroundStyle = {
+        position: "absolute",
+        left: 0,
+        top: 0,
+        width: `${graphWidth}px`,
+        height: `${graphHeight}px`,
+      };
+
+      return {
+        // Transformation functions for left Y-axis
+        dataToPixelLeft,
+        pixelToDataLeft,
+        // Transformation functions for right Y-axis
+        dataToPixelRight,
+        pixelToDataRight,
+        // Plot area dimensions
+        plotWidth,
+        plotHeight,
+        plotStyle,
+        // Background area dimensions
+        backgroundWidth: graphWidth,
+        backgroundHeight: graphHeight,
+        backgroundStyle,
+        // Raw padding values
+        padding: dynamicPadding,
+      };
+    }, [
+      xMin,
+      xMax,
+      yMinLeft,
+      yMaxLeft,
+      yMinRight,
+      yMaxRight,
+      axisWidth,
+      axisHeight,
+      graphWidth,
+      graphHeight,
+      dynamicPadding,
+    ]);
 
     // Format axis labels with units
     const formatAxisLabel = (label, unit) => {
@@ -431,7 +525,8 @@ const GridGraphDualY = React.memo(
               {formatAxisLabel(yLabelRight, yUnitRight)}
             </div>
 
-            {children}
+            {/* Custom graph content - supports both regular children and render prop pattern */}
+            {typeof children === "function" ? children(transform) : children}
           </div>
         </div>
       </GridComponent>

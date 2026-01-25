@@ -37,6 +37,10 @@ const SharkTunaTrajectoryTool = () => {
   const dynamicCanvasRef = useRef(null);
   const timeSeriesCanvasRef = useRef(null);
 
+  // Transform refs for coordinate conversion
+  const phaseTransformRef = useRef(null);
+  const timeSeriesTransformRef = useRef(null);
+
   // Animation state - pure refs, never cause React re-renders
   const animationStateRef = useRef({
     trajectories: [],
@@ -101,22 +105,14 @@ const SharkTunaTrajectoryTool = () => {
   // Static elements drawing function - only redraws when parameters change
   const drawStaticElements = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = phaseTransformRef.current;
+      if (!transform) return;
 
-      // Use current animation parameters
+      const { plotWidth, plotHeight, dataToPixel } = transform;
       const { p, q, beta, delta } = animationStateRef.current.params;
 
-      // Account for graph padding (matching GridGraph component calculation)
-      const paddingLeft = 45; // Space for y-axis labels
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35; // Space for x-axis labels
-
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
-
       // Clear canvas
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, plotWidth, plotHeight);
 
       // Calculate vector field dynamically
       // 16x16 grid at coordinates 2,5,8,...,47
@@ -144,20 +140,18 @@ const SharkTunaTrajectoryTool = () => {
           const normalizedDx = ds / magnitude;
           const normalizedDy = dt / magnitude;
 
-          // Map to plot area coordinates
-          const canvasX = paddingLeft + (s / smax) * plotWidth;
-          const canvasY = paddingTop + plotHeight - (t / tmax) * plotHeight;
+          const pos = dataToPixel(s, t);
           const arrowLength = 18;
-          const endX = canvasX + normalizedDx * arrowLength;
-          const endY = canvasY - normalizedDy * arrowLength;
+          const endX = pos.x + normalizedDx * arrowLength;
+          const endY = pos.y - normalizedDy * arrowLength;
 
           ctx.beginPath();
-          ctx.moveTo(canvasX, canvasY);
+          ctx.moveTo(pos.x, pos.y);
           ctx.lineTo(endX, endY);
           ctx.stroke();
 
-          // Arrowhead - using old simulation style
-          const angle = Math.atan2(endY - canvasY, endX - canvasX);
+          // Arrowhead
+          const angle = Math.atan2(endY - pos.y, endX - pos.x);
           ctx.save();
           ctx.translate(endX, endY);
           ctx.rotate(angle);
@@ -180,20 +174,19 @@ const SharkTunaTrajectoryTool = () => {
       }
 
       equilibriumPoints.forEach(({ x, y, stability }) => {
-        const canvasX = paddingLeft + (x / smax) * plotWidth;
-        const canvasY = paddingTop + plotHeight - (y / tmax) * plotHeight;
+        const pos = dataToPixel(x, y);
 
         ctx.fillStyle = stability === "stable" ? "#2563eb" : "#f59e0b";
         ctx.strokeStyle = stability === "stable" ? "#1d4ed8" : "#d97706";
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(canvasX, canvasY, 6, 0, 2 * Math.PI);
+        ctx.arc(pos.x, pos.y, 6, 0, 2 * Math.PI);
         ctx.fill();
         ctx.stroke();
 
         ctx.fillStyle = "white";
         ctx.beginPath();
-        ctx.arc(canvasX, canvasY, 2.5, 0, 2 * Math.PI);
+        ctx.arc(pos.x, pos.y, 2.5, 0, 2 * Math.PI);
         ctx.fill();
       });
     },
@@ -203,19 +196,13 @@ const SharkTunaTrajectoryTool = () => {
   // Dynamic elements drawing function - redraws every animation frame
   const drawDynamicElements = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = phaseTransformRef.current;
+      if (!transform) return;
 
-      // Account for graph padding (matching GridGraph calculation)
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
+      const { plotWidth, plotHeight, dataToPixel } = transform;
 
       // Clear canvas
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, plotWidth, plotHeight);
 
       // Draw trajectories only
       const state = animationStateRef.current;
@@ -227,21 +214,18 @@ const SharkTunaTrajectoryTool = () => {
         ctx.beginPath();
 
         traj.trail.forEach((point, i) => {
-          const x = paddingLeft + (point.x / smax) * plotWidth;
-          const y = paddingTop + plotHeight - (point.y / tmax) * plotHeight;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+          const pos = dataToPixel(point.x, point.y);
+          if (i === 0) ctx.moveTo(pos.x, pos.y);
+          else ctx.lineTo(pos.x, pos.y);
         });
         ctx.stroke();
 
         // Current position
         if (traj.isActive && traj.s !== undefined && traj.t !== undefined) {
-          const currentX = paddingLeft + (traj.s / smax) * plotWidth;
-          const currentY =
-            paddingTop + plotHeight - (traj.t / tmax) * plotHeight;
+          const pos = dataToPixel(traj.s, traj.t);
           ctx.fillStyle = traj.color;
           ctx.beginPath();
-          ctx.arc(currentX, currentY, 4, 0, 2 * Math.PI);
+          ctx.arc(pos.x, pos.y, 4, 0, 2 * Math.PI);
           ctx.fill();
         }
       });
@@ -251,7 +235,7 @@ const SharkTunaTrajectoryTool = () => {
 
   // Redraw static elements when parameters change (whether animating or not)
   useEffect(() => {
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
@@ -264,10 +248,13 @@ const SharkTunaTrajectoryTool = () => {
   ]);
 
   const drawTimeSeries = useCallback((canvas, ctx) => {
-    const { width, height } = canvas;
+    const transform = timeSeriesTransformRef.current;
+    if (!transform) return;
+
+    const { plotWidth, plotHeight } = transform;
     const state = animationStateRef.current;
 
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
 
     if (state.timeSeriesData.length < 2) return;
 
@@ -275,17 +262,14 @@ const SharkTunaTrajectoryTool = () => {
     const timeWindow = 20;
     const currentTime = state.time;
     const minTime = Math.max(0, currentTime - timeWindow);
-    const maxTime = Math.max(timeWindow, currentTime);
     const maxPop = Math.max(smax, tmax);
 
-    // Account for graph padding (similar to GridGraph component)
-    const paddingLeft = 45; // Space for y-axis labels
-    const paddingRight = 15;
-    const paddingTop = 15;
-    const paddingBottom = 35; // Space for x-axis labels
-
-    const plotWidth = width - paddingLeft - paddingRight;
-    const plotHeight = height - paddingTop - paddingBottom;
+    // Helper to convert time series data to pixel coordinates
+    const toPixel = (time, value) => {
+      const x = ((time - minTime) / timeWindow) * plotWidth;
+      const y = plotHeight - (value / maxPop) * plotHeight;
+      return { x, y };
+    };
 
     // Draw sharks
     ctx.strokeStyle = "#ff6b35";
@@ -293,16 +277,14 @@ const SharkTunaTrajectoryTool = () => {
     ctx.beginPath();
     let firstPoint = true;
     state.timeSeriesData.forEach((point) => {
+      const maxTime = Math.max(timeWindow, currentTime);
       if (point.time >= minTime && point.time <= maxTime) {
-        const x =
-          paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-        const y =
-          paddingTop + plotHeight - (point.sharks / maxPop) * plotHeight;
+        const pos = toPixel(point.time, point.sharks);
         if (firstPoint) {
-          ctx.moveTo(x, y);
+          ctx.moveTo(pos.x, pos.y);
           firstPoint = false;
         } else {
-          ctx.lineTo(x, y);
+          ctx.lineTo(pos.x, pos.y);
         }
       }
     });
@@ -314,15 +296,14 @@ const SharkTunaTrajectoryTool = () => {
     ctx.beginPath();
     firstPoint = true;
     state.timeSeriesData.forEach((point) => {
+      const maxTime = Math.max(timeWindow, currentTime);
       if (point.time >= minTime && point.time <= maxTime) {
-        const x =
-          paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-        const y = paddingTop + plotHeight - (point.tuna / maxPop) * plotHeight;
+        const pos = toPixel(point.time, point.tuna);
         if (firstPoint) {
-          ctx.moveTo(x, y);
+          ctx.moveTo(pos.x, pos.y);
           firstPoint = false;
         } else {
-          ctx.lineTo(x, y);
+          ctx.lineTo(pos.x, pos.y);
         }
       }
     });
@@ -430,34 +411,21 @@ const SharkTunaTrajectoryTool = () => {
   const handleCanvasClick = useCallback(
     (event) => {
       const canvas = dynamicCanvasRef.current;
-      if (!canvas) return;
+      const transform = phaseTransformRef.current;
+      if (!canvas || !transform) return;
 
       const rect = canvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
 
-      // Account for graph padding when converting click coordinates
-      const paddingLeft = 45; // Must match GridGraph calculation
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = rect.width - paddingLeft - paddingRight;
-      const plotHeight = rect.height - paddingTop - paddingBottom;
+      const { plotWidth, plotHeight, pixelToData } = transform;
 
       // Only process clicks within the plot area
-      if (
-        x < paddingLeft ||
-        x > paddingLeft + plotWidth ||
-        y < paddingTop ||
-        y > paddingTop + plotHeight
-      )
-        return;
+      if (x < 0 || x > plotWidth || y < 0 || y > plotHeight) return;
 
-      const dataX = ((x - paddingLeft) / plotWidth) * smax;
-      const dataY = tmax - ((y - paddingTop) / plotHeight) * tmax;
+      const data = pixelToData(x, y);
 
-      if (dataX < 0 || dataY < 0 || dataX > smax || dataY > tmax) return;
+      if (data.x < 0 || data.y < 0 || data.x > smax || data.y > tmax) return;
 
       const colorHues = [0, 120, 240, 60, 300, 180];
       const hue =
@@ -467,11 +435,11 @@ const SharkTunaTrajectoryTool = () => {
 
       const newTrajectory = {
         id: Date.now() + Math.random(),
-        s: dataX,
-        t: dataY,
+        s: data.x,
+        t: data.y,
         isActive: true,
         color: `hsl(${hue}, 70%, 50%)`,
-        trail: [{ x: dataX, y: dataY }],
+        trail: [{ x: data.x, y: data.y }],
       };
 
       animationStateRef.current.trajectories.push(newTrajectory);
@@ -543,19 +511,9 @@ const SharkTunaTrajectoryTool = () => {
       });
   }, []);
 
-  // Initialize canvases
+  // Draw static elements when transform becomes available
   useEffect(() => {
-    [staticCanvasRef, dynamicCanvasRef, timeSeriesCanvasRef].forEach((ref) => {
-      if (ref.current) {
-        const canvas = ref.current;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    });
-
-    // Draw initial static elements
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
@@ -589,34 +547,32 @@ const SharkTunaTrajectoryTool = () => {
         theme={theme}
         tooltip="Click to start a trajectory from that point"
       >
-        {/* Static background layer - vector field and equilibrium points */}
-        <canvas
-          ref={staticCanvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-        />
+        {(transform) => {
+          phaseTransformRef.current = transform;
+          const { plotWidth, plotHeight, plotStyle } = transform;
+          return (
+            <>
+              {/* Static background layer - vector field and equilibrium points */}
+              <canvas
+                ref={staticCanvasRef}
+                className="absolute pointer-events-none"
+                style={plotStyle}
+                width={plotWidth}
+                height={plotHeight}
+              />
 
-        {/* Dynamic foreground layer - trajectories and moving points */}
-        <canvas
-          ref={dynamicCanvasRef}
-          className="absolute cursor-crosshair"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-          onClick={handleCanvasClick}
-        />
+              {/* Dynamic foreground layer - trajectories and moving points */}
+              <canvas
+                ref={dynamicCanvasRef}
+                className="absolute cursor-crosshair"
+                style={plotStyle}
+                width={plotWidth}
+                height={plotHeight}
+                onClick={handleCanvasClick}
+              />
+            </>
+          );
+        }}
       </GridGraph>
 
       {/* Time Series Plot */}
@@ -634,18 +590,18 @@ const SharkTunaTrajectoryTool = () => {
         theme={theme}
         tooltip="Population dynamics over time"
       >
-        <canvas
-          ref={timeSeriesCanvasRef}
-          className="absolute"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={240}
-        />
+        {(transform) => {
+          timeSeriesTransformRef.current = transform;
+          const { plotWidth, plotHeight, plotStyle } = transform;
+          return (
+            <canvas
+              ref={timeSeriesCanvasRef}
+              style={plotStyle}
+              width={plotWidth}
+              height={plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Parameter Controls */}

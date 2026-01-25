@@ -22,6 +22,8 @@ const LinearRegressionLogScalingTool = () => {
 
   // Canvas ref for data visualization
   const canvasRef = useRef(null);
+  // Transform ref for coordinate conversion
+  const transformRef = useRef(null);
 
   // Data state
   const [tableData, setTableData] = useState([
@@ -359,25 +361,18 @@ const LinearRegressionLogScalingTool = () => {
 
   // Draw data points on canvas
   const drawDataPoints = useCallback(() => {
-    if (!canvasRef.current) return;
+    const transform = transformRef.current;
+    if (!canvasRef.current || !transform) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     const { validPoints } = processedData();
     const { xRange, yRange } = axisRanges();
     const { xMinorTicks, yMinorTicks } = axisTicks();
+    const { dataToPixel, plotWidth, plotHeight } = transform;
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Calculate canvas dimensions (account for axis padding)
-    const paddingLeft = 45;
-    const paddingRight = 15;
-    const paddingTop = 15;
-    const paddingBottom = 35;
-
-    const plotWidth = canvas.width - paddingLeft - paddingRight;
-    const plotHeight = canvas.height - paddingTop - paddingBottom;
 
     // Draw minor grid lines first (so they appear in the background)
     const minorGridColor =
@@ -391,24 +386,21 @@ const LinearRegressionLogScalingTool = () => {
 
     // Draw vertical minor grid lines
     xMinorTicks.forEach((tick) => {
-      const canvasX =
-        paddingLeft +
-        ((tick - xRange[0]) / (xRange[1] - xRange[0])) * plotWidth;
+      const top = dataToPixel(tick, yRange[1]);
+      const bottom = dataToPixel(tick, yRange[0]);
       ctx.beginPath();
-      ctx.moveTo(canvasX, paddingTop);
-      ctx.lineTo(canvasX, paddingTop + plotHeight);
+      ctx.moveTo(top.x, top.y);
+      ctx.lineTo(bottom.x, bottom.y);
       ctx.stroke();
     });
 
     // Draw horizontal minor grid lines
     yMinorTicks.forEach((tick) => {
-      const canvasY =
-        paddingTop +
-        plotHeight -
-        ((tick - yRange[0]) / (yRange[1] - yRange[0])) * plotHeight;
+      const left = dataToPixel(xRange[0], tick);
+      const right = dataToPixel(xRange[1], tick);
       ctx.beginPath();
-      ctx.moveTo(paddingLeft, canvasY);
-      ctx.lineTo(paddingLeft + plotWidth, canvasY);
+      ctx.moveTo(left.x, left.y);
+      ctx.lineTo(right.x, right.y);
       ctx.stroke();
     });
 
@@ -429,19 +421,11 @@ const LinearRegressionLogScalingTool = () => {
       ctx.beginPath();
 
       regressionLinePoints.forEach((point, index) => {
-        // Convert to canvas coordinates
-        const canvasX =
-          paddingLeft +
-          ((point.x - xRange[0]) / (xRange[1] - xRange[0])) * plotWidth;
-        const canvasY =
-          paddingTop +
-          plotHeight -
-          ((point.y - yRange[0]) / (yRange[1] - yRange[0])) * plotHeight;
-
+        const pixel = dataToPixel(point.x, point.y);
         if (index === 0) {
-          ctx.moveTo(canvasX, canvasY);
+          ctx.moveTo(pixel.x, pixel.y);
         } else {
-          ctx.lineTo(canvasX, canvasY);
+          ctx.lineTo(pixel.x, pixel.y);
         }
       });
       ctx.stroke();
@@ -454,15 +438,13 @@ const LinearRegressionLogScalingTool = () => {
       const yMean = yValues.reduce((sum, y) => sum + y, 0) / yValues.length;
 
       // Draw green horizontal line at mean
-      const meanY =
-        paddingTop +
-        plotHeight -
-        ((yMean - yRange[0]) / (yRange[1] - yRange[0])) * plotHeight;
+      const meanLeft = dataToPixel(xRange[0], yMean);
+      const meanRight = dataToPixel(xRange[1], yMean);
       ctx.strokeStyle = currentTheme === "dark" ? "#4ade80" : "#16a34a"; // Green-400 / Green-600
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(paddingLeft, meanY);
-      ctx.lineTo(paddingLeft + plotWidth, meanY);
+      ctx.moveTo(meanLeft.x, meanLeft.y);
+      ctx.lineTo(meanRight.x, meanRight.y);
       ctx.stroke();
 
       // Draw TSS squares
@@ -470,20 +452,15 @@ const LinearRegressionLogScalingTool = () => {
         const plotX = xScale === "log" ? point.logX : point.x;
         const plotY = yScale === "log" ? point.logY : point.y;
 
-        const dataX =
-          paddingLeft +
-          ((plotX - xRange[0]) / (xRange[1] - xRange[0])) * plotWidth;
-        const dataY =
-          paddingTop +
-          plotHeight -
-          ((plotY - yRange[0]) / (yRange[1] - yRange[0])) * plotHeight;
+        const dataPixel = dataToPixel(plotX, plotY);
+        const meanPixel = dataToPixel(plotX, yMean);
 
-        const varianceHeight = Math.abs(dataY - meanY);
+        const varianceHeight = Math.abs(dataPixel.y - meanPixel.y);
         const squareSize = varianceHeight;
 
         // Square extends from data point to mean line, then horizontally
-        const startX = dataX;
-        const startY = plotY < yMean ? meanY : dataY; // Start from mean if below, from data point if above
+        const startX = dataPixel.x;
+        const startY = plotY < yMean ? meanPixel.y : dataPixel.y; // Start from mean if below, from data point if above
 
         // Draw green square
         ctx.fillStyle =
@@ -510,21 +487,12 @@ const LinearRegressionLogScalingTool = () => {
           regressionStats.slope * plotX + regressionStats.intercept;
         const residual = plotY - predictedY;
 
-        // Convert to canvas coordinates
-        const dataX =
-          paddingLeft +
-          ((plotX - xRange[0]) / (xRange[1] - xRange[0])) * plotWidth;
-        const dataY =
-          paddingTop +
-          plotHeight -
-          ((plotY - yRange[0]) / (yRange[1] - yRange[0])) * plotHeight;
-        const predY =
-          paddingTop +
-          plotHeight -
-          ((predictedY - yRange[0]) / (yRange[1] - yRange[0])) * plotHeight;
+        // Convert to canvas coordinates using dataToPixel
+        const dataPixel = dataToPixel(plotX, plotY);
+        const predPixel = dataToPixel(plotX, predictedY);
 
         // Calculate square size based on residual magnitude
-        const residualHeight = Math.abs(dataY - predY);
+        const residualHeight = Math.abs(dataPixel.y - predPixel.y);
         const squareSize = residualHeight; // Make it a true square
 
         // Determine direction: left if r*m > 0, right if r*m < 0
@@ -534,8 +502,8 @@ const LinearRegressionLogScalingTool = () => {
         // Square extends from data point to regression line, then left/right
         // If point is below line (residual < 0), square goes upward from data point
         // If point is above line (residual > 0), square goes downward from data point
-        const startX = goLeft ? dataX - squareSize : dataX;
-        const startY = residual < 0 ? predY : dataY;
+        const startX = goLeft ? dataPixel.x - squareSize : dataPixel.x;
+        const startY = residual < 0 ? predPixel.y : dataPixel.y;
 
         // Draw blue square
         ctx.fillStyle =
@@ -559,19 +527,13 @@ const LinearRegressionLogScalingTool = () => {
       const plotX = xScale === "log" ? point.logX : point.x;
       const plotY = yScale === "log" ? point.logY : point.y;
 
-      // Convert to canvas coordinates
-      const canvasX =
-        paddingLeft +
-        ((plotX - xRange[0]) / (xRange[1] - xRange[0])) * plotWidth;
-      const canvasY =
-        paddingTop +
-        plotHeight -
-        ((plotY - yRange[0]) / (yRange[1] - yRange[0])) * plotHeight;
+      // Convert to canvas coordinates using dataToPixel
+      const pixel = dataToPixel(plotX, plotY);
 
       // Draw 5px circle
       ctx.fillStyle = pointColor;
       ctx.beginPath();
-      ctx.arc(canvasX, canvasY, 5, 0, 2 * Math.PI);
+      ctx.arc(pixel.x, pixel.y, 5, 0, 2 * Math.PI);
       ctx.fill();
 
       // Optional: Add stroke for better visibility
@@ -594,11 +556,10 @@ const LinearRegressionLogScalingTool = () => {
 
   // Initialize canvas and draw points when data or scaling changes
   useEffect(() => {
-    if (canvasRef.current) {
+    if (canvasRef.current && transformRef.current) {
       const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+      canvas.width = transformRef.current.plotWidth;
+      canvas.height = transformRef.current.plotHeight;
       drawDataPoints();
     }
   }, [drawDataPoints]);
@@ -606,11 +567,10 @@ const LinearRegressionLogScalingTool = () => {
   // Redraw when window resizes
   useEffect(() => {
     const handleResize = () => {
-      if (canvasRef.current) {
+      if (canvasRef.current && transformRef.current) {
         const canvas = canvasRef.current;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
+        canvas.width = transformRef.current.plotWidth;
+        canvas.height = transformRef.current.plotHeight;
         drawDataPoints();
       }
     };
@@ -781,18 +741,21 @@ const LinearRegressionLogScalingTool = () => {
         yTicks={axisTicks().yTicks}
         theme={theme}
       >
-        {/* Canvas overlay for data points */}
-        <canvas
-          ref={canvasRef}
-          className="absolute cursor-crosshair"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-            pointerEvents: "none",
-          }}
-        />
+        {(transform) => {
+          transformRef.current = transform;
+          return (
+            <canvas
+              ref={canvasRef}
+              className="absolute"
+              style={{
+                ...transform.plotStyle,
+                pointerEvents: "none",
+              }}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Scaling Controls */}

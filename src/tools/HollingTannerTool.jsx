@@ -41,6 +41,10 @@ const HollingTannerTool = () => {
   const dynamicCanvasRef = useRef(null);
   const timeSeriesCanvasRef = useRef(null);
 
+  // Transform refs for coordinate conversion
+  const phaseTransformRef = useRef(null);
+  const timeSeriesTransformRef = useRef(null);
+
   // Animation state - pure refs, never cause React re-renders
   const animationStateRef = useRef({
     trajectories: [],
@@ -116,20 +120,14 @@ const HollingTannerTool = () => {
   // Static elements drawing function - only redraws when parameters change
   const drawStaticElements = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = phaseTransformRef.current;
+      if (!transform) return;
+
+      const { plotWidth, plotHeight, dataToPixel } = transform;
       const { alpha, beta, c, h, m, q } = animationStateRef.current.params;
 
-      // Account for graph padding (matching GridGraph calculation)
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
-
       // Clear canvas
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, plotWidth, plotHeight);
 
       // Draw vector field
       const gridCoords = [
@@ -163,19 +161,18 @@ const HollingTannerTool = () => {
           const normalizedDx = dsdt / magnitude;
           const normalizedDy = dtdt / magnitude;
 
-          const canvasX = paddingLeft + (s / smax) * plotWidth;
-          const canvasY = paddingTop + plotHeight - (t / tmax) * plotHeight;
+          const pos = dataToPixel(s, t);
           const arrowLength = 18;
-          const endX = canvasX + normalizedDx * arrowLength;
-          const endY = canvasY - normalizedDy * arrowLength;
+          const endX = pos.x + normalizedDx * arrowLength;
+          const endY = pos.y - normalizedDy * arrowLength;
 
           ctx.beginPath();
-          ctx.moveTo(canvasX, canvasY);
+          ctx.moveTo(pos.x, pos.y);
           ctx.lineTo(endX, endY);
           ctx.stroke();
 
           // Arrowhead
-          const angle = Math.atan2(endY - canvasY, endX - canvasX);
+          const angle = Math.atan2(endY - pos.y, endX - pos.x);
           ctx.save();
           ctx.translate(endX, endY);
           ctx.rotate(angle);
@@ -201,10 +198,9 @@ const HollingTannerTool = () => {
         for (let t = 0; t <= tmax; t += 0.01) {
           const s = q * t;
           if (s >= smin && s <= smax) {
-            const canvasX = paddingLeft + (s / smax) * plotWidth;
-            const canvasY = paddingTop + plotHeight - (t / tmax) * plotHeight;
-            if (t === 0) ctx.moveTo(canvasX, canvasY);
-            else ctx.lineTo(canvasX, canvasY);
+            const pos = dataToPixel(s, t);
+            if (t === 0) ctx.moveTo(pos.x, pos.y);
+            else ctx.lineTo(pos.x, pos.y);
           }
         }
         ctx.stroke();
@@ -223,13 +219,12 @@ const HollingTannerTool = () => {
           const s = (beta * (1 - t / m) * (h + t)) / c;
 
           if (s > 0 && s <= smax) {
-            const canvasX = paddingLeft + (s / smax) * plotWidth;
-            const canvasY = paddingTop + plotHeight - (t / tmax) * plotHeight;
+            const pos = dataToPixel(s, t);
             if (firstPoint) {
-              ctx.moveTo(canvasX, canvasY);
+              ctx.moveTo(pos.x, pos.y);
               firstPoint = false;
             } else {
-              ctx.lineTo(canvasX, canvasY);
+              ctx.lineTo(pos.x, pos.y);
             }
           }
         }
@@ -238,12 +233,6 @@ const HollingTannerTool = () => {
 
       // Draw equilibrium point at intersection of non-trivial nullclines
       if (alpha > 0 && beta > 0 && c > 0 && h > 0 && m > 0 && q > 0) {
-        // Find intersection of S = qT and S = β(1 - T/m)(h+T)/c
-        // Set equal: qT = β(1 - T/m)(h+T)/c
-        // Solve: cqT = β(1 - T/m)(h+T)
-        // Expand: cqT = β(h + T - Th/m - T²/m)
-        // Rearrange: βT²/m - βT(1 - h/m) - βh + cqT = 0
-
         const a = beta / m;
         const b = -beta * (1 - h / m) + c * q;
         const cCoeff = -beta * h;
@@ -262,21 +251,19 @@ const HollingTannerTool = () => {
             const sEq = q * tEq;
 
             if (sEq > 0 && sEq <= smax && tEq <= tmax) {
-              const canvasX = paddingLeft + (sEq / smax) * plotWidth;
-              const canvasY =
-                paddingTop + plotHeight - (tEq / tmax) * plotHeight;
+              const pos = dataToPixel(sEq, tEq);
 
               ctx.fillStyle = "#f59e0b"; // Unstable focus for oscillations
               ctx.strokeStyle = "#d97706";
               ctx.lineWidth = 2;
               ctx.beginPath();
-              ctx.arc(canvasX, canvasY, 6, 0, 2 * Math.PI);
+              ctx.arc(pos.x, pos.y, 6, 0, 2 * Math.PI);
               ctx.fill();
               ctx.stroke();
 
               ctx.fillStyle = "white";
               ctx.beginPath();
-              ctx.arc(canvasX, canvasY, 2.5, 0, 2 * Math.PI);
+              ctx.arc(pos.x, pos.y, 2.5, 0, 2 * Math.PI);
               ctx.fill();
             }
           }
@@ -288,19 +275,11 @@ const HollingTannerTool = () => {
 
   // Dynamic elements drawing function - redraws every frame
   const drawDynamicElements = useCallback((canvas, ctx) => {
-    if (!canvas) return;
+    const transform = phaseTransformRef.current;
+    if (!canvas || !transform) return;
 
-    const { width, height } = canvas;
-    ctx.clearRect(0, 0, width, height);
-
-    // Account for graph padding (matching GridGraph calculation)
-    const paddingLeft = 45;
-    const paddingRight = 15;
-    const paddingTop = 15;
-    const paddingBottom = 35;
-
-    const plotWidth = width - paddingLeft - paddingRight;
-    const plotHeight = height - paddingTop - paddingBottom;
+    const { plotWidth, plotHeight, dataToPixel } = transform;
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
 
     // Draw trajectories
     const colorHues = [120, 240, 60, 300, 180, 0]; // Green first, then others
@@ -313,15 +292,9 @@ const HollingTannerTool = () => {
 
         ctx.beginPath();
         trajectory.trail.forEach((point, index) => {
-          const x =
-            paddingLeft + ((point.x - smin) / (smax - smin)) * plotWidth;
-          const y =
-            paddingTop +
-            plotHeight -
-            ((point.y - tmin) / (tmax - tmin)) * plotHeight;
-
-          if (index === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+          const pos = dataToPixel(point.x, point.y);
+          if (index === 0) ctx.moveTo(pos.x, pos.y);
+          else ctx.lineTo(pos.x, pos.y);
         });
         ctx.stroke();
         ctx.globalAlpha = 1.0;
@@ -332,16 +305,11 @@ const HollingTannerTool = () => {
           trajectory.s !== undefined &&
           trajectory.t !== undefined
         ) {
-          const x =
-            paddingLeft + ((trajectory.s - smin) / (smax - smin)) * plotWidth;
-          const y =
-            paddingTop +
-            plotHeight -
-            ((trajectory.t - tmin) / (tmax - tmin)) * plotHeight;
+          const pos = dataToPixel(trajectory.s, trajectory.t);
 
           ctx.fillStyle = `hsl(${hue}, 70%, 40%)`;
           ctx.beginPath();
-          ctx.arc(x, y, 4, 0, 2 * Math.PI);
+          ctx.arc(pos.x, pos.y, 4, 0, 2 * Math.PI);
           ctx.fill();
         }
       }
@@ -351,24 +319,26 @@ const HollingTannerTool = () => {
   // Draw time series
   const drawTimeSeries = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = timeSeriesTransformRef.current;
+      if (!transform) return;
+
+      const { plotWidth, plotHeight } = transform;
       const state = animationStateRef.current;
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, plotWidth, plotHeight);
 
       if (state.timeSeriesData.length < 2) return;
 
       const timeWindow = 20;
       const currentTime = state.time;
       const minTime = Math.max(0, currentTime - timeWindow);
-      const maxTime = Math.max(timeWindow, currentTime);
       const maxPop = Math.max(smax, tmax);
 
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
+      // Helper to convert time series data to pixel coordinates
+      const toPixel = (time, value) => {
+        const x = ((time - minTime) / timeWindow) * plotWidth;
+        const y = plotHeight - (value / maxPop) * plotHeight;
+        return { x, y };
+      };
 
       // Draw Sharks
       ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
@@ -377,16 +347,14 @@ const HollingTannerTool = () => {
       let firstPoint = true;
 
       state.timeSeriesData.forEach((point) => {
+        const maxTime = Math.max(timeWindow, currentTime);
         if (point.time >= minTime && point.time <= maxTime) {
-          const x =
-            paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const y =
-            paddingTop + plotHeight - (point.sharks / maxPop) * plotHeight;
+          const pos = toPixel(point.time, point.sharks);
           if (firstPoint) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(pos.x, pos.y);
             firstPoint = false;
           } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(pos.x, pos.y);
           }
         }
       });
@@ -399,16 +367,14 @@ const HollingTannerTool = () => {
       firstPoint = true;
 
       state.timeSeriesData.forEach((point) => {
+        const maxTime = Math.max(timeWindow, currentTime);
         if (point.time >= minTime && point.time <= maxTime) {
-          const x =
-            paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const y =
-            paddingTop + plotHeight - (point.tuna / maxPop) * plotHeight;
+          const pos = toPixel(point.time, point.tuna);
           if (firstPoint) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(pos.x, pos.y);
             firstPoint = false;
           } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(pos.x, pos.y);
           }
         }
       });
@@ -538,32 +504,20 @@ const HollingTannerTool = () => {
   const handleCanvasClick = useCallback(
     (event) => {
       const canvas = dynamicCanvasRef.current;
-      if (!canvas) return;
+      const transform = phaseTransformRef.current;
+      if (!canvas || !transform) return;
 
       const rect = canvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
 
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
+      const { plotWidth, plotHeight, pixelToData } = transform;
 
-      const plotWidth = rect.width - paddingLeft - paddingRight;
-      const plotHeight = rect.height - paddingTop - paddingBottom;
+      if (x < 0 || x > plotWidth || y < 0 || y > plotHeight) return;
 
-      if (
-        x < paddingLeft ||
-        x > paddingLeft + plotWidth ||
-        y < paddingTop ||
-        y > paddingTop + plotHeight
-      )
-        return;
+      const data = pixelToData(x, y);
 
-      const dataX = ((x - paddingLeft) / plotWidth) * smax;
-      const dataY = tmax - ((y - paddingTop) / plotHeight) * tmax;
-
-      if (dataX < 0 || dataY < 0 || dataX > smax || dataY > tmax) return;
+      if (data.x < 0 || data.y < 0 || data.x > smax || data.y > tmax) return;
 
       const colorHues = [120, 240, 60, 300, 180, 0];
       const hue =
@@ -573,11 +527,11 @@ const HollingTannerTool = () => {
 
       const newTrajectory = {
         id: Date.now() + Math.random(),
-        s: dataX,
-        t: dataY,
+        s: data.x,
+        t: data.y,
         isActive: true,
         color: `hsl(${hue}, 70%, 50%)`,
-        trail: [{ x: dataX, y: dataY }],
+        trail: [{ x: data.x, y: data.y }],
       };
 
       animationStateRef.current.trajectories.push(newTrajectory);
@@ -621,19 +575,9 @@ const HollingTannerTool = () => {
     setUiParams((prev) => ({ ...prev, [param]: value }));
   }, []);
 
-  // Initialize canvases
+  // Draw static elements when transform becomes available or parameters change
   useEffect(() => {
-    [staticCanvasRef, dynamicCanvasRef, timeSeriesCanvasRef].forEach((ref) => {
-      if (ref.current) {
-        const canvas = ref.current;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    });
-
-    // Draw initial static elements
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
@@ -641,7 +585,7 @@ const HollingTannerTool = () => {
 
   // Redraw static elements when parameters change
   useEffect(() => {
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
@@ -675,33 +619,31 @@ const HollingTannerTool = () => {
         theme={theme}
         tooltip="Click to start a trajectory from that point"
       >
-        {/* Static background layer - vector field, nullclines, equilibrium points */}
-        <canvas
-          ref={staticCanvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-        />
-        {/* Dynamic foreground layer - trajectories and moving particles */}
-        <canvas
-          ref={dynamicCanvasRef}
-          className="absolute cursor-crosshair"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-          onClick={handleCanvasClick}
-        />
+        {(transform) => {
+          phaseTransformRef.current = transform;
+          const { plotWidth, plotHeight, plotStyle } = transform;
+          return (
+            <>
+              {/* Static background layer - vector field, nullclines, equilibrium points */}
+              <canvas
+                ref={staticCanvasRef}
+                className="absolute pointer-events-none"
+                style={plotStyle}
+                width={plotWidth}
+                height={plotHeight}
+              />
+              {/* Dynamic foreground layer - trajectories and moving particles */}
+              <canvas
+                ref={dynamicCanvasRef}
+                className="absolute cursor-crosshair"
+                style={plotStyle}
+                width={plotWidth}
+                height={plotHeight}
+                onClick={handleCanvasClick}
+              />
+            </>
+          );
+        }}
       </GridGraph>
 
       {/* Time Series Plot */}
@@ -719,18 +661,18 @@ const HollingTannerTool = () => {
         theme={theme}
         tooltip="Population dynamics over time"
       >
-        <canvas
-          ref={timeSeriesCanvasRef}
-          className="absolute"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={240}
-        />
+        {(transform) => {
+          timeSeriesTransformRef.current = transform;
+          const { plotWidth, plotHeight, plotStyle } = transform;
+          return (
+            <canvas
+              ref={timeSeriesCanvasRef}
+              style={plotStyle}
+              width={plotWidth}
+              height={plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Parameter Controls - Mix of GridInputs and Sliders */}

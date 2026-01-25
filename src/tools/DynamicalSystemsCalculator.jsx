@@ -40,6 +40,7 @@ const DynamicalSystemsCalculator = () => {
   // Canvas refs - two-canvas optimization
   const staticCanvasRef = useRef(null);
   const dynamicCanvasRef = useRef(null);
+  const transformRef = useRef(null);
 
   // Animation state
   const animationStateRef = useRef({
@@ -81,24 +82,13 @@ const DynamicalSystemsCalculator = () => {
   // Static drawing function - vector field and grid (drawable area only)
   const drawStaticElements = useCallback(
     (canvas, ctx) => {
+      const transform = transformRef.current;
+      if (!transform) return;
+
       const { xMin, xMax, yMin, yMax } = animationStateRef.current.params;
-      const { width, height } = canvas;
+      const { dataToPixel, plotWidth, plotHeight } = transform;
 
-      // Account for graph padding (matching GridGraph calculation)
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
-
-      ctx.clearRect(0, 0, width, height);
-
-      // Coordinate mapping functions for drawable area only
-      const mapX = (x) =>
-        paddingLeft + ((x - xMin) / (xMax - xMin)) * plotWidth;
-      const mapY = (y) =>
-        paddingTop + plotHeight - ((y - yMin) / (yMax - yMin)) * plotHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Draw background grid (only in drawable area)
       if (showGrid) {
@@ -109,25 +99,23 @@ const DynamicalSystemsCalculator = () => {
         // Vertical lines
         const xStep = (xMax - xMin) / 10;
         for (let x = xMin; x <= xMax; x += xStep) {
-          const canvasX = mapX(x);
-          if (canvasX >= paddingLeft && canvasX <= width - paddingRight) {
-            ctx.beginPath();
-            ctx.moveTo(canvasX, paddingTop);
-            ctx.lineTo(canvasX, height - paddingBottom);
-            ctx.stroke();
-          }
+          const top = dataToPixel(x, yMax);
+          const bottom = dataToPixel(x, yMin);
+          ctx.beginPath();
+          ctx.moveTo(top.x, top.y);
+          ctx.lineTo(bottom.x, bottom.y);
+          ctx.stroke();
         }
 
         // Horizontal lines
         const yStep = (yMax - yMin) / 10;
         for (let y = yMin; y <= yMax; y += yStep) {
-          const canvasY = mapY(y);
-          if (canvasY >= paddingTop && canvasY <= height - paddingBottom) {
-            ctx.beginPath();
-            ctx.moveTo(paddingLeft, canvasY);
-            ctx.lineTo(width - paddingRight, canvasY);
-            ctx.stroke();
-          }
+          const left = dataToPixel(xMin, y);
+          const right = dataToPixel(xMax, y);
+          ctx.beginPath();
+          ctx.moveTo(left.x, left.y);
+          ctx.lineTo(right.x, right.y);
+          ctx.stroke();
         }
       }
 
@@ -172,28 +160,27 @@ const DynamicalSystemsCalculator = () => {
             const normalizedDx = vx / magnitude;
             const normalizedDy = vy / magnitude;
 
-            const canvasX = mapX(x);
-            const canvasY = mapY(y);
+            const pos = dataToPixel(x, y);
 
             // Only draw if within drawable area
             if (
-              canvasX >= paddingLeft &&
-              canvasX <= width - paddingRight &&
-              canvasY >= paddingTop &&
-              canvasY <= height - paddingBottom
+              pos.x >= 0 &&
+              pos.x <= plotWidth &&
+              pos.y >= 0 &&
+              pos.y <= plotHeight
             ) {
               const arrowLength = 18;
-              const endX = canvasX + normalizedDx * arrowLength;
-              const endY = canvasY - normalizedDy * arrowLength; // Flip Y for canvas
+              const endX = pos.x + normalizedDx * arrowLength;
+              const endY = pos.y - normalizedDy * arrowLength; // Flip Y for canvas
 
               // Draw arrow shaft
               ctx.beginPath();
-              ctx.moveTo(canvasX, canvasY);
+              ctx.moveTo(pos.x, pos.y);
               ctx.lineTo(endX, endY);
               ctx.stroke();
 
               // Draw arrowhead (HollingTanner style)
-              const angle = Math.atan2(endY - canvasY, endX - canvasX);
+              const angle = Math.atan2(endY - pos.y, endX - pos.x);
               ctx.save();
               ctx.translate(endX, endY);
               ctx.rotate(angle);
@@ -267,22 +254,12 @@ const DynamicalSystemsCalculator = () => {
   // Wind-js inspired particle rendering with beautiful trails
   const drawDynamicElements = useCallback(
     (canvas, ctx) => {
+      const transform = transformRef.current;
+      if (!transform) return;
+
       const { width, height } = canvas;
       const { xMin, xMax, yMin, yMax } = animationStateRef.current.params;
-
-      // Account for graph padding
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
-
-      // Coordinate mapping functions
-      const mapX = (x) =>
-        paddingLeft + ((x - xMin) / (xMax - xMin)) * plotWidth;
-      const mapY = (y) =>
-        paddingTop + plotHeight - ((y - yMin) / (yMax - yMin)) * plotHeight;
+      const { dataToPixel } = transform;
 
       // Exact wind-js trail fading technique
       const prevComposite = ctx.globalCompositeOperation;
@@ -335,11 +312,14 @@ const DynamicalSystemsCalculator = () => {
           // Continuous line width (1.0 to 1.5)
           const lineWidth = 1.0 + intensity * 0.5;
 
+          const startPos = dataToPixel(particle.x, particle.y);
+          const endPos = dataToPixel(particle.xt, particle.yt);
+
           ctx.beginPath();
           ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
           ctx.lineWidth = lineWidth;
-          ctx.moveTo(mapX(particle.x), mapY(particle.y));
-          ctx.lineTo(mapX(particle.xt), mapY(particle.yt));
+          ctx.moveTo(startPos.x, startPos.y);
+          ctx.lineTo(endPos.x, endPos.y);
           ctx.stroke();
         }
       });
@@ -352,15 +332,14 @@ const DynamicalSystemsCalculator = () => {
           particle.y >= yMin &&
           particle.y <= yMax
         ) {
-          const canvasX = mapX(particle.x);
-          const canvasY = mapY(particle.y);
+          const pos = dataToPixel(particle.x, particle.y);
 
           ctx.beginPath();
           ctx.fillStyle =
             currentTheme === "dark"
               ? "rgba(255, 100, 100, 0.9)"
               : "rgba(200, 20, 20, 0.9)";
-          ctx.arc(canvasX, canvasY, 1.5, 0, 2 * Math.PI); // 3x3 pixel circle (radius 1.5)
+          ctx.arc(pos.x, pos.y, 1.5, 0, 2 * Math.PI); // 3x3 pixel circle (radius 1.5)
           ctx.fill();
         }
       });
@@ -406,11 +385,14 @@ const DynamicalSystemsCalculator = () => {
           // Continuous line width (0.8 to 1.2)
           const lineWidth = 0.8 + intensity * 0.4;
 
+          const startPos = dataToPixel(particle.x, particle.y);
+          const endPos = dataToPixel(particle.xt, particle.yt);
+
           ctx.beginPath();
           ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
           ctx.lineWidth = lineWidth;
-          ctx.moveTo(mapX(particle.x), mapY(particle.y));
-          ctx.lineTo(mapX(particle.xt), mapY(particle.yt));
+          ctx.moveTo(startPos.x, startPos.y);
+          ctx.lineTo(endPos.x, endPos.y);
           ctx.stroke();
         }
       });
@@ -589,38 +571,26 @@ const DynamicalSystemsCalculator = () => {
   // Handle canvas click to add particle
   const handleCanvasClick = useCallback(
     (event) => {
-      if (!staticCanvasRef.current) return;
+      const transform = transformRef.current;
+      const canvas = dynamicCanvasRef.current;
+      if (!canvas || !transform) return;
 
-      const canvas = staticCanvasRef.current;
       const rect = canvas.getBoundingClientRect();
-      const { width, height } = canvas;
-
-      // Account for graph padding
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
+      const { pixelToData, plotWidth, plotHeight } = transform;
 
       const canvasX = event.clientX - rect.left;
       const canvasY = event.clientY - rect.top;
 
       // Check if click is within drawable area
       if (
-        canvasX >= paddingLeft &&
-        canvasX <= width - paddingRight &&
-        canvasY >= paddingTop &&
-        canvasY <= height - paddingBottom
+        canvasX >= 0 &&
+        canvasX <= plotWidth &&
+        canvasY >= 0 &&
+        canvasY <= plotHeight
       ) {
         // Convert canvas coordinates to world coordinates
-        const { xMin, xMax, yMin, yMax } = animationStateRef.current.params;
-        const worldX =
-          xMin + ((canvasX - paddingLeft) / plotWidth) * (xMax - xMin);
-        const worldY =
-          yMax - ((canvasY - paddingTop) / plotHeight) * (yMax - yMin);
-
-        addClickParticle(worldX, worldY);
+        const worldCoords = pixelToData(canvasX, canvasY);
+        addClickParticle(worldCoords.x, worldCoords.y);
       }
     },
     [addClickParticle],
@@ -628,19 +598,20 @@ const DynamicalSystemsCalculator = () => {
 
   // Canvas initialization
   useEffect(() => {
-    [staticCanvasRef, dynamicCanvasRef].forEach((ref) => {
-      if (ref.current) {
-        const canvas = ref.current;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    });
+    if (transformRef.current) {
+      [staticCanvasRef, dynamicCanvasRef].forEach((ref) => {
+        if (ref.current) {
+          const canvas = ref.current;
+          canvas.width = transformRef.current.plotWidth;
+          canvas.height = transformRef.current.plotHeight;
+        }
+      });
 
-    // Draw initial static elements
-    if (staticCanvasRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
+      // Draw initial static elements
+      if (staticCanvasRef.current) {
+        const ctx = staticCanvasRef.current.getContext("2d");
+        drawStaticElements(staticCanvasRef.current, ctx);
+      }
     }
   }, [drawStaticElements]);
 
@@ -693,34 +664,31 @@ const DynamicalSystemsCalculator = () => {
         tooltip="Vector Field and Particle Visualization"
         theme={theme}
       >
-        {/* Static background - vector field, grid */}
-        <canvas
-          ref={staticCanvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={600}
-        />
+        {(transform) => {
+          transformRef.current = transform;
+          return (
+            <>
+              {/* Static background - vector field, grid */}
+              <canvas
+                ref={staticCanvasRef}
+                className="absolute pointer-events-none"
+                style={transform.plotStyle}
+                width={transform.plotWidth}
+                height={transform.plotHeight}
+              />
 
-        {/* Dynamic foreground - particles, trails */}
-        <canvas
-          ref={dynamicCanvasRef}
-          className="absolute cursor-crosshair"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={600}
-          onClick={handleCanvasClick}
-        />
+              {/* Dynamic foreground - particles, trails */}
+              <canvas
+                ref={dynamicCanvasRef}
+                className="absolute cursor-crosshair"
+                style={transform.plotStyle}
+                width={transform.plotWidth}
+                height={transform.plotHeight}
+                onClick={handleCanvasClick}
+              />
+            </>
+          );
+        }}
       </GridGraph>
 
       {/* Input Controls */}

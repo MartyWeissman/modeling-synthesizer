@@ -1,6 +1,6 @@
 // src/tools/InsulinGlucoseTool.jsx
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   GridSliderHorizontal,
   GridButton,
@@ -36,6 +36,10 @@ const InsulinGlucoseTool = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [timeSeriesData, setTimeSeriesData] = useState([]);
   const [currentMode, setCurrentMode] = useState("baseline"); // "baseline", "meals", or "challenge"
+
+  // Canvas and transform refs
+  const canvasRef = useRef(null);
+  const transformRef = useRef(null);
 
   // Differential equation solver using Euler's method with delay support
   const runSimulation = useCallback(
@@ -173,162 +177,145 @@ const InsulinGlucoseTool = () => {
 
   // Draw the time series on the dual Y-axis graph canvas
   const drawTimeSeries = useCallback(() => {
-    setTimeout(() => {
-      const graphComponent = document.querySelector(
-        '[title="Insulin-Glucose Dynamics"]',
-      );
-      if (!graphComponent) return;
+    const canvas = canvasRef.current;
+    const transform = transformRef.current;
+    if (!canvas || !transform || timeSeriesData.length === 0) return;
 
-      let canvas = graphComponent.querySelector("canvas");
-      if (!canvas || timeSeriesData.length === 0) return;
+    const ctx = canvas.getContext("2d");
+    const { plotWidth, plotHeight, dataToPixelLeft } = transform;
 
-      const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
+    // Clear canvas
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
 
-      // Clear canvas
-      ctx.clearRect(0, 0, width, height);
+    // Draw normal glucose range background (using left axis for glucose)
+    const normalLow = 3.9;
+    const normalHigh = 5.5;
+    const normalLowPos = dataToPixelLeft(0, normalLow);
+    const normalHighPos = dataToPixelLeft(0, normalHigh);
 
-      // Scales
-      const maxTime = 20;
-      const maxGlucose = 12; // mmol/L
-      const maxInsulin = 12; // pmol/L
+    ctx.fillStyle = "rgba(0, 255, 0, 0.1)";
+    ctx.fillRect(
+      0,
+      normalHighPos.y,
+      plotWidth,
+      normalLowPos.y - normalHighPos.y,
+    );
 
-      // Chart dimensions (canvas already positioned correctly by GridGraphDualY)
-      const chartWidth = width;
-      const chartHeight = height;
+    // Draw glucose curve (red) - uses left Y axis
+    ctx.strokeStyle = "#ff4444";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
 
-      // Draw normal glucose range background
-      const normalLow = 3.9;
-      const normalHigh = 5.5;
-      const normalLowY = chartHeight - (normalLow / maxGlucose) * chartHeight;
-      const normalHighY = chartHeight - (normalHigh / maxGlucose) * chartHeight;
+    timeSeriesData.forEach((point, index) => {
+      const pos = dataToPixelLeft(point.time, Math.min(point.glucose, 12));
+      if (index === 0) {
+        ctx.moveTo(pos.x, pos.y);
+      } else {
+        ctx.lineTo(pos.x, pos.y);
+      }
+    });
+    ctx.stroke();
 
-      ctx.fillStyle = "rgba(0, 255, 0, 0.1)";
-      ctx.fillRect(0, normalHighY, chartWidth, normalLowY - normalHighY);
+    // Draw insulin curve (blue) - uses right Y axis (same scale in this case)
+    ctx.strokeStyle = "#4444ff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
 
-      // Draw glucose curve (red)
-      ctx.strokeStyle = "#ff4444";
-      ctx.lineWidth = 3; // Thicker line
+    timeSeriesData.forEach((point, index) => {
+      // Using dataToPixelLeft since both axes have same range [0, 12]
+      const pos = dataToPixelLeft(point.time, Math.min(point.insulin, 12));
+      if (index === 0) {
+        ctx.moveTo(pos.x, pos.y);
+      } else {
+        ctx.lineTo(pos.x, pos.y);
+      }
+    });
+    ctx.stroke();
+
+    // Draw mode indicators
+    if (currentMode === "challenge") {
+      const challengePos = dataToPixelLeft(5, 12); // t=5, top of graph
+      ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+      ctx.font = "12px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("Challenge", challengePos.x, 15);
+
+      // Draw challenge marker line
+      ctx.strokeStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = 1;
       ctx.beginPath();
-
-      timeSeriesData.forEach((point, index) => {
-        const x = (point.time / maxTime) * chartWidth;
-        const y =
-          chartHeight -
-          (Math.min(point.glucose, maxGlucose) / maxGlucose) * chartHeight;
-
-        if (index === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      });
+      ctx.moveTo(challengePos.x, 20);
+      ctx.lineTo(challengePos.x, plotHeight);
       ctx.stroke();
-
-      // Draw insulin curve (blue)
-      ctx.strokeStyle = "#4444ff";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-
-      timeSeriesData.forEach((point, index) => {
-        const x = (point.time / maxTime) * chartWidth;
-        const y =
-          chartHeight -
-          (Math.min(point.insulin, maxInsulin) / maxInsulin) * chartHeight;
-
-        if (index === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      });
-      ctx.stroke();
-
-      // Draw mode indicators
-      if (currentMode === "challenge") {
-        const challengeX = (5 / maxTime) * chartWidth;
-        ctx.fillStyle = "#000000"; // Black text
-        ctx.font = "12px Arial"; // Bigger font
+      ctx.setLineDash([]);
+    } else if (currentMode === "meals") {
+      // Draw meal indicators at t=6, 10, 16
+      const mealTimes = [6, 10, 16];
+      mealTimes.forEach((mealTime) => {
+        const mealPos = dataToPixelLeft(mealTime, 12);
+        ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+        ctx.font = "11px Arial";
         ctx.textAlign = "center";
-        ctx.fillText("Challenge", challengeX, 15);
+        ctx.fillText("Meal", mealPos.x, 15);
 
-        // Draw challenge marker line (black, stops below text)
-        ctx.strokeStyle = "#000000"; // Black line
-        ctx.setLineDash([3, 3]);
+        // Draw meal marker line
+        ctx.strokeStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+        ctx.setLineDash([2, 2]);
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(challengeX, 20); // Start below text
-        ctx.lineTo(challengeX, chartHeight);
+        ctx.moveTo(mealPos.x, 20);
+        ctx.lineTo(mealPos.x, plotHeight);
         ctx.stroke();
         ctx.setLineDash([]);
-      } else if (currentMode === "meals") {
-        // Draw meal indicators at t=6, 10, 16
-        const mealTimes = [6, 10, 16];
-        mealTimes.forEach((mealTime) => {
-          const mealX = (mealTime / maxTime) * chartWidth;
-          ctx.fillStyle = "#000000"; // Black text
-          ctx.font = "11px Arial"; // Bigger font
-          ctx.textAlign = "center";
-          ctx.fillText("Meal", mealX, 15);
+      });
+    }
 
-          // Draw meal marker line (black, stops below text)
-          ctx.strokeStyle = "#000000"; // Black line
-          ctx.setLineDash([2, 2]);
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(mealX, 20); // Start below text
-          ctx.lineTo(mealX, chartHeight);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        });
-      }
+    // Legend in top-middle of graph
+    const legendCenterPos = dataToPixelLeft(12.5, 12);
+    const legendWidth = 126;
+    const legendHeight = 45;
+    const legendX = legendCenterPos.x - legendWidth / 2;
+    const legendY = 40;
 
-      // Legend in top-middle of graph
-      const legendCenterX = (12.5 / maxTime) * chartWidth;
-      const legendWidth = 126; // 70% of 180
-      const legendHeight = 45; // 80% bigger than 25
-      const legendX = legendCenterX - legendWidth / 2;
-      const legendY = 40; // Moved down 20px from 20
+    // Legend background
+    ctx.fillStyle =
+      currentTheme === "dark"
+        ? "rgba(31, 41, 55, 0.9)"
+        : "rgba(255, 255, 255, 0.9)";
+    ctx.fillRect(legendX, legendY - 5, legendWidth, legendHeight);
+    ctx.strokeStyle =
+      currentTheme === "dark"
+        ? "rgba(255, 255, 255, 0.3)"
+        : "rgba(0, 0, 0, 0.3)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(legendX, legendY - 5, legendWidth, legendHeight);
 
-      // Legend background - match graph background
-      ctx.fillStyle =
-        currentTheme === "dark"
-          ? "rgba(31, 41, 55, 0.9)"
-          : "rgba(255, 255, 255, 0.9)"; // Match graph bg
-      ctx.fillRect(legendX, legendY - 5, legendWidth, legendHeight);
-      ctx.strokeStyle =
-        currentTheme === "dark"
-          ? "rgba(255, 255, 255, 0.3)"
-          : "rgba(0, 0, 0, 0.3)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(legendX, legendY - 5, legendWidth, legendHeight);
+    // Legend items
+    ctx.font = "13px Arial";
+    ctx.textAlign = "left";
 
-      // Legend items
-      ctx.font = "13px Arial"; // Bigger font (was 11px)
-      ctx.textAlign = "left";
+    // Red line for glucose
+    ctx.strokeStyle = "#ff4444";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(legendX + 15, legendY + 6);
+    ctx.lineTo(legendX + 35, legendY + 6);
+    ctx.stroke();
 
-      // Red line for glucose
-      ctx.strokeStyle = "#ff4444";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(legendX + 15, legendY + 6);
-      ctx.lineTo(legendX + 35, legendY + 6);
-      ctx.stroke();
+    ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+    ctx.fillText("Glucose", legendX + 40, legendY + 11);
 
-      ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
-      ctx.fillText("Glucose", legendX + 40, legendY + 11);
+    // Blue line for insulin
+    ctx.strokeStyle = "#4444ff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(legendX + 15, legendY + 25);
+    ctx.lineTo(legendX + 35, legendY + 25);
+    ctx.stroke();
 
-      // Blue line for insulin
-      ctx.strokeStyle = "#4444ff";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(legendX + 15, legendY + 25);
-      ctx.lineTo(legendX + 35, legendY + 25);
-      ctx.stroke();
-
-      ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
-      ctx.fillText("Insulin", legendX + 40, legendY + 30);
-    }, 100);
+    ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+    ctx.fillText("Insulin", legendX + 40, legendY + 30);
   }, [timeSeriesData, currentMode, currentTheme]);
 
   // Run initial simulation only once on mount
@@ -495,7 +482,19 @@ const InsulinGlucoseTool = () => {
         rightAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
         tooltip="Insulin-Glucose Dynamics"
         theme={theme}
-      />
+      >
+        {(transform) => {
+          transformRef.current = transform;
+          return (
+            <canvas
+              ref={canvasRef}
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
+      </GridGraphDualY>
 
       {/* Row 3-4: Equation display */}
       <GridDisplay

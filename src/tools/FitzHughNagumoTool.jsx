@@ -39,6 +39,10 @@ const FitzHughNagumoTool = () => {
   const dynamicCanvasRef = useRef(null);
   const timeSeriesCanvasRef = useRef(null);
 
+  // Transform refs for coordinate conversion
+  const phaseTransformRef = useRef(null);
+  const timeSeriesTransformRef = useRef(null);
+
   // Animation state - pure refs, never cause React re-renders
   const animationStateRef = useRef({
     trajectories: [],
@@ -162,20 +166,14 @@ const FitzHughNagumoTool = () => {
   // Static elements drawing function - only redraws when parameters change
   const drawStaticElements = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = phaseTransformRef.current;
+      if (!transform) return;
+
+      const { dataToPixel, plotWidth, plotHeight } = transform;
       const { u, a, b, z } = animationStateRef.current.params;
 
-      // Account for graph padding (matching GridGraph calculation)
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
-
       // Clear canvas
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Draw vector field
       const gridCoords = [
@@ -207,21 +205,18 @@ const FitzHughNagumoTool = () => {
           const normalizedDx = dxdt / magnitude;
           const normalizedDy = dydt / magnitude;
 
-          const canvasX =
-            paddingLeft + ((x - xmin) / (xmax - xmin)) * plotWidth;
-          const canvasY =
-            paddingTop + plotHeight - ((y - ymin) / (ymax - ymin)) * plotHeight;
+          const pixel = dataToPixel(x, y);
           const arrowLength = 18;
-          const endX = canvasX + normalizedDx * arrowLength;
-          const endY = canvasY - normalizedDy * arrowLength;
+          const endX = pixel.x + normalizedDx * arrowLength;
+          const endY = pixel.y - normalizedDy * arrowLength;
 
           ctx.beginPath();
-          ctx.moveTo(canvasX, canvasY);
+          ctx.moveTo(pixel.x, pixel.y);
           ctx.lineTo(endX, endY);
           ctx.stroke();
 
           // Arrowhead
-          const angle = Math.atan2(endY - canvasY, endX - canvasX);
+          const angle = Math.atan2(endY - pixel.y, endX - pixel.x);
           ctx.save();
           ctx.translate(endX, endY);
           ctx.rotate(angle);
@@ -246,17 +241,12 @@ const FitzHughNagumoTool = () => {
         for (let x = xmin; x <= xmax; x += 0.01) {
           const y = x - (x * x * x) / 3 + z;
           if (y >= ymin && y <= ymax) {
-            const canvasX =
-              paddingLeft + ((x - xmin) / (xmax - xmin)) * plotWidth;
-            const canvasY =
-              paddingTop +
-              plotHeight -
-              ((y - ymin) / (ymax - ymin)) * plotHeight;
+            const pixel = dataToPixel(x, y);
             if (firstPoint) {
-              ctx.moveTo(canvasX, canvasY);
+              ctx.moveTo(pixel.x, pixel.y);
               firstPoint = false;
             } else {
-              ctx.lineTo(canvasX, canvasY);
+              ctx.lineTo(pixel.x, pixel.y);
             }
           }
         }
@@ -321,45 +311,30 @@ const FitzHughNagumoTool = () => {
           const p1 = intersections[0];
           const p2 = intersections[1];
 
-          const canvasX1 =
-            paddingLeft + ((p1.x - xmin) / (xmax - xmin)) * plotWidth;
-          const canvasY1 =
-            paddingTop +
-            plotHeight -
-            ((p1.y - ymin) / (ymax - ymin)) * plotHeight;
-          const canvasX2 =
-            paddingLeft + ((p2.x - xmin) / (xmax - xmin)) * plotWidth;
-          const canvasY2 =
-            paddingTop +
-            plotHeight -
-            ((p2.y - ymin) / (ymax - ymin)) * plotHeight;
+          const pixel1 = dataToPixel(p1.x, p1.y);
+          const pixel2 = dataToPixel(p2.x, p2.y);
 
-          ctx.moveTo(canvasX1, canvasY1);
-          ctx.lineTo(canvasX2, canvasY2);
+          ctx.moveTo(pixel1.x, pixel1.y);
+          ctx.lineTo(pixel2.x, pixel2.y);
           ctx.stroke();
         }
       }
 
       // Draw equilibrium points
       equilibria.forEach((eq) => {
-        const canvasX =
-          paddingLeft + ((eq.x - xmin) / (xmax - xmin)) * plotWidth;
-        const canvasY =
-          paddingTop +
-          plotHeight -
-          ((eq.y - ymin) / (ymax - ymin)) * plotHeight;
+        const pixel = dataToPixel(eq.x, eq.y);
 
         ctx.fillStyle = "#f59e0b";
         ctx.strokeStyle = "#d97706";
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(canvasX, canvasY, 6, 0, 2 * Math.PI);
+        ctx.arc(pixel.x, pixel.y, 6, 0, 2 * Math.PI);
         ctx.fill();
         ctx.stroke();
 
         ctx.fillStyle = "white";
         ctx.beginPath();
-        ctx.arc(canvasX, canvasY, 2.5, 0, 2 * Math.PI);
+        ctx.arc(pixel.x, pixel.y, 2.5, 0, 2 * Math.PI);
         ctx.fill();
       });
     },
@@ -368,19 +343,11 @@ const FitzHughNagumoTool = () => {
 
   // Dynamic elements drawing function - redraws every frame
   const drawDynamicElements = useCallback((canvas, ctx) => {
-    if (!canvas) return;
+    const transform = phaseTransformRef.current;
+    if (!canvas || !transform) return;
 
-    const { width, height } = canvas;
-    ctx.clearRect(0, 0, width, height);
-
-    // Account for graph padding
-    const paddingLeft = 45;
-    const paddingRight = 15;
-    const paddingTop = 15;
-    const paddingBottom = 35;
-
-    const plotWidth = width - paddingLeft - paddingRight;
-    const plotHeight = height - paddingTop - paddingBottom;
+    const { dataToPixel } = transform;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Draw trajectories
     const colorHues = [120, 240, 60, 300, 180, 0];
@@ -393,15 +360,9 @@ const FitzHughNagumoTool = () => {
 
         ctx.beginPath();
         trajectory.trail.forEach((point, index) => {
-          const canvasX =
-            paddingLeft + ((point.x - xmin) / (xmax - xmin)) * plotWidth;
-          const canvasY =
-            paddingTop +
-            plotHeight -
-            ((point.y - ymin) / (ymax - ymin)) * plotHeight;
-
-          if (index === 0) ctx.moveTo(canvasX, canvasY);
-          else ctx.lineTo(canvasX, canvasY);
+          const pixel = dataToPixel(point.x, point.y);
+          if (index === 0) ctx.moveTo(pixel.x, pixel.y);
+          else ctx.lineTo(pixel.x, pixel.y);
         });
         ctx.stroke();
         ctx.globalAlpha = 1.0;
@@ -412,16 +373,10 @@ const FitzHughNagumoTool = () => {
           trajectory.x !== undefined &&
           trajectory.y !== undefined
         ) {
-          const canvasX =
-            paddingLeft + ((trajectory.x - xmin) / (xmax - xmin)) * plotWidth;
-          const canvasY =
-            paddingTop +
-            plotHeight -
-            ((trajectory.y - ymin) / (ymax - ymin)) * plotHeight;
-
+          const pixel = dataToPixel(trajectory.x, trajectory.y);
           ctx.fillStyle = `hsl(${hue}, 70%, 40%)`;
           ctx.beginPath();
-          ctx.arc(canvasX, canvasY, 4, 0, 2 * Math.PI);
+          ctx.arc(pixel.x, pixel.y, 4, 0, 2 * Math.PI);
           ctx.fill();
         }
       }
@@ -431,9 +386,12 @@ const FitzHughNagumoTool = () => {
   // Draw time series
   const drawTimeSeries = useCallback(
     (canvas, ctx) => {
-      const { width, height } = canvas;
+      const transform = timeSeriesTransformRef.current;
+      if (!transform) return;
+
+      const { plotWidth, plotHeight } = transform;
       const state = animationStateRef.current;
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       if (state.timeSeriesData.length < 2) return;
 
@@ -443,12 +401,11 @@ const FitzHughNagumoTool = () => {
       const maxTime = Math.max(timeWindow, currentTime);
       const maxVal = Math.max(Math.abs(xmax), Math.abs(ymax));
 
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
+      // Local helper for sliding time window (axes change dynamically)
+      const toPixel = (t, val) => ({
+        x: ((t - minTime) / timeWindow) * plotWidth,
+        y: plotHeight - ((val + maxVal) / (2 * maxVal)) * plotHeight,
+      });
 
       // Draw X (Membrane Potential)
       ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
@@ -458,17 +415,12 @@ const FitzHughNagumoTool = () => {
 
       state.timeSeriesData.forEach((point) => {
         if (point.time >= minTime && point.time <= maxTime) {
-          const canvasX =
-            paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const canvasY =
-            paddingTop +
-            plotHeight -
-            ((point.x + maxVal) / (2 * maxVal)) * plotHeight;
+          const pixel = toPixel(point.time, point.x);
           if (firstPoint) {
-            ctx.moveTo(canvasX, canvasY);
+            ctx.moveTo(pixel.x, pixel.y);
             firstPoint = false;
           } else {
-            ctx.lineTo(canvasX, canvasY);
+            ctx.lineTo(pixel.x, pixel.y);
           }
         }
       });
@@ -482,17 +434,12 @@ const FitzHughNagumoTool = () => {
 
       state.timeSeriesData.forEach((point) => {
         if (point.time >= minTime && point.time <= maxTime) {
-          const canvasX =
-            paddingLeft + ((point.time - minTime) / timeWindow) * plotWidth;
-          const canvasY =
-            paddingTop +
-            plotHeight -
-            ((point.y + maxVal) / (2 * maxVal)) * plotHeight;
+          const pixel = toPixel(point.time, point.y);
           if (firstPoint) {
-            ctx.moveTo(canvasX, canvasY);
+            ctx.moveTo(pixel.x, pixel.y);
             firstPoint = false;
           } else {
-            ctx.lineTo(canvasX, canvasY);
+            ctx.lineTo(pixel.x, pixel.y);
           }
         }
       });
@@ -617,30 +564,23 @@ const FitzHughNagumoTool = () => {
   const handleCanvasClick = useCallback(
     (event) => {
       const canvas = dynamicCanvasRef.current;
-      if (!canvas) return;
+      const transform = phaseTransformRef.current;
+      if (!canvas || !transform) return;
 
       const rect = canvas.getBoundingClientRect();
       const clickX = event.clientX - rect.left;
       const clickY = event.clientY - rect.top;
 
-      const paddingLeft = 45;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
+      // Use transform's pixelToData for coordinate conversion
+      const { pixelToData, plotWidth, plotHeight } = transform;
 
-      const plotWidth = rect.width - paddingLeft - paddingRight;
-      const plotHeight = rect.height - paddingTop - paddingBottom;
-
-      if (
-        clickX < paddingLeft ||
-        clickX > paddingLeft + plotWidth ||
-        clickY < paddingTop ||
-        clickY > paddingTop + plotHeight
-      )
+      // Check if click is within plot bounds
+      if (clickX < 0 || clickX > plotWidth || clickY < 0 || clickY > plotHeight)
         return;
 
-      const dataX = ((clickX - paddingLeft) / plotWidth) * (xmax - xmin) + xmin;
-      const dataY = ymax - ((clickY - paddingTop) / plotHeight) * (ymax - ymin);
+      const dataPoint = pixelToData(clickX, clickY);
+      const dataX = dataPoint.x;
+      const dataY = dataPoint.y;
 
       if (dataX < xmin || dataY < ymin || dataX > xmax || dataY > ymax) return;
 
@@ -723,17 +663,24 @@ const FitzHughNagumoTool = () => {
 
   // Initialize canvases
   useEffect(() => {
-    [staticCanvasRef, dynamicCanvasRef, timeSeriesCanvasRef].forEach((ref) => {
-      if (ref.current) {
-        const canvas = ref.current;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    });
+    // Set canvas sizes from transforms
+    if (staticCanvasRef.current && phaseTransformRef.current) {
+      staticCanvasRef.current.width = phaseTransformRef.current.plotWidth;
+      staticCanvasRef.current.height = phaseTransformRef.current.plotHeight;
+    }
+    if (dynamicCanvasRef.current && phaseTransformRef.current) {
+      dynamicCanvasRef.current.width = phaseTransformRef.current.plotWidth;
+      dynamicCanvasRef.current.height = phaseTransformRef.current.plotHeight;
+    }
+    if (timeSeriesCanvasRef.current && timeSeriesTransformRef.current) {
+      timeSeriesCanvasRef.current.width =
+        timeSeriesTransformRef.current.plotWidth;
+      timeSeriesCanvasRef.current.height =
+        timeSeriesTransformRef.current.plotHeight;
+    }
 
     // Draw initial static elements
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
@@ -741,7 +688,7 @@ const FitzHughNagumoTool = () => {
 
   // Redraw static elements when parameters change
   useEffect(() => {
-    if (staticCanvasRef.current) {
+    if (staticCanvasRef.current && phaseTransformRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
@@ -775,33 +722,30 @@ const FitzHughNagumoTool = () => {
         theme={theme}
         tooltip="Click to start a trajectory from that point"
       >
-        {/* Static background layer */}
-        <canvas
-          ref={staticCanvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-        />
-        {/* Dynamic foreground layer */}
-        <canvas
-          ref={dynamicCanvasRef}
-          className="absolute cursor-crosshair"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={400}
-          onClick={handleCanvasClick}
-        />
+        {(transform) => {
+          phaseTransformRef.current = transform;
+          return (
+            <>
+              {/* Static background layer */}
+              <canvas
+                ref={staticCanvasRef}
+                className="absolute pointer-events-none"
+                style={transform.plotStyle}
+                width={transform.plotWidth}
+                height={transform.plotHeight}
+              />
+              {/* Dynamic foreground layer */}
+              <canvas
+                ref={dynamicCanvasRef}
+                className="absolute cursor-crosshair"
+                style={transform.plotStyle}
+                width={transform.plotWidth}
+                height={transform.plotHeight}
+                onClick={handleCanvasClick}
+              />
+            </>
+          );
+        }}
       </GridGraph>
 
       {/* Time Series Plot */}
@@ -819,18 +763,18 @@ const FitzHughNagumoTool = () => {
         theme={theme}
         tooltip="Dynamics over time"
       >
-        <canvas
-          ref={timeSeriesCanvasRef}
-          className="absolute"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-          width={600}
-          height={240}
-        />
+        {(transform) => {
+          timeSeriesTransformRef.current = transform;
+          return (
+            <canvas
+              ref={timeSeriesCanvasRef}
+              className="absolute"
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Preset Buttons */}

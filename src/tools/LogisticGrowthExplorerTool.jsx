@@ -17,8 +17,9 @@ import { useTheme } from "../hooks/useTheme";
 const LogisticGrowthExplorerTool = () => {
   const { theme, currentTheme } = useTheme();
 
-  // Canvas ref for visualization
+  // Canvas and transform refs
   const canvasRef = useRef(null);
+  const transformRef = useRef(null);
 
   // Parameters for logistic growth model
   // P(t) = C * e^(b(t-t0)) / (1 + e^(b(t-t0)))
@@ -150,48 +151,28 @@ const LogisticGrowthExplorerTool = () => {
 
   // Draw visualization on canvas
   const drawVisualization = useCallback(() => {
-    if (!canvasRef.current) return;
-
     const canvas = canvasRef.current;
+    const transform = transformRef.current;
+    if (!canvas || !transform) return;
+
     const ctx = canvas.getContext("2d");
+    const { plotWidth, plotHeight, dataToPixel } = transform;
     const { tRange, PRange } = calculateAxisRanges();
 
     // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
 
-    // Calculate plot area to match GridGraph's coordinate system exactly
-    // GridGraph structure: 8px component padding, then dynamic axis padding
-    // Canvas is at left:1, bottom:1 with calc(100% - 2px), so it's inside the 8px padding
-
-    const maxYTickLength = Math.max(
-      ...yTicks.map((tick) => tick.toString().length),
-    );
-    const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
-    const yAxisLabelWidth = 20;
-
-    // Use exact same dynamic padding as GridGraph, no offsets
-    const paddingLeft = yTickWidth + yAxisLabelWidth;
-    const paddingRight = 15;
-    const paddingTop = 15;
-    const paddingBottom = 35; // 15 for tick labels + 20 for axis label
-
-    const plotWidth = canvas.width - paddingLeft - paddingRight;
-    const plotHeight = canvas.height - paddingTop - paddingBottom;
-
-    // Helper function to convert data coordinates to canvas coordinates
-    const toCanvasX = (t) => {
-      return (
-        paddingLeft + ((t - tRange[0]) / (tRange[1] - tRange[0])) * plotWidth
-      );
-    };
-
-    const toCanvasY = (P) => {
-      return (
-        paddingTop +
-        plotHeight -
-        ((P - PRange[0]) / (PRange[1] - PRange[0])) * plotHeight
-      );
-    };
+    // Draw carrying capacity line (green dashed)
+    const capacityLeft = dataToPixel(tRange[0], C);
+    const capacityRight = dataToPixel(tRange[1], C);
+    ctx.strokeStyle = currentTheme === "dark" ? "#4ade80" : "#16a34a";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(capacityLeft.x, capacityLeft.y);
+    ctx.lineTo(capacityRight.x, capacityRight.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
     // Draw logistic curve (red)
     ctx.strokeStyle = currentTheme === "dark" ? "#ef4444" : "#dc2626";
@@ -202,13 +183,12 @@ const LogisticGrowthExplorerTool = () => {
     for (let i = 0; i <= numPoints; i++) {
       const t = tRange[0] + (i / numPoints) * (tRange[1] - tRange[0]);
       const P = logisticFunction(t);
-      const x = toCanvasX(t);
-      const y = toCanvasY(P);
+      const pos = dataToPixel(t, P);
 
       if (i === 0) {
-        ctx.moveTo(x, y);
+        ctx.moveTo(pos.x, pos.y);
       } else {
-        ctx.lineTo(x, y);
+        ctx.lineTo(pos.x, pos.y);
       }
     }
     ctx.stroke();
@@ -231,11 +211,10 @@ const LogisticGrowthExplorerTool = () => {
         const predicted = logisticFunction(point.t);
         const residual = point.P - predicted;
 
-        const dataX = toCanvasX(point.t);
-        const dataY = toCanvasY(point.P);
-        const predY = toCanvasY(predicted);
+        const dataPos = dataToPixel(point.t, point.P);
+        const predPos = dataToPixel(point.t, predicted);
 
-        const squareSize = Math.abs(dataY - predY);
+        const squareSize = Math.abs(dataPos.y - predPos.y);
 
         // Draw gray semi-transparent square
         ctx.fillStyle =
@@ -246,23 +225,21 @@ const LogisticGrowthExplorerTool = () => {
         ctx.lineWidth = 1;
 
         // Square extends horizontally from data point
-        const startX = dataX;
-        const startY = residual < 0 ? predY : dataY;
+        const startY = residual < 0 ? predPos.y : dataPos.y;
 
-        ctx.fillRect(startX, startY, squareSize, squareSize);
-        ctx.strokeRect(startX, startY, squareSize, squareSize);
+        ctx.fillRect(dataPos.x, startY, squareSize, squareSize);
+        ctx.strokeRect(dataPos.x, startY, squareSize, squareSize);
       });
     }
 
     // Draw data points (blue circles on top)
     validPoints.forEach((point) => {
-      const x = toCanvasX(point.t);
-      const y = toCanvasY(point.P);
+      const pos = dataToPixel(point.t, point.P);
 
       // Draw 5px circle
       ctx.fillStyle = currentTheme === "dark" ? "#60a5fa" : "#2563eb";
       ctx.beginPath();
-      ctx.arc(x, y, 5, 0, 2 * Math.PI);
+      ctx.arc(pos.x, pos.y, 5, 0, 2 * Math.PI);
       ctx.fill();
 
       // Add stroke for visibility
@@ -274,36 +251,14 @@ const LogisticGrowthExplorerTool = () => {
     calculateAxisRanges,
     logisticFunction,
     tableData,
-    C,
     showRSS,
     currentTheme,
+    C,
   ]);
 
-  // Initialize canvas and draw
+  // Redraw when data or parameters change
   useEffect(() => {
-    if (canvasRef.current) {
-      const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-      drawVisualization();
-    }
-  }, [drawVisualization]);
-
-  // Redraw on window resize
-  useEffect(() => {
-    const handleResize = () => {
-      if (canvasRef.current) {
-        const canvas = canvasRef.current;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-        drawVisualization();
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    drawVisualization();
   }, [drawVisualization]);
 
   const { tRange, PRange } = calculateAxisRanges();
@@ -481,57 +436,22 @@ const LogisticGrowthExplorerTool = () => {
         yTicks={yTicks}
         theme={theme}
       >
-        {/* Carrying capacity line - positioned by GridGraph's coordinate system */}
-        {(() => {
-          // Calculate GridGraph's internal dimensions and padding
-          const maxYTickLength = Math.max(
-            ...yTicks.map((tick) => tick.toString().length),
-          );
-          const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
-          const yAxisLabelWidth = 20;
-          const dynamicPaddingBottom = 35;
-          const dynamicPaddingLeft = yTickWidth + yAxisLabelWidth;
-          const dynamicPaddingRight = 15;
-          const dynamicPaddingTop = 15;
-
-          // Graph dimensions (7 cells wide * 100px - 16px for component padding)
-          const graphWidth = 7 * 100 - 16;
-          const graphHeight = 6 * 100 - 16;
-          const axisWidth =
-            graphWidth - dynamicPaddingLeft - dynamicPaddingRight;
-          const axisHeight =
-            graphHeight - dynamicPaddingTop - dynamicPaddingBottom;
-
-          // Data to pixel transformation (same as GridGraph's dataToPixel)
-          const [pMin, pMax] = PRange;
-          const yPos = ((C - pMin) / (pMax - pMin)) * axisHeight;
+        {(transform) => {
+          transformRef.current = transform;
+          const { plotWidth, plotHeight, plotStyle } = transform;
 
           return (
-            <div
-              className="absolute pointer-events-none"
+            <canvas
+              ref={canvasRef}
               style={{
-                left: `${dynamicPaddingLeft}px`,
-                bottom: `${dynamicPaddingBottom + yPos}px`,
-                width: `${axisWidth}px`,
-                height: "2px",
-                borderTop: `2px dashed ${currentTheme === "dark" ? "#4ade80" : "#16a34a"}`,
+                ...plotStyle,
+                pointerEvents: "none",
               }}
+              width={plotWidth}
+              height={plotHeight}
             />
           );
-        })()}
-
-        {/* Canvas overlay for visualization */}
-        <canvas
-          ref={canvasRef}
-          className="absolute"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-            pointerEvents: "none",
-          }}
-        />
+        }}
       </GridGraph>
 
       {/* Parameter: Carrying Capacity (C) */}

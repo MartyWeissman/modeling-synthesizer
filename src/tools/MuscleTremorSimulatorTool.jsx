@@ -13,7 +13,6 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
 import Equation from "../components/Equation";
-import { dataToPixel } from "../utils/gridLayoutHelper";
 
 const MuscleTremorSimulatorTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -36,6 +35,7 @@ const MuscleTremorSimulatorTool = () => {
   // Canvas refs for visualization
   const canvasRef = useRef(null);
   const forearmCanvasRef = useRef(null);
+  const transformRef = useRef(null);
 
   // RK4 integration for delay differential equation
   // Adapted from OneDimensionalCalculator - proper RK4 for DDEs
@@ -182,38 +182,15 @@ const MuscleTremorSimulatorTool = () => {
 
   // Draw simulation on canvas
   const drawSimulation = useCallback(() => {
-    if (!canvasRef.current || simulationData.length === 0) return;
-
+    const transform = transformRef.current;
     const canvas = canvasRef.current;
+    if (!canvas || !transform || simulationData.length === 0) return;
+
     const ctx = canvas.getContext("2d");
+    const { dataToPixel, plotWidth, plotHeight } = transform;
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Calculate padding to match GridGraph's internal calculations exactly
-    const yTicks = [0, 10, 20, 30, 40];
-    const maxYTickLength = Math.max(
-      ...yTicks.map((tick) => tick.toString().length),
-    );
-    const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
-    const yAxisLabelWidth = 20;
-
-    const paddingLeft = yTickWidth + yAxisLabelWidth;
-    const paddingRight = 15;
-    const paddingTop = 15;
-    const paddingBottom = 35;
-
-    const plotWidth = canvas.width - paddingLeft - paddingRight;
-    const plotHeight = canvas.height - paddingTop - paddingBottom;
-
-    // Helper functions to convert data coordinates to canvas coordinates
-    const toCanvasX = (t) => {
-      return paddingLeft + (t / 2000) * plotWidth;
-    };
-
-    const toCanvasY = (L) => {
-      return paddingTop + plotHeight - (L / 40) * plotHeight;
-    };
 
     // Draw invalid regions (shaded areas)
     ctx.fillStyle =
@@ -222,32 +199,32 @@ const MuscleTremorSimulatorTool = () => {
         : "rgba(255, 100, 100, 0.1)";
 
     // Bottom invalid region (0-10 cm)
-    const invalidBottomY = toCanvasY(10);
-    const invalidBottomHeight = toCanvasY(0) - invalidBottomY;
-    ctx.fillRect(paddingLeft, invalidBottomY, plotWidth, invalidBottomHeight);
+    const bottomLeft = dataToPixel(0, 0);
+    const bottomRight = dataToPixel(2000, 10);
+    ctx.fillRect(0, bottomRight.y, plotWidth, bottomLeft.y - bottomRight.y);
 
     // Top invalid region (30-40 cm)
-    const invalidTopY = toCanvasY(40);
-    const invalidTopHeight = toCanvasY(30) - invalidTopY;
-    ctx.fillRect(paddingLeft, invalidTopY, plotWidth, invalidTopHeight);
+    const topLeft = dataToPixel(0, 40);
+    const topRight = dataToPixel(2000, 30);
+    ctx.fillRect(0, topLeft.y, plotWidth, topRight.y - topLeft.y);
 
     // Draw equilibrium line (red dashed)
-    const eqY = toCanvasY(Leq);
+    const eqLeft = dataToPixel(0, Leq);
+    const eqRight = dataToPixel(2000, Leq);
     ctx.strokeStyle = currentTheme === "dark" ? "#ef4444" : "#dc2626";
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 5]);
     ctx.beginPath();
-    ctx.moveTo(paddingLeft, eqY);
-    ctx.lineTo(paddingLeft + plotWidth, eqY);
+    ctx.moveTo(eqLeft.x, eqLeft.y);
+    ctx.lineTo(eqRight.x, eqRight.y);
     ctx.stroke();
     ctx.setLineDash([]);
 
     // Draw initial condition (dark green dot)
-    const initialX = toCanvasX(0);
-    const initialY = toCanvasY(L0);
+    const initialPos = dataToPixel(0, L0);
     ctx.fillStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
     ctx.beginPath();
-    ctx.arc(initialX, initialY, 6, 0, 2 * Math.PI);
+    ctx.arc(initialPos.x, initialPos.y, 6, 0, 2 * Math.PI);
     ctx.fill();
 
     // Draw trajectory (green curve)
@@ -256,13 +233,12 @@ const MuscleTremorSimulatorTool = () => {
     ctx.beginPath();
 
     simulationData.forEach((point, index) => {
-      const px = toCanvasX(point.t);
-      const py = toCanvasY(point.L);
+      const pos = dataToPixel(point.t, point.L);
 
       if (index === 0) {
-        ctx.moveTo(px, py);
+        ctx.moveTo(pos.x, pos.y);
       } else {
-        ctx.lineTo(px, py);
+        ctx.lineTo(pos.x, pos.y);
       }
     });
 
@@ -271,12 +247,11 @@ const MuscleTremorSimulatorTool = () => {
     // Draw current state (black dot at end)
     if (simulationData.length > 0) {
       const lastPoint = simulationData[simulationData.length - 1];
-      const lastX = toCanvasX(lastPoint.t);
-      const lastY = toCanvasY(lastPoint.L);
+      const lastPos = dataToPixel(lastPoint.t, lastPoint.L);
 
       ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
       ctx.beginPath();
-      ctx.arc(lastX, lastY, 5, 0, 2 * Math.PI);
+      ctx.arc(lastPos.x, lastPos.y, 5, 0, 2 * Math.PI);
       ctx.fill();
     }
 
@@ -304,25 +279,24 @@ const MuscleTremorSimulatorTool = () => {
         }
       }
 
-      const delayedX = toCanvasX(lastT);
-      const delayedY = toCanvasY(delayedL);
+      const delayedPos = dataToPixel(lastT, delayedL);
 
       ctx.fillStyle = currentTheme === "dark" ? "#ef4444" : "#dc2626";
       ctx.beginPath();
-      ctx.arc(delayedX, delayedY, 5, 0, 2 * Math.PI);
+      ctx.arc(delayedPos.x, delayedPos.y, 5, 0, 2 * Math.PI);
       ctx.fill();
     }
   }, [simulationData, Leq, L0, tau, currentTheme]);
 
   // Initialize canvas
   useEffect(() => {
-    if (canvasRef.current) {
+    if (canvasRef.current && transformRef.current) {
       const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+      canvas.width = transformRef.current.plotWidth;
+      canvas.height = transformRef.current.plotHeight;
+      drawSimulation();
     }
-  }, []);
+  }, [drawSimulation]);
 
   // Redraw when simulation data or theme changes
   useEffect(() => {
@@ -540,16 +514,18 @@ const MuscleTremorSimulatorTool = () => {
         leftAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
         theme={theme}
       >
-        <canvas
-          ref={canvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-        />
+        {(transform) => {
+          transformRef.current = transform;
+          return (
+            <canvas
+              ref={canvasRef}
+              className="absolute pointer-events-none"
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Initial Length Slider (3x1) - left side of row 3 */}

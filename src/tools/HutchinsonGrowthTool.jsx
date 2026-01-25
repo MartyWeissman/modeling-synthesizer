@@ -26,6 +26,8 @@ const HutchinsonGrowthTool = () => {
 
   // Canvas ref
   const canvasRef = useRef(null);
+  // Transform ref for coordinate conversion
+  const transformRef = useRef(null);
 
   // Animation state
   const animationStateRef = useRef({
@@ -98,26 +100,11 @@ const HutchinsonGrowthTool = () => {
   // Draw the simulation
   const drawSimulation = useCallback(
     (canvas, ctx) => {
-      if (!canvas) return;
+      const transform = transformRef.current;
+      if (!canvas || !transform) return;
 
-      const { width, height } = canvas;
-      ctx.clearRect(0, 0, width, height);
-
-      // Calculate padding to match GridGraph
-      const yTicks = [0, 50, 100, 150, 200, 250, 300];
-      const maxYTickLength = Math.max(
-        ...yTicks.map((t) => t.toString().length),
-      );
-      const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
-      const yAxisLabelWidth = 20;
-
-      const paddingLeft = yTickWidth + yAxisLabelWidth;
-      const paddingRight = 15;
-      const paddingTop = 15;
-      const paddingBottom = 35;
-
-      const plotWidth = width - paddingLeft - paddingRight;
-      const plotHeight = height - paddingTop - paddingBottom;
+      const { dataToPixel } = transform;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const tMax = 1000;
       const PMin = 0;
@@ -129,8 +116,8 @@ const HutchinsonGrowthTool = () => {
       const { k } = uiParams;
 
       // Draw carrying capacity line
-      const kY =
-        paddingTop + plotHeight - ((k - PMin) / (PMax - PMin)) * plotHeight;
+      const kLeft = dataToPixel(0, k);
+      const kRight = dataToPixel(tMax, k);
       ctx.strokeStyle =
         currentTheme === "dark"
           ? "rgba(239, 68, 68, 0.6)"
@@ -138,20 +125,16 @@ const HutchinsonGrowthTool = () => {
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 5]);
       ctx.beginPath();
-      ctx.moveTo(paddingLeft, kY);
-      ctx.lineTo(paddingLeft + plotWidth, kY);
+      ctx.moveTo(kLeft.x, kLeft.y);
+      ctx.lineTo(kRight.x, kRight.y);
       ctx.stroke();
       ctx.setLineDash([]);
 
       // Draw green initial position dot
-      const initialX = paddingLeft + (0 / tMax) * plotWidth;
-      const initialY =
-        paddingTop +
-        plotHeight -
-        ((uiParams.P0 - PMin) / (PMax - PMin)) * plotHeight;
+      const initialPixel = dataToPixel(0, uiParams.P0);
       ctx.fillStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
       ctx.beginPath();
-      ctx.arc(initialX, initialY, 5, 0, 2 * Math.PI);
+      ctx.arc(initialPixel.x, initialPixel.y, 5, 0, 2 * Math.PI);
       ctx.fill();
 
       // Draw population trajectory
@@ -161,14 +144,11 @@ const HutchinsonGrowthTool = () => {
 
         ctx.beginPath();
         history.forEach(([t, P], index) => {
-          const x = paddingLeft + (t / tMax) * plotWidth;
-          const y =
-            paddingTop + plotHeight - ((P - PMin) / (PMax - PMin)) * plotHeight;
-
+          const pixel = dataToPixel(t, P);
           if (index === 0) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(pixel.x, pixel.y);
           } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(pixel.x, pixel.y);
           }
         });
         ctx.stroke();
@@ -177,34 +157,25 @@ const HutchinsonGrowthTool = () => {
         if (state.isRunning && history.length > 0) {
           const lastPoint = history[history.length - 1];
           const currentTime = lastPoint[0];
-          const x = paddingLeft + (currentTime / tMax) * plotWidth;
-          const y =
-            paddingTop +
-            plotHeight -
-            ((lastPoint[1] - PMin) / (PMax - PMin)) * plotHeight;
+          const pixel = dataToPixel(currentTime, lastPoint[1]);
 
           ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
           ctx.beginPath();
-          ctx.arc(x, y, 4, 0, 2 * Math.PI);
+          ctx.arc(pixel.x, pixel.y, 4, 0, 2 * Math.PI);
           ctx.fill();
 
           // Draw gray "ghost" dot at t-tau (only if t > tau)
           const { tau, P0 } = state.params;
           if (currentTime > tau) {
             const delayedP = getPastValue(history, currentTime, tau, P0);
-            const ghostX =
-              paddingLeft + ((currentTime - tau) / tMax) * plotWidth;
-            const ghostY =
-              paddingTop +
-              plotHeight -
-              ((delayedP - PMin) / (PMax - PMin)) * plotHeight;
+            const ghostPixel = dataToPixel(currentTime - tau, delayedP);
 
             ctx.fillStyle =
               currentTheme === "dark"
                 ? "rgba(156, 163, 175, 0.7)"
                 : "rgba(107, 114, 128, 0.7)";
             ctx.beginPath();
-            ctx.arc(ghostX, ghostY, 4, 0, 2 * Math.PI);
+            ctx.arc(ghostPixel.x, ghostPixel.y, 4, 0, 2 * Math.PI);
             ctx.fill();
           }
         }
@@ -287,11 +258,10 @@ const HutchinsonGrowthTool = () => {
 
   // Initialize canvas
   useEffect(() => {
-    if (canvasRef.current) {
+    if (canvasRef.current && transformRef.current) {
       const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+      canvas.width = transformRef.current.plotWidth;
+      canvas.height = transformRef.current.plotHeight;
 
       const ctx = canvas.getContext("2d");
       drawSimulation(canvas, ctx);
@@ -300,7 +270,7 @@ const HutchinsonGrowthTool = () => {
 
   // Redraw when carrying capacity or initial population changes
   useEffect(() => {
-    if (canvasRef.current) {
+    if (canvasRef.current && transformRef.current) {
       const ctx = canvasRef.current.getContext("2d");
       drawSimulation(canvasRef.current, ctx);
     }
@@ -338,16 +308,18 @@ const HutchinsonGrowthTool = () => {
         tooltip="Population over time"
         theme={theme}
       >
-        <canvas
-          ref={canvasRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: 1,
-            bottom: 1,
-            width: "calc(100% - 2px)",
-            height: "calc(100% - 2px)",
-          }}
-        />
+        {(transform) => {
+          transformRef.current = transform;
+          return (
+            <canvas
+              ref={canvasRef}
+              className="absolute pointer-events-none"
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* Parameter Sliders */}

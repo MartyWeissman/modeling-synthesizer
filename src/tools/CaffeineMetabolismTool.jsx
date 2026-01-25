@@ -1,6 +1,6 @@
 // src/tools/CaffeineMetabolismTool.jsx
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   GridTimePicker,
   GridStaircase,
@@ -14,7 +14,11 @@ import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 
 const CaffeineMetabolismTool = () => {
-  const { theme } = useTheme();
+  const { theme, currentTheme } = useTheme();
+
+  // Canvas and transform refs
+  const canvasRef = useRef(null);
+  const transformRef = useRef(null);
 
   // Caffeine doses - using time strings and dose levels (0-5 = 0mg, 40mg, 80mg, 120mg, 160mg, 200mg)
   const [dose1Time, setDose1Time] = useState("7:00 AM");
@@ -107,70 +111,32 @@ const CaffeineMetabolismTool = () => {
 
   // Draw the time series on the graph canvas
   const drawTimeSeries = useCallback(() => {
-    // Wait for the graph component to be rendered, then find its canvas
-    setTimeout(() => {
-      const graphComponent = document.querySelector(
-        '[title="Caffeine in bloodstream"]',
-      );
-      if (!graphComponent) return;
+    const transform = transformRef.current;
+    const canvas = canvasRef.current;
+    if (!canvas || !transform || timeSeriesData.length === 0) return;
 
-      let canvas = graphComponent.querySelector("canvas");
-      if (!canvas) {
-        // Create canvas if it doesn't exist
-        canvas = document.createElement("canvas");
-        canvas.width = 400;
-        canvas.height = 200;
-        canvas.style.width = "100%";
-        canvas.style.height = "100%";
-        canvas.style.position = "absolute";
-        canvas.style.top = "30px";
-        canvas.style.left = "30px";
-        canvas.style.right = "10px";
-        canvas.style.bottom = "30px";
-        canvas.style.pointerEvents = "none";
+    const ctx = canvas.getContext("2d");
+    const { dataToPixel } = transform;
 
-        // Find the graph content area and add canvas
-        const graphContent = graphComponent.querySelector(
-          'div[style*="padding"]',
-        );
-        if (graphContent) {
-          graphContent.appendChild(canvas);
-        }
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw caffeine curve
+    ctx.strokeStyle = "#4682b4"; // Steelblue for caffeine
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    timeSeriesData.forEach((point, index) => {
+      const pixel = dataToPixel(point.time, point.level);
+
+      if (index === 0) {
+        ctx.moveTo(pixel.x, pixel.y);
+      } else {
+        ctx.lineTo(pixel.x, pixel.y);
       }
+    });
 
-      if (!canvas || timeSeriesData.length === 0) return;
-
-      const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
-
-      // Clear canvas
-      ctx.clearRect(0, 0, width, height);
-
-      // Use fixed max level to match Y-axis (0-320mg for headroom)
-      const _maxLevel = 320;
-      // No padding needed - canvas is already positioned within axis bounds
-      const graphWidth = width;
-      const graphHeight = height;
-
-      // Draw caffeine curve
-      ctx.strokeStyle = "#4682b4"; // Steelblue for caffeine
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-
-      timeSeriesData.forEach((point, index) => {
-        // Use direct canvas coordinates - no Y-axis flip needed
-        const x = (point.time / 72) * graphWidth;
-        const y = graphHeight - (point.level / 320) * graphHeight;
-
-        if (index === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      });
-
-      ctx.stroke();
-    }, 200);
+    ctx.stroke();
   }, [timeSeriesData]);
 
   // Auto-update and regenerate time series
@@ -180,7 +146,11 @@ const CaffeineMetabolismTool = () => {
 
   // Draw graph when data changes
   useEffect(() => {
-    if (timeSeriesData.length > 0) {
+    if (
+      timeSeriesData.length > 0 &&
+      transformRef.current &&
+      canvasRef.current
+    ) {
       drawTimeSeries();
     }
   }, [timeSeriesData, drawTimeSeries]);
@@ -302,7 +272,20 @@ const CaffeineMetabolismTool = () => {
         yRange={[0, 320]}
         tooltip="Caffeine in bloodstream"
         theme={theme}
-      />
+      >
+        {(transform) => {
+          transformRef.current = transform;
+          return (
+            <canvas
+              ref={canvasRef}
+              className="absolute pointer-events-none"
+              style={transform.plotStyle}
+              width={transform.plotWidth}
+              height={transform.plotHeight}
+            />
+          );
+        }}
+      </GridGraph>
 
       {/* Row 3: Bottom labels and controls */}
       <GridDisplay
