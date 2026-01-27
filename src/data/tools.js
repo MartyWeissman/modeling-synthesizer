@@ -27,6 +27,8 @@ import HutchinsonGrowthTool from "../tools/HutchinsonGrowthTool";
 import RapidCoinFlipperTool from "../tools/RapidCoinFlipperTool";
 import TreeRingSimulatorTool from "../tools/TreeRingSimulatorTool";
 import GrowthCollapseSimulatorTool from "../tools/GrowthCollapseSimulatorTool";
+import YuleProcessSimulatorTool from "../tools/YuleProcessSimulatorTool";
+import BrownianMotionSimulator from "../tools/BrownianMotionSimulator";
 
 /**
  * Complete tool definitions with all metadata
@@ -362,6 +364,32 @@ export const toolDefinitions = {
     component: GrowthCollapseSimulatorTool,
     categories: {
       topics: [],
+      toolType: "simulation",
+      lab: "lab5",
+    },
+    visibility: "student",
+  },
+
+  "yule-process-simulator": {
+    name: "Yule Process Simulator",
+    description:
+      "Simulate stochastic birth-death branching processes. Watch multiple population trajectories with adjustable division and death probabilities.",
+    component: YuleProcessSimulatorTool,
+    categories: {
+      topics: ["ecology"],
+      toolType: "simulation",
+      lab: "lab5",
+    },
+    visibility: "student",
+  },
+
+  "brownian-motion": {
+    name: "Brownian Motion Simulator",
+    description:
+      "Visualize random molecular motion with adjustable particle radius, fluid viscosity, and temperature. Track displacement over time using the Einstein-Stokes diffusion equation.",
+    component: BrownianMotionSimulator,
+    categories: {
+      topics: ["molecular", "physical"],
       toolType: "simulation",
       lab: "lab5",
     },

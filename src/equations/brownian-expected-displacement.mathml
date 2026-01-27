@@ -1,0 +1,27 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="italic">E</mi>
+  <mo stretchy="true" symmetric="true">(</mo>
+  <msup>
+    <mi mathvariant="italic">d</mi>
+    <mn>2</mn>
+  </msup>
+  <mo stretchy="true" symmetric="true">)</mo>
+  <mo>=</mo>
+  <mfrac>
+    <mrow>
+      <msub>
+        <mi mathvariant="italic">k</mi>
+        <mi mathvariant="italic">B</mi>
+      </msub>
+      <mi mathvariant="italic">T</mi>
+    </mrow>
+    <mrow>
+      <mn>3</mn>
+      <mi>π</mi>
+      <mi mathvariant="italic">r</mi>
+      <mi mathvariant="italic">η</mi>
+    </mrow>
+  </mfrac>
+  <mo>·</mo>
+  <mi mathvariant="italic">t</mi>
+</math>
