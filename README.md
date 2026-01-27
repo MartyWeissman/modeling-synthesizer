@@ -1,10 +1,15 @@
 # Modeling Synthesizer
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub Pages](https://img.shields.io/badge/demo-live-brightgreen)](https://martyweissman.github.io/modeling-synthesizer/)
+
 **Interactive simulations for mathematical biology education**
 
 A free, open-source collection of browser-based tools for exploring dynamical systems, differential equations, and mathematical models in the life sciences.
 
-**[Launch the Modeling Synthesizer](https://martyweissman.github.io/modeling-synthesizer/)**
+## [Launch the Modeling Synthesizer](https://martyweissman.github.io/modeling-synthesizer/)
+
+![Modeling Synthesizer Screenshot](docs/screenshot-sharks-tuna.png)
 
 ## What is this?
 
@@ -29,8 +34,9 @@ These tools are designed for undergraduate courses in mathematical biology, dyna
 - **Muscle Tremor Simulator** - Delay differential equations in neural control
 - **FitzHugh-Nagumo Neuron** - Action potential dynamics and excitability
 
-### Biochemistry
+### Biochemistry & Biophysics
 - **Higgins-Sel'kov Glycolysis** - Metabolic oscillations with nullclines and vector fields
+- **Brownian Motion Simulator** - Random particle diffusion with Einstein-Stokes equation
 
 ### Mathematical Tools
 - **Dynamical Systems Calculator** - Custom differential equations with vector fields

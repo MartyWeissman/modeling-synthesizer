@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://martyweissman.github.io/modeling-synthesizer/sitemap.xml
