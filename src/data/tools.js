@@ -30,6 +30,7 @@ import GrowthCollapseSimulatorTool from "../tools/GrowthCollapseSimulatorTool";
 import YuleProcessSimulatorTool from "../tools/YuleProcessSimulatorTool";
 import BrownianMotionSimulator from "../tools/BrownianMotionSimulator";
 import GeneticDriftSimulator from "../tools/GeneticDriftSimulator";
+import AtmosphericMoleculeSimulator from "../tools/AtmosphericMoleculeSimulator";
 
 /**
  * Complete tool definitions with all metadata
@@ -404,6 +405,19 @@ export const toolDefinitions = {
     component: GeneticDriftSimulator,
     categories: {
       topics: ["evolution"],
+      toolType: "simulation",
+      lab: "lab5",
+    },
+    visibility: "student",
+  },
+
+  "atmospheric-molecule": {
+    name: "Atmospheric Molecule Simulator",
+    description:
+      "Visualize gas molecules undergoing random thermal motion with gravitational bias. Observe how temperature and gravity affect the density distribution in an atmosphere.",
+    component: AtmosphericMoleculeSimulator,
+    categories: {
+      topics: ["physical"],
       toolType: "simulation",
       lab: "lab5",
     },
