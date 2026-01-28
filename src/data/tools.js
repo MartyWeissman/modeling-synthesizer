@@ -29,6 +29,7 @@ import TreeRingSimulatorTool from "../tools/TreeRingSimulatorTool";
 import GrowthCollapseSimulatorTool from "../tools/GrowthCollapseSimulatorTool";
 import YuleProcessSimulatorTool from "../tools/YuleProcessSimulatorTool";
 import BrownianMotionSimulator from "../tools/BrownianMotionSimulator";
+import GeneticDriftSimulator from "../tools/GeneticDriftSimulator";
 
 /**
  * Complete tool definitions with all metadata
@@ -390,6 +391,19 @@ export const toolDefinitions = {
     component: BrownianMotionSimulator,
     categories: {
       topics: ["molecular", "physical"],
+      toolType: "simulation",
+      lab: "lab5",
+    },
+    visibility: "student",
+  },
+
+  "genetic-drift": {
+    name: "Genetic Drift Simulator",
+    description:
+      "Simulate stochastic changes in allele frequencies over generations in a finite population. Observe how random sampling leads to allele fixation or loss.",
+    component: GeneticDriftSimulator,
+    categories: {
+      topics: ["evolution"],
       toolType: "simulation",
       lab: "lab5",
     },
