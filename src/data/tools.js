@@ -31,6 +31,7 @@ import YuleProcessSimulatorTool from "../tools/YuleProcessSimulatorTool";
 import BrownianMotionSimulator from "../tools/BrownianMotionSimulator";
 import GeneticDriftSimulator from "../tools/GeneticDriftSimulator";
 import AtmosphericMoleculeSimulator from "../tools/AtmosphericMoleculeSimulator";
+import IonChannelSimulatorTool from "../tools/IonChannelSimulatorTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -418,6 +419,19 @@ export const toolDefinitions = {
     component: AtmosphericMoleculeSimulator,
     categories: {
       topics: ["physical"],
+      toolType: "simulation",
+      lab: "lab5",
+    },
+    visibility: "student",
+  },
+
+  "ion-channel-simulator": {
+    name: "Ion Channel Simulator",
+    description:
+      "Simulate single ion channel patch clamp recordings with stochastic open/closed gating transitions and Gaussian noise.",
+    component: IonChannelSimulatorTool,
+    categories: {
+      topics: ["physiology"],
       toolType: "simulation",
       lab: "lab5",
     },
