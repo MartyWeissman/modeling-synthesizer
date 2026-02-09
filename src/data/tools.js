@@ -32,6 +32,7 @@ import BrownianMotionSimulator from "../tools/BrownianMotionSimulator";
 import GeneticDriftSimulator from "../tools/GeneticDriftSimulator";
 import AtmosphericMoleculeSimulator from "../tools/AtmosphericMoleculeSimulator";
 import IonChannelSimulatorTool from "../tools/IonChannelSimulatorTool";
+import TwoCompartmentMarkovTool from "../tools/TwoCompartmentMarkovTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -430,6 +431,19 @@ export const toolDefinitions = {
     description:
       "Simulate single ion channel patch clamp recordings with stochastic open/closed gating transitions and Gaussian noise.",
     component: IonChannelSimulatorTool,
+    categories: {
+      topics: ["physiology"],
+      toolType: "simulation",
+      lab: "lab5",
+    },
+    visibility: "student",
+  },
+
+  "two-compartment-markov": {
+    name: "Two Compartment Markov Model",
+    description:
+      "Visualize stochastic transitions between two compartments with particle animation and population tracking.",
+    component: TwoCompartmentMarkovTool,
     categories: {
       topics: ["physiology"],
       toolType: "simulation",
