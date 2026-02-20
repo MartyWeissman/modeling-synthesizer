@@ -11,48 +11,47 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
 
-// ---- Particle system (lightweight, no classes for performance) ----
+// ---- Particle visual state (lightweight plain objects) ----
+// Each particle has:
+//   compartment: "A"|"B"  — authoritative, set by Markov engine
+//   x, y, vx, vy         — visual position & velocity (Brownian motion)
+//   transitioning: bool   — true while flying between compartments
+//   transitionProgress: 0..1
+//   tp0..tp3 x/y          — Bézier control points for transition arc
 
-function createParticle(x, y, compartment) {
+function createParticle(x, y, compartment, batchOffset) {
   return {
     x,
     y,
-    vx: (Math.random() - 0.5) * 4,
-    vy: (Math.random() - 0.5) * 4,
-    compartment, // "A" or "B"
+    vx: (Math.random() - 0.5) * 3,
+    vy: (Math.random() - 0.5) * 3,
+    compartment,
+    prevCompartment: compartment, // snapshot before current batch
+    batchOffset,                  // staggered frame offset for this particle's batch
     transitioning: false,
     transitionProgress: 0,
-    // Bézier control points [start, cp1, cp2, end]
-    tp0x: 0,
-    tp0y: 0,
-    tp1x: 0,
-    tp1y: 0,
-    tp2x: 0,
-    tp2y: 0,
-    tp3x: 0,
-    tp3y: 0,
+    tp0x: 0, tp0y: 0,
+    tp1x: 0, tp1y: 0,
+    tp2x: 0, tp2y: 0,
+    tp3x: 0, tp3y: 0,
   };
 }
 
 function cubicBezier(t, p0, p1, p2, p3) {
   const t1 = 1 - t;
-  return (
-    t1 * t1 * t1 * p0 +
-    3 * t * t1 * t1 * p1 +
-    3 * t * t * t1 * p2 +
-    t * t * t * p3
-  );
+  return t1 * t1 * t1 * p0 + 3 * t * t1 * t1 * p1 + 3 * t * t * t1 * p2 + t * t * t * p3;
 }
 
-function updateParticle(p, bounds) {
+// Visual-only update: Brownian drift within compartment bounds, or Bézier arc
+function updateParticleVisual(p, bounds, transitionSpeed) {
   if (p.transitioning) {
-    p.transitionProgress += 0.04;
+    p.transitionProgress += transitionSpeed;
     if (p.transitionProgress >= 1) {
       p.transitioning = false;
       p.x = p.tp3x;
       p.y = p.tp3y;
-      p.vx = (Math.random() - 0.5) * 3;
-      p.vy = (Math.random() - 0.5) * 3;
+      p.vx = (Math.random() - 0.5) * 2;
+      p.vy = (Math.random() - 0.5) * 2;
       return;
     }
     const t = p.transitionProgress;
@@ -61,70 +60,47 @@ function updateParticle(p, bounds) {
     return;
   }
 
-  // Move
+  // Brownian motion within compartment
   p.x += p.vx;
   p.y += p.vy;
 
-  // Bounce off walls
-  const r = 3;
-  if (p.x - r < bounds.x) {
-    p.x = bounds.x + r;
-    p.vx = Math.abs(p.vx);
-  }
-  if (p.x + r > bounds.x + bounds.w) {
-    p.x = bounds.x + bounds.w - r;
-    p.vx = -Math.abs(p.vx);
-  }
-  if (p.y - r < bounds.y) {
-    p.y = bounds.y + r;
-    p.vy = Math.abs(p.vy);
-  }
-  if (p.y + r > bounds.y + bounds.h) {
-    p.y = bounds.y + bounds.h - r;
-    p.vy = -Math.abs(p.vy);
-  }
+  const r = 2;
+  if (p.x - r < bounds.x) { p.x = bounds.x + r; p.vx = Math.abs(p.vx); }
+  if (p.x + r > bounds.x + bounds.w) { p.x = bounds.x + bounds.w - r; p.vx = -Math.abs(p.vx); }
+  if (p.y - r < bounds.y) { p.y = bounds.y + r; p.vy = Math.abs(p.vy); }
+  if (p.y + r > bounds.y + bounds.h) { p.y = bounds.y + bounds.h - r; p.vy = -Math.abs(p.vy); }
 
-  // Random perturbation (Brownian-like)
-  p.vx += (Math.random() - 0.5) * 0.5;
-  p.vy += (Math.random() - 0.5) * 0.5;
+  // Random perturbation
+  p.vx += (Math.random() - 0.5) * 0.4;
+  p.vy += (Math.random() - 0.5) * 0.4;
 
   // Speed limit
   const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-  if (speed > 4) {
-    p.vx = (p.vx / speed) * 4;
-    p.vy = (p.vy / speed) * 4;
+  if (speed > 3) {
+    p.vx = (p.vx / speed) * 3;
+    p.vy = (p.vy / speed) * 3;
   }
 }
 
-function startTransition(p, compA, compB, tunnelX, tunnelW, centerY, isAtoB) {
+// Start visual transition arc from current position to random spot in destination
+function startVisualTransition(p, compA, compB, tunnelX, tunnelW, centerY, isAtoB) {
   p.transitioning = true;
   p.transitionProgress = 0;
 
   const tunnelY = isAtoB ? centerY - 60 : centerY + 60;
 
-  // Start from current position
   p.tp0x = p.x;
   p.tp0y = p.y;
 
-  // Control point 1: pull toward tunnel entrance
   p.tp1x = isAtoB ? compA.x + compA.w : compB.x;
   p.tp1y = tunnelY;
 
-  // Control point 2: tunnel midpoint
   p.tp2x = tunnelX + tunnelW / 2;
   p.tp2y = tunnelY + (Math.random() - 0.5) * 20;
 
-  // End: inside destination compartment
-  if (isAtoB) {
-    p.tp3x = compB.x + 20 + Math.random() * (compB.w - 40);
-    p.tp3y = compB.y + 20 + Math.random() * (compB.h - 40);
-  } else {
-    p.tp3x = compA.x + 20 + Math.random() * (compA.w - 40);
-    p.tp3y = compA.y + 20 + Math.random() * (compA.h - 40);
-  }
-
-  // Switch compartment immediately (for counting)
-  p.compartment = isAtoB ? "B" : "A";
+  const dest = isAtoB ? compB : compA;
+  p.tp3x = dest.x + 20 + Math.random() * (dest.w - 40);
+  p.tp3y = dest.y + 20 + Math.random() * (dest.h - 40);
 }
 
 // ---- Component ----
@@ -132,42 +108,49 @@ function startTransition(p, compA, compB, tunnelX, tunnelW, centerY, isAtoB) {
 const TwoCompartmentMarkovTool = () => {
   const { theme, currentTheme } = useTheme();
 
-  // Canvas refs — two-layer architecture for performance
-  const staticCanvasRef = useRef(null); // Compartments, tunnels, labels (redrawn only on param change)
-  const dynamicCanvasRef = useRef(null); // Particles only (redrawn every frame)
+  // Canvas refs
+  const staticCanvasRef = useRef(null);
+  const dynamicCanvasRef = useRef(null);
   const tsCanvasRef = useRef(null);
   const tsTransformRef = useRef(null);
 
   // Parameters (UI state)
   const [nameA, setNameA] = useState("A");
   const [nameB, setNameB] = useState("B");
-  const [popA, setPopA] = useState(50);
-  const [popB, setPopB] = useState(50);
-  const [probAB, setProbAB] = useState(5); // percentage
-  const [probBA, setProbBA] = useState(5); // percentage
+  const [popA, setPopA] = useState(500);
+  const [popB, setPopB] = useState(500);
+  const [probAB, setProbAB] = useState(5);
+  const [probBA, setProbBA] = useState(5);
 
   // Simulation display state
   const [isRunning, setIsRunning] = useState(false);
-  const [displayPopA, setDisplayPopA] = useState(50);
-  const [displayPopB, setDisplayPopB] = useState(50);
+  const [displayPopA, setDisplayPopA] = useState(500);
+  const [displayPopB, setDisplayPopB] = useState(500);
   const [displayStep, setDisplayStep] = useState(0);
 
-  // Animation state — all mutable, no React re-renders during animation
+  // Markov steps per particle batch: run this many discrete steps per particle,
+  // then animate only if the particle's compartment has a net change.
+  const STEPS_PER_BATCH = 8;
+
+  // Animation frames between a particle's batch evaluations.
+  // Each particle has a random offset so batches are staggered across all frames,
+  // producing a continuous trickle of transitions rather than synchronized bursts.
+  const FRAMES_PER_BATCH = 40;
+
+  // Animation state — mutable ref, no React re-renders during animation
   const animRef = useRef({
     particles: [],
     isRunning: false,
     animationId: null,
-    timeStep: 0,
-    frameCount: 0,
+    markovStep: 0,       // discrete Markov step counter
+    frameCount: 0,       // animation frame counter within current step
     history: { A: [], B: [] },
-    // Layout bounds (computed once on start)
     compA: null,
     compB: null,
     tunnelX: 0,
     tunnelW: 0,
     centerY: 0,
     paused: false,
-    // Cached params
     probAB: 5,
     probBA: 5,
     nameA: "A",
@@ -182,7 +165,7 @@ const TwoCompartmentMarkovTool = () => {
     animRef.current.nameB = nameB;
   }, [probAB, probBA, nameA, nameB]);
 
-  // ---- Compute layout from canvas dimensions ----
+  // ---- Compute layout ----
   const computeLayout = useCallback((w, h) => {
     const margin = 20;
     const tunnelW = w / 7;
@@ -198,8 +181,7 @@ const TwoCompartmentMarkovTool = () => {
     return { compA, compB, tunnelX, tunnelW, centerY };
   }, []);
 
-  // ---- Draw static background (compartments, tunnels, labels) ----
-  // Only called on param/theme changes, NOT every animation frame
+  // ---- Draw static background ----
   const drawStaticElements = useCallback(
     (canvas, ctx) => {
       const w = canvas.width;
@@ -207,7 +189,6 @@ const TwoCompartmentMarkovTool = () => {
       const anim = animRef.current;
       const isDark = currentTheme === "dark";
 
-      // Clear with solid background
       ctx.fillStyle = isDark ? "#111827" : "#ffffff";
       ctx.fillRect(0, 0, w, h);
 
@@ -221,9 +202,7 @@ const TwoCompartmentMarkovTool = () => {
       // Compartment A
       ctx.beginPath();
       ctx.roundRect(compA.x, compA.y, compA.w, compA.h, 16);
-      ctx.fillStyle = isDark
-        ? "rgba(239, 68, 68, 0.12)"
-        : "rgba(255, 99, 132, 0.08)";
+      ctx.fillStyle = isDark ? "rgba(239, 68, 68, 0.12)" : "rgba(255, 99, 132, 0.08)";
       ctx.fill();
       ctx.strokeStyle = isDark ? "#ef4444" : "#b91c1c";
       ctx.lineWidth = 1.5;
@@ -232,82 +211,45 @@ const TwoCompartmentMarkovTool = () => {
       // Compartment B
       ctx.beginPath();
       ctx.roundRect(compB.x, compB.y, compB.w, compB.h, 16);
-      ctx.fillStyle = isDark
-        ? "rgba(59, 130, 246, 0.12)"
-        : "rgba(54, 162, 235, 0.08)";
+      ctx.fillStyle = isDark ? "rgba(59, 130, 246, 0.12)" : "rgba(54, 162, 235, 0.08)";
       ctx.fill();
       ctx.strokeStyle = isDark ? "#3b82f6" : "#1d4ed8";
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
       // ---- Flared tunnels ----
-      // Tunnels are drawn ON TOP of compartments. The flared ends use
-      // the background color to erase compartment borders, creating
-      // the look of open mouths connecting into each compartment.
-      const flareH = tunnelH * 1.8; // flared opening height at compartment edges
-      const midH = tunnelH; // narrow middle height
-      const overlap = 8; // how far into the compartment border the flare extends
+      const flareH = tunnelH * 1.8;
+      const midH = tunnelH;
+      const overlap = 8;
       const bgColor = isDark ? "#111827" : "#ffffff";
 
-      // Helper: draw a flared tunnel shape (hexagon: wide ends, narrow middle)
-      // leftX/rightX are the tunnel endpoints, tunnelCY is the vertical center
-      const drawFlareTunnel = (
-        leftX,
-        rightX,
-        tunnelCY,
-        gradLeft,
-        gradRight,
-      ) => {
+      const drawFlareTunnel = (leftX, rightX, tunnelCY, gradLeft, gradRight) => {
         const midX = (leftX + rightX) / 2;
 
-        // Erase compartment borders at the flare openings
         ctx.fillStyle = bgColor;
-        // Left opening
-        ctx.fillRect(
-          leftX - overlap,
-          tunnelCY - flareH / 2,
-          overlap + 4,
-          flareH,
-        );
-        // Right opening
+        ctx.fillRect(leftX - overlap, tunnelCY - flareH / 2, overlap + 4, flareH);
         ctx.fillRect(rightX - 4, tunnelCY - flareH / 2, overlap + 4, flareH);
 
-        // Gradient fill
         const grad = ctx.createLinearGradient(leftX, 0, rightX, 0);
         grad.addColorStop(0, gradLeft);
         grad.addColorStop(1, gradRight);
 
-        // Draw flared shape: hexagon with curved transitions
         ctx.beginPath();
-        // Top edge: flared left → narrow middle → flared right
         ctx.moveTo(leftX - overlap, tunnelCY - flareH / 2);
-        ctx.quadraticCurveTo(
-          midX,
-          tunnelCY - midH / 2,
-          rightX + overlap,
-          tunnelCY - flareH / 2,
-        );
-        // Right edge
+        ctx.quadraticCurveTo(midX, tunnelCY - midH / 2, rightX + overlap, tunnelCY - flareH / 2);
         ctx.lineTo(rightX + overlap, tunnelCY + flareH / 2);
-        // Bottom edge: flared right → narrow middle → flared left
-        ctx.quadraticCurveTo(
-          midX,
-          tunnelCY + midH / 2,
-          leftX - overlap,
-          tunnelCY + flareH / 2,
-        );
+        ctx.quadraticCurveTo(midX, tunnelCY + midH / 2, leftX - overlap, tunnelCY + flareH / 2);
         ctx.closePath();
         ctx.fillStyle = grad;
         ctx.fill();
       };
 
-      // Top tunnel (A → B)
       const topTunnelLeft = tunnelX;
       const topTunnelRight = tunnelX + tunnelW;
+
+      // Top tunnel (A → B)
       drawFlareTunnel(
-        topTunnelLeft,
-        topTunnelRight,
-        topTunnelY,
+        topTunnelLeft, topTunnelRight, topTunnelY,
         isDark ? "rgba(239,68,68,0.15)" : "rgba(255,99,132,0.15)",
         isDark ? "rgba(59,130,246,0.15)" : "rgba(54,162,235,0.15)",
       );
@@ -325,9 +267,7 @@ const TwoCompartmentMarkovTool = () => {
 
       // Bottom tunnel (B → A)
       drawFlareTunnel(
-        topTunnelLeft,
-        topTunnelRight,
-        bottomTunnelY,
+        topTunnelLeft, topTunnelRight, bottomTunnelY,
         isDark ? "rgba(239,68,68,0.15)" : "rgba(255,99,132,0.15)",
         isDark ? "rgba(59,130,246,0.15)" : "rgba(54,162,235,0.15)",
       );
@@ -347,16 +287,8 @@ const TwoCompartmentMarkovTool = () => {
       ctx.fillStyle = isDark ? "#9ca3af" : "#666666";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(
-        `${anim.probAB.toFixed(1)}%`,
-        topArrX,
-        topTunnelY - flareH / 2 - 10,
-      );
-      ctx.fillText(
-        `${anim.probBA.toFixed(1)}%`,
-        bottomArrX,
-        bottomTunnelY + flareH / 2 + 10,
-      );
+      ctx.fillText(`${anim.probAB.toFixed(1)}%`, topArrX, topTunnelY - flareH / 2 - 10);
+      ctx.fillText(`${anim.probBA.toFixed(1)}%`, bottomArrX, bottomTunnelY + flareH / 2 + 10);
 
       // Compartment name labels (static when not running)
       if (!anim.isRunning) {
@@ -372,8 +304,7 @@ const TwoCompartmentMarkovTool = () => {
     [currentTheme],
   );
 
-  // ---- Draw dynamic foreground (particles + live population counts) ----
-  // Called every animation frame — kept minimal for performance
+  // ---- Draw particles (dynamic layer, every frame) ----
   const drawParticles = useCallback(
     (canvas, ctx) => {
       const anim = animRef.current;
@@ -382,98 +313,70 @@ const TwoCompartmentMarkovTool = () => {
       const { compA, compB } = anim;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
       if (!compA || particles.length === 0) return;
 
-      // Pre-resolve colors outside the loop
-      const colorTransition = isDark
-        ? "rgba(250, 204, 21, 0.8)"
-        : "rgba(180, 130, 0, 0.7)";
-      const colorA = isDark
-        ? "rgba(248, 113, 113, 0.7)"
-        : "rgba(220, 38, 38, 0.5)";
-      const colorB = isDark
-        ? "rgba(96, 165, 250, 0.7)"
-        : "rgba(37, 99, 235, 0.5)";
+      const colorTransition = isDark ? "rgba(250, 204, 21, 0.8)" : "rgba(180, 130, 0, 0.7)";
+      const colorA = isDark ? "rgba(248, 113, 113, 0.7)" : "rgba(220, 38, 38, 0.5)";
+      const colorB = isDark ? "rgba(96, 165, 250, 0.7)" : "rgba(37, 99, 235, 0.5)";
 
-      // Count populations while drawing
-      let countA = 0;
-      let countB = 0;
-
-      // Batch particles by color to minimize fillStyle changes
-      const particlesA = [];
-      const particlesB = [];
-      const particlesT = [];
+      // Sort into batches by visual state (minimizes fillStyle changes)
+      const batchA = [];
+      const batchB = [];
+      const batchT = [];
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         if (p.transitioning) {
-          particlesT.push(p);
+          batchT.push(p);
         } else if (p.compartment === "A") {
-          particlesA.push(p);
-          countA++;
+          batchA.push(p);
         } else {
-          particlesB.push(p);
-          countB++;
+          batchB.push(p);
         }
       }
-      // Count transitioning particles in their destination compartment
-      for (let i = 0; i < particlesT.length; i++) {
-        if (particlesT[i].compartment === "A") countA++;
-        else countB++;
-      }
 
-      // Draw compartment A particles
+      // Draw A particles
       ctx.fillStyle = colorA;
       ctx.beginPath();
-      for (let i = 0; i < particlesA.length; i++) {
-        const p = particlesA[i];
-        ctx.moveTo(p.x + 3, p.y);
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      for (let i = 0; i < batchA.length; i++) {
+        const p = batchA[i];
+        ctx.moveTo(p.x + 2, p.y);
+        ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
       }
       ctx.fill();
 
-      // Draw compartment B particles
+      // Draw B particles
       ctx.fillStyle = colorB;
       ctx.beginPath();
-      for (let i = 0; i < particlesB.length; i++) {
-        const p = particlesB[i];
-        ctx.moveTo(p.x + 3, p.y);
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      for (let i = 0; i < batchB.length; i++) {
+        const p = batchB[i];
+        ctx.moveTo(p.x + 2, p.y);
+        ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
       }
       ctx.fill();
 
       // Draw transitioning particles
-      if (particlesT.length > 0) {
+      if (batchT.length > 0) {
         ctx.fillStyle = colorTransition;
         ctx.beginPath();
-        for (let i = 0; i < particlesT.length; i++) {
-          const p = particlesT[i];
-          ctx.moveTo(p.x + 3, p.y);
-          ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        for (let i = 0; i < batchT.length; i++) {
+          const p = batchT[i];
+          ctx.moveTo(p.x + 2, p.y);
+          ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
         }
         ctx.fill();
       }
 
-      // Population count labels (drawn on dynamic layer since they change)
+      // Population count labels — use authoritative Markov counts, not visual counts
+      const countA = anim._markovCountA;
+      const countB = anim._markovCountB;
+
       ctx.font = "bold 14px monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.fillStyle = isDark ? "#f87171" : "#dc2626";
-      ctx.fillText(
-        `${anim.nameA}: ${countA}`,
-        compA.x + compA.w / 2,
-        compA.y - 6,
-      );
+      ctx.fillText(`${anim.nameA}: ${countA}`, compA.x + compA.w / 2, compA.y - 6);
       ctx.fillStyle = isDark ? "#60a5fa" : "#2563eb";
-      ctx.fillText(
-        `${anim.nameB}: ${countB}`,
-        compB.x + compB.w / 2,
-        compB.y - 6,
-      );
-
-      // Store counts for history recording
-      anim._lastCountA = countA;
-      anim._lastCountB = countB;
+      ctx.fillText(`${anim.nameB}: ${countB}`, compB.x + compB.w / 2, compB.y - 6);
     },
     [currentTheme],
   );
@@ -493,7 +396,6 @@ const TwoCompartmentMarkovTool = () => {
 
     const isDark = currentTheme === "dark";
 
-    // A curve (red)
     ctx.strokeStyle = isDark ? "#f87171" : "rgba(220, 38, 38, 0.8)";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -504,7 +406,6 @@ const TwoCompartmentMarkovTool = () => {
     });
     ctx.stroke();
 
-    // B curve (blue)
     ctx.strokeStyle = isDark ? "#60a5fa" : "rgba(37, 99, 235, 0.8)";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -516,8 +417,28 @@ const TwoCompartmentMarkovTool = () => {
     ctx.stroke();
   }, [currentTheme]);
 
+  // ---- Run a Markov batch for a single particle ----
+  // Pure math: run STEPS_PER_BATCH coin flips. If net compartment changed,
+  // trigger a visual transition arc.
+  const runParticleBatch = useCallback((p, pAB, pBA, compA, compB, tunnelX, tunnelW, centerY) => {
+    const before = p.compartment;
+
+    for (let step = 0; step < STEPS_PER_BATCH; step++) {
+      if (p.compartment === "A") {
+        if (Math.random() < pAB) p.compartment = "B";
+      } else {
+        if (Math.random() < pBA) p.compartment = "A";
+      }
+    }
+
+    // Only animate if net compartment changed
+    if (p.compartment !== before) {
+      const isAtoB = before === "A";
+      startVisualTransition(p, compA, compB, tunnelX, tunnelW, centerY, isAtoB);
+    }
+  }, []);
+
   // ---- Animation loop ----
-  // Pure requestAnimationFrame — let the browser optimize compositing
   const animationLoop = useCallback(() => {
     const anim = animRef.current;
     if (!anim.isRunning) return;
@@ -526,63 +447,69 @@ const TwoCompartmentMarkovTool = () => {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
 
-    const { compA, compB, tunnelX, tunnelW, centerY, particles } = anim;
+    const { compA, compB, particles, tunnelX, tunnelW, centerY } = anim;
+    const n = particles.length;
 
-    // Physics update
-    for (let i = 0; i < particles.length; i++) {
+    // Transition animation speed: complete arc in ~2x FRAMES_PER_BATCH for a leisurely drift
+    const transitionSpeed = 1.0 / (FRAMES_PER_BATCH * 2);
+
+    // Visual update: move all particles (Brownian + Bézier arcs)
+    for (let i = 0; i < n; i++) {
       const p = particles[i];
       if (p.transitioning) {
-        updateParticle(p, null);
+        updateParticleVisual(p, null, transitionSpeed);
       } else {
-        updateParticle(p, p.compartment === "A" ? compA : compB);
+        updateParticleVisual(p, p.compartment === "A" ? compA : compB, transitionSpeed);
       }
     }
 
-    // Transition checks (every 2 frames to reduce computation)
+    // Staggered Markov batches: each particle runs its batch when
+    // (frameCount + batchOffset) hits its FRAMES_PER_BATCH boundary.
+    // This spreads transitions evenly across all frames.
     anim.frameCount++;
-    if (anim.frameCount % 2 === 0) {
-      for (let i = 0; i < particles.length; i++) {
-        const p = particles[i];
-        if (p.transitioning) continue;
+    const frame = anim.frameCount;
+    const pAB = anim.probAB / 100;
+    const pBA = anim.probBA / 100;
 
-        if (p.compartment === "A" && Math.random() < anim.probAB / 200) {
-          startTransition(p, compA, compB, tunnelX, tunnelW, centerY, true);
-        } else if (p.compartment === "B" && Math.random() < anim.probBA / 200) {
-          startTransition(p, compA, compB, tunnelX, tunnelW, centerY, false);
-        }
+    for (let i = 0; i < n; i++) {
+      const p = particles[i];
+      if ((frame + p.batchOffset) % FRAMES_PER_BATCH === 0) {
+        runParticleBatch(p, pAB, pBA, compA, compB, tunnelX, tunnelW, centerY);
       }
     }
 
-    // Record history every 10 frames
-    if (anim.frameCount % 10 === 0) {
-      const countA = anim._lastCountA;
-      const countB = anim._lastCountB;
+    // Count from authoritative compartment fields (every frame for smooth display)
+    let countA = 0;
+    let countB = 0;
+    for (let i = 0; i < n; i++) {
+      if (particles[i].compartment === "A") countA++;
+      else countB++;
+    }
+    anim._markovCountA = countA;
+    anim._markovCountB = countB;
+
+    // Record history every FRAMES_PER_BATCH frames (global clock, not per-particle)
+    if (frame % FRAMES_PER_BATCH === 0) {
+      anim.markovStep += STEPS_PER_BATCH;
 
       anim.history.A.push(countA);
       anim.history.B.push(countB);
-
-      // Keep max 100 data points
-      if (anim.history.A.length > 100) {
+      if (anim.history.A.length > 200) {
         anim.history.A.shift();
         anim.history.B.shift();
       }
 
-      anim.timeStep++;
-
-      // Single batched React state update (throttled to every 10 frames)
       setDisplayPopA(countA);
       setDisplayPopB(countB);
-      setDisplayStep(anim.timeStep);
-
-      // Update time series
+      setDisplayStep(anim.markovStep);
       drawTimeSeries();
     }
 
-    // Draw ONLY particles on dynamic canvas (static background untouched)
+    // Draw particles every frame
     drawParticles(canvas, ctx);
 
     anim.animationId = requestAnimationFrame(animationLoop);
-  }, [drawParticles, drawTimeSeries]);
+  }, [drawParticles, drawTimeSeries, runParticleBatch]);
 
   // ---- Draw static (non-animated) state ----
   const drawStatic = useCallback(() => {
@@ -608,7 +535,6 @@ const TwoCompartmentMarkovTool = () => {
     const ctx = sCanvas.getContext("2d");
     drawStaticElements(sCanvas, ctx);
 
-    // Clear dynamic canvas
     if (dCanvas) {
       const dCtx = dCanvas.getContext("2d");
       dCtx.clearRect(0, 0, dCanvas.width, dCanvas.height);
@@ -620,13 +546,11 @@ const TwoCompartmentMarkovTool = () => {
     if (!animRef.current.isRunning && !animRef.current.paused) {
       drawStatic();
     } else {
-      // During animation or pause, redraw just the static layer (e.g. probability labels)
       const sCanvas = staticCanvasRef.current;
       if (sCanvas) {
         const ctx = sCanvas.getContext("2d");
         drawStaticElements(sCanvas, ctx);
       }
-      // If paused, also redraw particles (theme may have changed)
       if (animRef.current.paused) {
         const dCanvas = dynamicCanvasRef.current;
         if (dCanvas) {
@@ -635,16 +559,7 @@ const TwoCompartmentMarkovTool = () => {
         }
       }
     }
-  }, [
-    drawStatic,
-    drawStaticElements,
-    drawParticles,
-    currentTheme,
-    nameA,
-    nameB,
-    probAB,
-    probBA,
-  ]);
+  }, [drawStatic, drawStaticElements, drawParticles, currentTheme, nameA, nameB, probAB, probBA]);
 
   // Initialize
   useEffect(() => {
@@ -688,7 +603,7 @@ const TwoCompartmentMarkovTool = () => {
     anim.tunnelW = layout.tunnelW;
     anim.centerY = layout.centerY;
 
-    // Create particles
+    // Create particles with staggered batch offsets
     const particles = [];
     const { compA, compB } = layout;
     for (let i = 0; i < popA; i++) {
@@ -697,6 +612,7 @@ const TwoCompartmentMarkovTool = () => {
           compA.x + 10 + Math.random() * (compA.w - 20),
           compA.y + 10 + Math.random() * (compA.h - 20),
           "A",
+          Math.floor(Math.random() * FRAMES_PER_BATCH),
         ),
       );
     }
@@ -706,15 +622,16 @@ const TwoCompartmentMarkovTool = () => {
           compB.x + 10 + Math.random() * (compB.w - 20),
           compB.y + 10 + Math.random() * (compB.h - 20),
           "B",
+          Math.floor(Math.random() * FRAMES_PER_BATCH),
         ),
       );
     }
 
     anim.particles = particles;
-    anim.timeStep = 0;
+    anim.markovStep = 0;
     anim.frameCount = 0;
-    anim._lastCountA = popA;
-    anim._lastCountB = popB;
+    anim._markovCountA = popA;
+    anim._markovCountB = popB;
     anim.history = { A: [popA], B: [popB] };
     anim.isRunning = true;
     anim.paused = false;
@@ -763,7 +680,7 @@ const TwoCompartmentMarkovTool = () => {
     anim.isRunning = false;
     anim.paused = false;
     anim.particles = [];
-    anim.timeStep = 0;
+    anim.markovStep = 0;
     anim.frameCount = 0;
     anim.history = { A: [], B: [] };
 
@@ -772,14 +689,12 @@ const TwoCompartmentMarkovTool = () => {
     setDisplayPopB(popB);
     setDisplayStep(0);
 
-    // Clear time series
     const tsCanvas = tsCanvasRef.current;
     if (tsCanvas) {
       const ctx = tsCanvas.getContext("2d");
       ctx.clearRect(0, 0, tsCanvas.width, tsCanvas.height);
     }
 
-    // Redraw static
     drawStatic();
   }, [popA, popB, drawStatic]);
 
@@ -813,7 +728,6 @@ const TwoCompartmentMarkovTool = () => {
         tooltip="Compartment visualization"
         theme={theme}
       >
-        {/* Static layer: compartments, tunnels, arrows, labels */}
         <canvas
           ref={staticCanvasRef}
           style={{
@@ -824,7 +738,6 @@ const TwoCompartmentMarkovTool = () => {
             height: "100%",
           }}
         />
-        {/* Dynamic layer: particles + population counts (redrawn every frame) */}
         <canvas
           ref={dynamicCanvasRef}
           style={{
@@ -862,7 +775,7 @@ const TwoCompartmentMarkovTool = () => {
           if (!animRef.current.isRunning) setDisplayPopA(value);
         }}
         min={0}
-        max={200}
+        max={1000}
         step={1}
         variable={
           <span>
@@ -897,7 +810,7 @@ const TwoCompartmentMarkovTool = () => {
           if (!animRef.current.isRunning) setDisplayPopB(value);
         }}
         min={0}
-        max={200}
+        max={1000}
         step={1}
         variable={
           <span>
@@ -914,8 +827,8 @@ const TwoCompartmentMarkovTool = () => {
         y={2}
         w={3}
         h={1}
-        value={probAB * 10}
-        onChange={(value) => setProbAB(value / 10)}
+        value={probAB * 2.5}
+        onChange={(value) => setProbAB(value / 2.5)}
         variant="unipolar"
         label={`P(A→B) = ${probAB.toFixed(1)}%`}
         tooltip="Transition probability A to B per time step"
@@ -928,8 +841,8 @@ const TwoCompartmentMarkovTool = () => {
         y={3}
         w={3}
         h={1}
-        value={probBA * 10}
-        onChange={(value) => setProbBA(value / 10)}
+        value={probBA * 2.5}
+        onChange={(value) => setProbBA(value / 2.5)}
         variant="unipolar"
         label={`P(B→A) = ${probBA.toFixed(1)}%`}
         tooltip="Transition probability B to A per time step"
@@ -1029,9 +942,9 @@ const TwoCompartmentMarkovTool = () => {
         yLabel="population"
         xUnit="steps"
         variant="time-series-static"
-        xRange={[0, 100]}
+        xRange={[0, 200]}
         yRange={[0, maxPop]}
-        xTicks={[0, 20, 40, 60, 80, 100]}
+        xTicks={[0, 50, 100, 150, 200]}
         yTicks={(() => {
           const step = Math.ceil(maxPop / 4);
           return [0, step, step * 2, step * 3, step * 4].filter(
