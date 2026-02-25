@@ -18,6 +18,7 @@ const GridButton = React.memo(
 
     // Styling variants
     variant = "default", // 'default', 'number', 'operator', 'function'
+    bgColor = null, // Optional solid color override for the button circle
 
     // Standard props
     tooltip,
@@ -145,12 +146,16 @@ const GridButton = React.memo(
         <div
           className={`w-full h-full rounded-full flex items-center justify-center transition-all duration-150 ${isUnicornMode ? variantStyles.textClass : theme.text}`}
           style={{
-            background: isPressed
-              ? `${variantStyles.activeGradient}, url(${currentTexture})`
-              : isUnicornMode
-                ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
-                : `url(${currentTexture})`,
-            backgroundSize: isPressed ? "cover, 64px 64px" : "cover, 64px 64px",
+            background: bgColor
+              ? isPressed
+                ? `linear-gradient(135deg, ${bgColor}cc 0%, ${bgColor}b3 100%), url(${currentTexture})`
+                : `linear-gradient(135deg, ${bgColor}55 0%, ${bgColor}44 100%), url(${currentTexture})`
+              : isPressed
+                ? `${variantStyles.activeGradient}, url(${currentTexture})`
+                : isUnicornMode
+                  ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
+                  : `url(${currentTexture})`,
+            backgroundSize: "cover, 64px 64px",
             backgroundBlendMode: isPressed ? "multiply, normal" : "normal",
             boxShadow: isPressed
               ? `

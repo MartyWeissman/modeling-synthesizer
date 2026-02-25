@@ -33,6 +33,8 @@ import GeneticDriftSimulator from "../tools/GeneticDriftSimulator";
 import AtmosphericMoleculeSimulator from "../tools/AtmosphericMoleculeSimulator";
 import IonChannelSimulatorTool from "../tools/IonChannelSimulatorTool";
 import TwoCompartmentMarkovTool from "../tools/TwoCompartmentMarkovTool";
+import MatrixVectorCalculatorTool from "../tools/MatrixVectorCalculatorTool";
+import ThreeCompartmentMatrixTool from "../tools/ThreeCompartmentMatrixTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -434,7 +436,7 @@ export const toolDefinitions = {
     categories: {
       topics: ["physiology"],
       toolType: "simulation",
-      lab: "lab5",
+      lab: "lab6",
     },
     visibility: "student",
   },
@@ -446,8 +448,34 @@ export const toolDefinitions = {
     component: TwoCompartmentMarkovTool,
     categories: {
       topics: ["physiology"],
-      toolType: "simulation",
-      lab: "lab5",
+      toolType: "explorer",
+      lab: "lab6",
+    },
+    visibility: "student",
+  },
+
+  "matrix-vector-calculator": {
+    name: "Matrix & Vector Calculator",
+    description:
+      "Matrix addition, multiplication, and matrix-vector operations for 2x2, 3x3, and 4x4 dimensions.",
+    component: MatrixVectorCalculatorTool,
+    categories: {
+      topics: ["physical"],
+      toolType: "calculator",
+      lab: "lab1",
+    },
+    visibility: "student",
+  },
+
+  "three-compartment-matrix": {
+    name: "Three-Compartment Matrix Model",
+    description:
+      "Explore discrete-time dynamics of three interacting compartments using matrix multiplication. Set transition probabilities and initial populations, then watch the time series evolve.",
+    component: ThreeCompartmentMatrixTool,
+    categories: {
+      topics: ["ecology", "physiology"],
+      toolType: "explorer",
+      lab: "lab6",
     },
     visibility: "student",
   },
