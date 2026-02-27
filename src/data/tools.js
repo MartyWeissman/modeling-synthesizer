@@ -35,6 +35,7 @@ import IonChannelSimulatorTool from "../tools/IonChannelSimulatorTool";
 import TwoCompartmentMarkovTool from "../tools/TwoCompartmentMarkovTool";
 import MatrixVectorCalculatorTool from "../tools/MatrixVectorCalculatorTool";
 import ThreeCompartmentMatrixTool from "../tools/ThreeCompartmentMatrixTool";
+import TwoDimensionalMatrixVisualizerTool from "../tools/TwoDimensionalMatrixVisualizerTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -474,6 +475,19 @@ export const toolDefinitions = {
     component: ThreeCompartmentMatrixTool,
     categories: {
       topics: ["ecology", "physiology"],
+      toolType: "explorer",
+      lab: "lab6",
+    },
+    visibility: "student",
+  },
+
+  "2d-matrix-visualizer": {
+    name: "2D Matrix Visualizer",
+    description:
+      "Visualize how a 2×2 matrix acts as a linear map on the plane. Choose a shape, watch it transform in real time, iterate M repeatedly, and explore eigenvectors and matrix properties.",
+    component: TwoDimensionalMatrixVisualizerTool,
+    categories: {
+      topics: ["physical"],
       toolType: "explorer",
       lab: "lab6",
     },

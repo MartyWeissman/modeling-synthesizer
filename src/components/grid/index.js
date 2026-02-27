@@ -21,3 +21,4 @@ export { default as GridTableInput } from "./GridTableInput";
 export { default as GridWheelSelector } from "./GridWheelSelector";
 export { default as GridSound } from "./GridSound";
 export { default as GridTextInput } from "./GridTextInput";
+export { default as GridMatrixInput } from "./GridMatrixInput";
