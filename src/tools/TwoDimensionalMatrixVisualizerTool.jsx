@@ -10,6 +10,7 @@ import React, {
 import {
   GridButton,
   GridDisplay,
+  GridInput,
   GridWindow,
   GridWheelSelector,
   GridMatrixInput,
@@ -125,18 +126,21 @@ const DEFAULT_MATRIX = [
 ];
 
 // ── Color helpers ──────────────────────────────────────────────────────────────
-// Sawtooth on radius: fractional part → mapped to lightness range [40%, 90%]
-const sawtoothLightness = (r) => {
-  const frac = r % 1;
-  return 40 + 50 * frac; // %
+// Sine-wave lightness on radius: smooth oscillation between 40% and 75%
+const sineLightness = (r) => {
+  return 57.5 + 17.5 * Math.sin(r * 2 * Math.PI); // %
 };
 
 // HSL color from original polar coords (low saturation = desaturated/pastel)
-const pointColor = (angle, radius) => {
-  const hueDeg = ((angle / (2 * Math.PI)) * 360 + 360) % 360;
+// atan2 returns (-π, π], so normalize to [0, 2π) before mapping to hue.
+// alpha defaults to 1; pass a value < 1 for semi-transparent degenerate triangles.
+const pointColor = (angle, radius, alpha = 1) => {
+  const normalized = angle < 0 ? angle + 2 * Math.PI : angle;
+  const hueDeg = (normalized / (2 * Math.PI)) * 360;
   const sat = 35;
-  const light = Math.round(sawtoothLightness(radius));
-  return `hsl(${hueDeg.toFixed(1)}, ${sat}%, ${light}%)`;
+  const light = Math.round(sineLightness(radius));
+  if (alpha >= 1) return `hsl(${hueDeg.toFixed(1)}, ${sat}%, ${light}%)`;
+  return `hsla(${hueDeg.toFixed(1)}, ${sat}%, ${light}%, ${alpha.toFixed(2)})`;
 };
 
 // ── Math helpers ───────────────────────────────────────────────────────────────
@@ -226,12 +230,19 @@ const TwoDimensionalMatrixVisualizerTool = () => {
   // Display options
   const [showEigenvectors, setShowEigenvectors] = useState(false);
 
+  // View range: ±viewRange on both axes
+  const [viewRange, setViewRange] = useState(3);
+
+  // Tracked points: user-placed, transform with M each step
+  const [trackedPoints, setTrackedPoints] = useState([]);
+
   // Canvas ref
   const canvasRef = useRef(null);
 
-  // When shape changes, reset base to that shape
+  // When shape changes, reset base to that shape and clear tracked points
   useEffect(() => {
     setBasePoints(SHAPES[selectedShape]());
+    setTrackedPoints([]);
     setStepCount(0);
   }, [selectedShape]);
 
@@ -246,7 +257,7 @@ const TwoDimensionalMatrixVisualizerTool = () => {
     const W = canvas.width;
     const H = canvas.height;
 
-    const RANGE = 5.5;
+    const RANGE = viewRange;
 
     const toCanvas = (x, y) => [
       W / 2 + (x / RANGE) * (W / 2),
@@ -260,26 +271,28 @@ const TwoDimensionalMatrixVisualizerTool = () => {
     ctx.fillStyle = isDark ? "#111827" : isUnicorn ? "#fdf4ff" : "#f8fafc";
     ctx.fillRect(0, 0, W, H);
 
+    // Pick a grid/tick spacing that gives ~5-10 lines across the view
+    const rawSpacing = RANGE / 5;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawSpacing)));
+    const normalized = rawSpacing / magnitude;
+    const tickSpacing = normalized < 1.5 ? magnitude
+                      : normalized < 3.5 ? 2 * magnitude
+                      : normalized < 7.5 ? 5 * magnitude
+                      : 10 * magnitude;
+
     // Grid lines
     ctx.lineWidth = 0.5;
-    for (let g = -5; g <= 5; g++) {
-      ctx.strokeStyle = isDark
-        ? "rgba(255,255,255,0.08)"
-        : isUnicorn
-          ? "rgba(168,85,247,0.12)"
-          : "rgba(0,0,0,0.08)";
-      // Vertical
+    ctx.strokeStyle = isDark
+      ? "rgba(255,255,255,0.08)"
+      : isUnicorn
+        ? "rgba(168,85,247,0.12)"
+        : "rgba(0,0,0,0.08)";
+    const firstTick = Math.ceil(-RANGE / tickSpacing) * tickSpacing;
+    for (let g = firstTick; g <= RANGE + tickSpacing * 0.01; g += tickSpacing) {
       const [vx] = toCanvas(g, 0);
-      ctx.beginPath();
-      ctx.moveTo(vx, 0);
-      ctx.lineTo(vx, H);
-      ctx.stroke();
-      // Horizontal
+      ctx.beginPath(); ctx.moveTo(vx, 0); ctx.lineTo(vx, H); ctx.stroke();
       const [, hy] = toCanvas(0, g);
-      ctx.beginPath();
-      ctx.moveTo(0, hy);
-      ctx.lineTo(W, hy);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(W, hy); ctx.stroke();
     }
 
     // Axes
@@ -289,18 +302,8 @@ const TwoDimensionalMatrixVisualizerTool = () => {
       : isUnicorn
         ? "rgba(109,40,217,0.5)"
         : "rgba(0,0,0,0.4)";
-    const [ax1] = toCanvas(-RANGE, 0);
-    const [ax2] = toCanvas(RANGE, 0);
-    const [, ay1] = toCanvas(0, -RANGE);
-    const [, ay2] = toCanvas(0, RANGE);
-    ctx.beginPath();
-    ctx.moveTo(ax1, H / 2);
-    ctx.lineTo(ax2, H / 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(W / 2, ay1);
-    ctx.lineTo(W / 2, ay2);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke();
 
     // Tick labels
     const labelColor = isDark
@@ -310,31 +313,79 @@ const TwoDimensionalMatrixVisualizerTool = () => {
         : "rgba(0,0,0,0.5)";
     ctx.fillStyle = labelColor;
     ctx.font = "11px monospace";
-    for (let g = -5; g <= 5; g++) {
-      if (g === 0) continue;
+    for (let g = firstTick; g <= RANGE + tickSpacing * 0.01; g += tickSpacing) {
+      if (Math.abs(g) < tickSpacing * 0.01) continue; // skip 0
+      const label = Number(g.toPrecision(6)).toString(); // clean up float noise
       const [cx] = toCanvas(g, 0);
       const [, cy] = toCanvas(0, g);
       ctx.textAlign = "center";
-      ctx.fillText(g, cx, H / 2 + 14);
+      ctx.fillText(label, cx, H / 2 + 14);
       ctx.textAlign = "right";
-      ctx.fillText(g, W / 2 - 5, cy + 4);
+      ctx.fillText(label, W / 2 - 5, cy + 4);
     }
 
     // ── Draw current shape (triangle mesh, colored by original polar coords) ──
+    // Thresholds (in canvas pixels²):
+    //   area > FILL_THRESH  → filled triangle
+    //   area > LINE_THRESH  → line segment (longest edge), semi-transparent
+    //   otherwise           → dot at centroid, semi-transparent
+    const FILL_THRESH = 4;   // px²
+    const LINE_THRESH = 0.5; // px²
+
     for (const [v0, v1, v2] of basePoints) {
       const [ax, ay] = toCanvas(v0.cur[0], v0.cur[1]);
       const [bx, by] = toCanvas(v1.cur[0], v1.cur[1]);
       const [cx2, cy2] = toCanvas(v2.cur[0], v2.cur[1]);
-      // Color from centroid of original triangle vertices
-      const origAngle = (v0.angle + v1.angle + v2.angle) / 3;
+
+      // Average angles via unit-vector mean to avoid ±π wrap discontinuity
+      const sinSum = Math.sin(v0.angle) + Math.sin(v1.angle) + Math.sin(v2.angle);
+      const cosSum = Math.cos(v0.angle) + Math.cos(v1.angle) + Math.cos(v2.angle);
+      const origAngle = Math.atan2(sinSum, cosSum);
       const origRadius = (v0.radius + v1.radius + v2.radius) / 3;
-      ctx.fillStyle = pointColor(origAngle, origRadius);
-      ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
-      ctx.lineTo(cx2, cy2);
-      ctx.closePath();
-      ctx.fill();
+
+      // Signed area (half cross-product) in canvas pixels²
+      const area = Math.abs(
+        (bx - ax) * (cy2 - ay) - (cx2 - ax) * (by - ay)
+      ) / 2;
+
+      if (area > FILL_THRESH) {
+        // Normal filled triangle
+        ctx.fillStyle = pointColor(origAngle, origRadius);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.lineTo(cx2, cy2);
+        ctx.closePath();
+        ctx.fill();
+      } else if (area > LINE_THRESH) {
+        // Degenerate → draw longest edge as a line segment
+        const edges = [
+          [ax, ay, bx, by],
+          [bx, by, cx2, cy2],
+          [ax, ay, cx2, cy2],
+        ];
+        const [x1, y1, x2, y2] = edges.reduce((best, e) => {
+          const d = (e[2]-e[0])**2 + (e[3]-e[1])**2;
+          const bd = (best[2]-best[0])**2 + (best[3]-best[1])**2;
+          return d > bd ? e : best;
+        });
+        // Alpha scales with area relative to threshold so thin triangles fade in
+        const alpha = Math.min(0.7, 0.3 + (area / FILL_THRESH) * 0.4);
+        ctx.strokeStyle = pointColor(origAngle, origRadius, alpha);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      } else {
+        // Fully degenerate → dot at centroid
+        const mx = (ax + bx + cx2) / 3;
+        const my = (ay + by + cy2) / 3;
+        ctx.fillStyle = pointColor(origAngle, origRadius, 0.4);
+        ctx.beginPath();
+        ctx.arc(mx, my, 1, 0, 2 * Math.PI);
+        ctx.fill();
+      }
     }
 
     // ── Draw eigenvectors ─────────────────────────────────────────────────
@@ -343,66 +394,110 @@ const TwoDimensionalMatrixVisualizerTool = () => {
       Array.isArray(props.eigenvectors) &&
       props.eigenvectors
     ) {
-      const evColors = isDark
-        ? ["#facc15", "#34d399"]
-        : isUnicorn
-          ? ["#f59e0b", "#10b981"]
-          : ["#b45309", "#059669"];
+      // Single color: black in light/unicorn, white in dark
+      const evColor = isDark ? "#ffffff" : "#000000";
 
-      props.eigenvectors.forEach(([ex, ey], idx) => {
-        const lam = props.eigenvalues[idx];
-        const scale = Math.min(Math.abs(lam) * 1.5, 5.0);
-        const col = evColors[idx];
+      // Sort so λ (index 0) = larger magnitude eigenvalue, μ (index 1) = smaller
+      const eigenPairs = props.eigenvectors.map((ev, i) => ({
+        ev,
+        lam: Array.isArray(props.eigenvalues) ? props.eigenvalues[i] : 0,
+      }));
+      if (eigenPairs.length === 2) {
+        eigenPairs.sort((a, b) => Math.abs(b.lam) - Math.abs(a.lam));
+      }
+      const labels = ["λ", "μ"];
 
-        const drawArrow = (dx, dy, color, solid) => {
-          const [x1, y1] = toCanvas(0, 0);
-          const [x2, y2] = toCanvas(dx, dy);
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
-          ctx.setLineDash(solid ? [] : [4, 4]);
+      const drawArrow = (dx, dy, solid) => {
+        const [x1, y1] = toCanvas(0, 0);
+        const [x2, y2] = toCanvas(dx, dy);
+        ctx.strokeStyle = evColor;
+        ctx.lineWidth = 2;
+        ctx.setLineDash(solid ? [] : [4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Arrowhead
+        if (solid) {
+          const angle = Math.atan2(y2 - y1, x2 - x1);
+          const headLen = 10;
+          ctx.fillStyle = evColor;
           ctx.beginPath();
-          ctx.moveTo(x1, y1);
-          ctx.lineTo(x2, y2);
-          ctx.stroke();
-          ctx.setLineDash([]);
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(
+            x2 - headLen * Math.cos(angle - 0.35),
+            y2 - headLen * Math.sin(angle - 0.35),
+          );
+          ctx.lineTo(
+            x2 - headLen * Math.cos(angle + 0.35),
+            y2 - headLen * Math.sin(angle + 0.35),
+          );
+          ctx.closePath();
+          ctx.fill();
+        }
+      };
 
-          // Arrowhead
-          if (solid) {
-            const angle = Math.atan2(y2 - y1, x2 - x1);
-            const headLen = 10;
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.moveTo(x2, y2);
-            ctx.lineTo(
-              x2 - headLen * Math.cos(angle - 0.35),
-              y2 - headLen * Math.sin(angle - 0.35),
-            );
-            ctx.lineTo(
-              x2 - headLen * Math.cos(angle + 0.35),
-              y2 - headLen * Math.sin(angle + 0.35),
-            );
-            ctx.closePath();
-            ctx.fill();
-          }
-        };
+      eigenPairs.forEach(({ ev: [ex, ey], lam }, idx) => {
+        const scale = Math.min(Math.abs(lam) * 1.5, RANGE * 0.85);
+        drawArrow(ex * scale, ey * scale, true);
+        drawArrow(-ex * scale, -ey * scale, false);
 
-        drawArrow(ex * scale, ey * scale, col, true);
-        drawArrow(-ex * scale, -ey * scale, col, false);
-
-        // Label eigenvalue
-        const [lx, ly] = toCanvas(ex * scale * 1.1, ey * scale * 1.1);
-        ctx.fillStyle = col;
+        // Label
+        const [lx, ly] = toCanvas(ex * scale * 1.12, ey * scale * 1.12);
+        ctx.fillStyle = evColor;
         ctx.font = "bold 12px sans-serif";
         ctx.textAlign = lx > W / 2 ? "left" : "right";
         ctx.fillText(
-          `λ${idx + 1}=${lam.toFixed(2)}`,
+          `${labels[idx]}=${lam.toFixed(2)}`,
           lx + (lx > W / 2 ? 4 : -4),
           ly - 4,
         );
       });
     }
 
+    // ── Draw tracked points ───────────────────────────────────────────────
+    const ptFill   = isDark ? "#111827" : isUnicorn ? "#fdf4ff" : "#ffffff";
+    const ptStroke = isDark ? "#ffffff" : "#000000";
+    for (const pt of trackedPoints) {
+      const [ptx, pty] = toCanvas(pt.cur[0], pt.cur[1]);
+      ctx.beginPath();
+      ctx.arc(ptx, pty, 5, 0, 2 * Math.PI);
+      ctx.fillStyle = ptFill;
+      ctx.fill();
+      ctx.strokeStyle = ptStroke;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
     // ── Legend: step counter ──────────────────────────────────────────────
+    // Build legend label with Unicode superscript digits for exponent
+    const legendPad = 8;
+    const swatchW2 = 24;
+    const legendH = 26;
+    const legendX = 28, legendY = 28;
+    const textColor2 = isDark ? "#e5e7eb" : isUnicorn ? "#4c1d95" : "#1f2937";
+    const textX = legendX + legendPad + swatchW2 + legendPad;
+    const textBaseline = legendY + 17;
+
+    // Measure legend text width for background sizing
+    ctx.font = "12px sans-serif";
+    let legendTextWidth;
+    if (stepCount === 0) {
+      legendTextWidth = ctx.measureText("Original shape").width;
+    } else if (stepCount === 1) {
+      legendTextWidth = ctx.measureText("M · shape").width;
+    } else {
+      const expStr = String(stepCount);
+      ctx.font = "8px sans-serif";
+      const expWidth = ctx.measureText(expStr).width;
+      ctx.font = "12px sans-serif";
+      legendTextWidth = ctx.measureText("M · shape").width + expWidth;
+    }
+
+    const legendW = legendPad + swatchW2 + legendPad + legendTextWidth + legendPad;
+
     const legendBg = isDark
       ? "rgba(0,0,0,0.5)"
       : isUnicorn
@@ -410,27 +505,43 @@ const TwoDimensionalMatrixVisualizerTool = () => {
         : "rgba(255,255,255,0.75)";
     ctx.fillStyle = legendBg;
     ctx.beginPath();
-    ctx.roundRect(28, 28, 120, 26, 6);
+    ctx.roundRect(legendX, legendY, legendW, legendH, 6);
     ctx.fill();
 
-    ctx.font = "12px sans-serif";
-    // Draw a small color-wheel swatch: 6 segments cycling through hues
-    const swatchX = 34, swatchY = 30, swatchW = 24, swatchH = 14;
+    // Color-wheel swatch
+    const swatchX = legendX + legendPad, swatchY = legendY + 6, swatchH = 14;
     const segments = 6;
     for (let s = 0; s < segments; s++) {
       const hue = (s / segments) * 360;
-      ctx.fillStyle = `hsl(${hue.toFixed(0)}, 35%, 65%)`;
+      ctx.fillStyle = `hsl(${hue.toFixed(0)}, 35%, 58%)`;
       ctx.fillRect(
-        swatchX + (s / segments) * swatchW,
+        swatchX + (s / segments) * swatchW2,
         swatchY,
-        swatchW / segments + 1,
+        swatchW2 / segments + 1,
         swatchH,
       );
     }
-    ctx.fillStyle = isDark ? "#e5e7eb" : isUnicorn ? "#4c1d95" : "#1f2937";
+
+    ctx.fillStyle = textColor2;
     ctx.textAlign = "left";
-    ctx.fillText(`M^${stepCount} · shape`, 64, 44);
-  }, [currentTheme, basePoints, showEigenvectors, props, stepCount]);
+    if (stepCount === 0) {
+      ctx.font = "12px sans-serif";
+      ctx.fillText("Original shape", textX, textBaseline);
+    } else if (stepCount === 1) {
+      ctx.font = "12px sans-serif";
+      ctx.fillText("M · shape", textX, textBaseline);
+    } else {
+      // Draw "M" then superscript exponent raised and smaller, then " · shape"
+      ctx.font = "12px sans-serif";
+      ctx.fillText("M", textX, textBaseline);
+      const mWidth = ctx.measureText("M").width;
+      ctx.font = "8px sans-serif";
+      ctx.fillText(String(stepCount), textX + mWidth, textBaseline - 5);
+      const expWidth = ctx.measureText(String(stepCount)).width;
+      ctx.font = "12px sans-serif";
+      ctx.fillText(" · shape", textX + mWidth + expWidth, textBaseline);
+    }
+  }, [currentTheme, basePoints, showEigenvectors, props, stepCount, trackedPoints, viewRange]);
 
   // Resize + draw on changes
   useEffect(() => {
@@ -447,11 +558,18 @@ const TwoDimensionalMatrixVisualizerTool = () => {
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleNextState = useCallback(() => {
     setBasePoints((prev) => applyMatrix(prev, matrix));
+    setTrackedPoints((prev) => prev.map((pt) => ({
+      cur: [
+        matrix[0][0] * pt.cur[0] + matrix[0][1] * pt.cur[1],
+        matrix[1][0] * pt.cur[0] + matrix[1][1] * pt.cur[1],
+      ],
+    })));
     setStepCount((n) => n + 1);
   }, [matrix]);
 
   const handleResetShape = useCallback(() => {
     setBasePoints(SHAPES[selectedShape]());
+    setTrackedPoints([]);
     setStepCount(0);
   }, [selectedShape]);
 
@@ -459,28 +577,46 @@ const TwoDimensionalMatrixVisualizerTool = () => {
     setMatrix(DEFAULT_MATRIX.map((r) => [...r]));
   }, []);
 
+  const handleResetPoints = useCallback(() => {
+    setTrackedPoints([]);
+  }, []);
+
+  const handleCanvasClick = useCallback((e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const W = canvas.width;
+    const H = canvas.height;
+    // Scale from CSS pixels to canvas pixels, then invert toCanvas
+    const px = (e.clientX - rect.left) * (W / rect.width);
+    const py = (e.clientY - rect.top) * (H / rect.height);
+    const dx = ((px - W / 2) / (W / 2)) * viewRange;
+    const dy = -((py - H / 2) / (H / 2)) * viewRange;
+    setTrackedPoints((prev) => [...prev, { cur: [dx, dy] }]);
+  }, [viewRange]);
+
   // ── Properties display helpers ─────────────────────────────────────────────
   const { det, trace, eigenvalues, disc } = props;
   const detStr = det.toFixed(3);
   const traceStr = trace.toFixed(3);
 
+  // Sort eigenvalues by descending magnitude to match canvas λ/μ convention
   let eigStr;
   if (Array.isArray(eigenvalues)) {
     if (eigenvalues.length === 1) {
-      eigStr = `λ = ${eigenvalues[0].toFixed(3)} (repeated)`;
+      eigStr = `λ = μ = ${eigenvalues[0].toFixed(3)} (repeated)`;
     } else {
-      eigStr = `λ₁ = ${eigenvalues[0].toFixed(3)},  λ₂ = ${eigenvalues[1].toFixed(3)}`;
+      const sorted = [...eigenvalues].sort((a, b) => Math.abs(b) - Math.abs(a));
+      eigStr = `λ = ${sorted[0].toFixed(3)},  μ = ${sorted[1].toFixed(3)}`;
     }
   } else {
-    eigStr = `${eigenvalues.real.toFixed(3)} ± ${eigenvalues.imag.toFixed(3)}i`;
+    eigStr = `λ, μ = ${eigenvalues.real.toFixed(3)} ± ${eigenvalues.imag.toFixed(3)}i`;
   }
 
   const isComplex = disc < 0;
   const isDark = currentTheme === "dark";
   const isUnicorn = currentTheme === "unicorn";
-  const mutedColor = isDark ? "#9ca3af" : isUnicorn ? "#7c3aed" : "#6b7280";
   const textColor = isDark ? "#e5e7eb" : isUnicorn ? "#3b0764" : "#1f2937";
-  const accentColor = isDark ? "#60a5fa" : isUnicorn ? "#7c3aed" : "#2563eb";
   const warnColor = isDark ? "#fbbf24" : "#b45309";
 
   return (
@@ -500,7 +636,8 @@ const TwoDimensionalMatrixVisualizerTool = () => {
       >
         <canvas
           ref={canvasRef}
-          style={{ width: "100%", height: "100%", display: "block" }}
+          style={{ width: "100%", height: "100%", display: "block", cursor: "crosshair" }}
+          onClick={handleCanvasClick}
         />
       </GridWindow>
 
@@ -535,27 +672,9 @@ const TwoDimensionalMatrixVisualizerTool = () => {
         theme={theme}
       />
 
-      {/* Next State button */}
+      {/* Row y=3: three reset buttons */}
       <GridButton
         x={6}
-        y={3}
-        w={2}
-        h={1}
-        type="momentary"
-        onPress={handleNextState}
-        bgColor={isDark ? "#15803d" : isUnicorn ? "#7c3aed" : "#16a34a"}
-        theme={theme}
-        tooltip="Apply M to the current input shape"
-      >
-        <div style={{ textAlign: "center", lineHeight: "1.1" }}>
-          <div style={{ fontSize: "13px" }}>Next State</div>
-          <div style={{ fontSize: "11px", opacity: 0.8 }}>Apply M</div>
-        </div>
-      </GridButton>
-
-      {/* Reset Shape button */}
-      <GridButton
-        x={8}
         y={3}
         w={1}
         h={1}
@@ -571,30 +690,26 @@ const TwoDimensionalMatrixVisualizerTool = () => {
         </div>
       </GridButton>
 
-      {/* Show eigenvectors toggle */}
       <GridButton
-        x={6}
-        y={4}
-        w={2}
+        x={7}
+        y={3}
+        w={1}
         h={1}
-        type="toggle"
-        active={showEigenvectors}
-        onToggle={setShowEigenvectors}
+        type="momentary"
+        onPress={handleResetPoints}
+        bgColor="#6b7280"
         theme={theme}
-        tooltip="Show or hide real eigenvectors as arrows"
+        tooltip="Clear all tracked points"
       >
         <div style={{ textAlign: "center", lineHeight: "1.1" }}>
-          <div style={{ fontSize: "13px" }}>
-            {showEigenvectors ? "Hide" : "Show"}
-          </div>
-          <div style={{ fontSize: "11px", opacity: 0.8 }}>Eigenvectors</div>
+          <div style={{ fontSize: "13px" }}>Reset</div>
+          <div style={{ fontSize: "11px", opacity: 0.8 }}>Points</div>
         </div>
       </GridButton>
 
-      {/* Reset Matrix to identity */}
       <GridButton
         x={8}
-        y={4}
+        y={3}
         w={1}
         h={1}
         type="momentary"
@@ -606,6 +721,58 @@ const TwoDimensionalMatrixVisualizerTool = () => {
         <div style={{ textAlign: "center", lineHeight: "1.1" }}>
           <div style={{ fontSize: "13px" }}>Reset</div>
           <div style={{ fontSize: "11px", opacity: 0.8 }}>M = I</div>
+        </div>
+      </GridButton>
+
+      {/* Row y=4: Next State (w=1) + Window Range (w=1) + Show/Hide Eigenvectors (w=1) */}
+      <GridButton
+        x={6}
+        y={4}
+        w={1}
+        h={1}
+        type="momentary"
+        onPress={handleNextState}
+        bgColor={isDark ? "#15803d" : isUnicorn ? "#7c3aed" : "#16a34a"}
+        theme={theme}
+        tooltip="Apply M to the current shape and points"
+      >
+        <div style={{ textAlign: "center", lineHeight: "1.1" }}>
+          <div style={{ fontSize: "13px" }}>Next</div>
+          <div style={{ fontSize: "11px", opacity: 0.8 }}>State</div>
+        </div>
+      </GridButton>
+
+      <GridInput
+        x={7}
+        y={4}
+        w={1}
+        h={1}
+        value={viewRange}
+        onChange={(v) => setViewRange(Math.round(Math.max(1, Math.min(1000, v))))}
+        min={1}
+        max={1000}
+        step={1}
+        variable="Zoom"
+        title="Window range (±value on each axis)"
+        theme={theme}
+      />
+
+      <GridButton
+        x={8}
+        y={4}
+        w={1}
+        h={1}
+        type="toggle"
+        active={showEigenvectors}
+        onToggle={setShowEigenvectors}
+        theme={theme}
+        tooltip="Show or hide real eigenvectors as arrows"
+      >
+        <div style={{ textAlign: "center", lineHeight: "1.1" }}>
+          <div style={{ fontSize: "13px" }}>
+            {showEigenvectors ? "Hide" : "Show"}
+          </div>
+          <div style={{ fontSize: "11px", opacity: 0.8 }}>Eigenvecs</div>
         </div>
       </GridButton>
 
@@ -626,43 +793,29 @@ const TwoDimensionalMatrixVisualizerTool = () => {
             padding: "6px 10px",
             width: "100%",
             boxSizing: "border-box",
+            fontSize: "12px",
+            color: textColor,
           }}
         >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "auto 1fr",
-              columnGap: "8px",
-              rowGap: "2px",
-              fontSize: "12px",
-            }}
-          >
-            <span style={{ color: mutedColor }}>det M</span>
-            <span
-              style={{
-                color: Math.abs(det) < 1e-9 ? warnColor : textColor,
-                fontWeight: "bold",
-              }}
-            >
-              {detStr}
-              {Math.abs(det) < 1e-9 && " ⚠ singular"}
+          {/* det and trace on one line */}
+          <div style={{ marginBottom: "3px" }}>
+            <span>det M = </span>
+            <span style={{ color: Math.abs(det) < 1e-9 ? warnColor : textColor }}>
+              {detStr}{Math.abs(det) < 1e-9 && " ⚠ singular"}
             </span>
-
-            <span style={{ color: mutedColor }}>trace M</span>
-            <span style={{ color: textColor }}>{traceStr}</span>
-
-            <span style={{ color: mutedColor }}>
-              {isComplex ? "eigenvalues (ℂ)" : "eigenvalues"}
-            </span>
-            <span
-              style={{
-                color: isComplex ? warnColor : accentColor,
-                fontFamily: "monospace",
-                fontSize: "11px",
-              }}
-            >
-              {eigStr}
-            </span>
+            <span style={{ margin: "0 8px", opacity: 0.4 }}>|</span>
+            <span>tr M = {traceStr}</span>
+          </div>
+          {/* Eigenvalues */}
+          <div style={{ fontSize: "11px", marginBottom: "1px" }}>
+            {isComplex
+              ? "Complex conjugate eigenvalues:"
+              : eigenvalues.length === 1
+              ? "One repeated eigenvalue:"
+              : "Two real eigenvalues:"}
+          </div>
+          <div style={{ color: isComplex ? warnColor : textColor }}>
+            {eigStr}
           </div>
         </div>
       </GridDisplay>

@@ -29,6 +29,8 @@ const GridMatrixInput = ({
   const [blinkState, setBlinkState] = useState(true);
   // rawInput: what the user is currently typing for the active cell
   const [rawInput, setRawInput] = useState("");
+  // pendingReplace: true right after activating a cell; first edit keystroke clears existing content
+  const pendingReplaceRef = useRef(false);
   const componentRef = useRef(null);
 
   const isDarkMode = theme.component.includes("gray-700");
@@ -123,9 +125,10 @@ const GridMatrixInput = ({
       if (activeCell) commitRaw();
       setActiveCell({ r, c });
       setBlinkState(true);
-      // Pre-fill raw with current value
+      // Pre-fill raw with current value; first keystroke will replace it
       const cur = getValue(r, c);
       setRawInput(formatDisplay(cur));
+      pendingReplaceRef.current = true;
     },
     [activeCell, commitRaw, getValue, readOnly],
   );
@@ -145,6 +148,7 @@ const GridMatrixInput = ({
       setBlinkState(true);
       const cur = getValue(tr, tc);
       setRawInput(formatDisplay(cur));
+      pendingReplaceRef.current = true;
     };
 
     const handleKeyDown = (e) => {
@@ -189,23 +193,43 @@ const GridMatrixInput = ({
       }
 
       if (e.key === "Backspace") {
-        setRawInput((prev) => prev.slice(0, -1) || "");
+        if (pendingReplaceRef.current) {
+          pendingReplaceRef.current = false;
+          setRawInput("");
+        } else {
+          setRawInput((prev) => prev.slice(0, -1) || "");
+        }
         return;
       }
 
-      // Allow digits, minus (only at start), decimal point (only one)
+      // Allow digits, minus, decimal point
       if (/^[0-9]$/.test(e.key)) {
-        setRawInput((prev) => (prev === "0" ? e.key : prev + e.key));
+        if (pendingReplaceRef.current) {
+          pendingReplaceRef.current = false;
+          setRawInput(e.key);
+        } else {
+          setRawInput((prev) => (prev === "0" ? e.key : prev + e.key));
+        }
         return;
       }
       if (e.key === "-") {
-        setRawInput((prev) =>
-          prev.startsWith("-") ? prev.slice(1) : "-" + prev,
-        );
+        if (pendingReplaceRef.current) {
+          pendingReplaceRef.current = false;
+          setRawInput("-");
+        } else {
+          setRawInput((prev) =>
+            prev.startsWith("-") ? prev.slice(1) : "-" + prev,
+          );
+        }
         return;
       }
       if (e.key === ".") {
-        setRawInput((prev) => (prev.includes(".") ? prev : prev + "."));
+        if (pendingReplaceRef.current) {
+          pendingReplaceRef.current = false;
+          setRawInput("0.");
+        } else {
+          setRawInput((prev) => (prev.includes(".") ? prev : prev + "."));
+        }
         return;
       }
     };
