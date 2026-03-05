@@ -21,6 +21,7 @@ const GridTableInput = ({
   theme,
   maxRows = h * 3, // 3 rows per grid unit
   errorHighlights = [], // Array of {index, field, value} for error indication
+  lockedCells = [], // Array of {row, key, value} — display fixed value, non-editable
 }) => {
   // Ensure data has the correct structure
   const initializeData = useCallback(() => {
@@ -57,7 +58,7 @@ const GridTableInput = ({
   const contentHeight = totalHeight - BORDER_SIZE * 2;
 
   // Calculate cell dimensions
-  const headerHeight = 28;
+  const headerHeight = 40;
   const rowHeight = Math.max(20, (contentHeight - headerHeight) / maxRows);
   const colWidth = contentWidth / columns.length;
 
@@ -155,10 +156,9 @@ const GridTableInput = ({
             : "#ffffff",
       color: hasAnyError
         ? "#ef4444" // Red text for errors
-        : isDarkMode
-          ? "#e2e8f0"
-          : "#2d3748",
+        : column.color ?? (isDarkMode ? "#e2e8f0" : "#2d3748"),
       fontSize: "12px",
+      fontWeight: isComputed ? "600" : "normal",
       padding: "2px 4px",
       textAlign: "center",
       outline: "none",
@@ -176,8 +176,10 @@ const GridTableInput = ({
     fontSize: "13px",
     fontWeight: "600",
     display: "flex",
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
+    lineHeight: "1.2",
     borderRight: `1px solid ${isDarkMode ? "#2d3748" : "#cbd5e0"}`,
     borderBottom: `2px solid ${isDarkMode ? "#2d3748" : "#a0aec0"}`,
   });
@@ -218,7 +220,9 @@ const GridTableInput = ({
                       : "none",
                 }}
               >
-                {column.label}
+                {column.label.split("\n").map((line, i) => (
+                  <div key={i}>{line}</div>
+                ))}
               </div>
             ))}
           </div>
@@ -243,32 +247,50 @@ const GridTableInput = ({
                       borderBottom: `1px solid ${isDarkMode ? "#4a5568" : "#e2e8f0"}`,
                     }}
                   >
-                    <input
-                      type={column.type === "number" ? "number" : "text"}
-                      value={row[column.key] || ""}
-                      onChange={(e) => {
-                        if (column.editable !== false) {
-                          const formattedValue = formatCellValue(
-                            e.target.value,
-                            column.type,
-                          );
-                          handleCellChange(
-                            rowIndex,
-                            column.key,
-                            formattedValue,
-                          );
-                        }
-                      }}
-                      style={getCellInputStyles(rowIndex, column.key, column)}
-                      placeholder={
-                        column.type === "computed"
-                          ? ""
-                          : rowIndex < 5
-                            ? `${column.label}${rowIndex + 1}`
-                            : ""
-                      }
-                      readOnly={column.editable === false}
-                    />
+                    {(() => {
+                      const lock = lockedCells.find(
+                        (lc) => lc.row === rowIndex && lc.key === column.key,
+                      );
+                      const isLocked = !!lock;
+                      const displayValue = isLocked
+                        ? String(lock.value)
+                        : row[column.key] || "";
+                      const lockedColumn = isLocked
+                        ? { ...column, type: "computed" }
+                        : column;
+                      return (
+                        <input
+                          type="text"
+                          value={displayValue}
+                          onChange={(e) => {
+                            // Store raw text while typing — no clamping yet
+                            if (!isLocked && column.editable !== false) {
+                              handleCellChange(rowIndex, column.key, e.target.value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            // On blur: parse, clamp, and normalise the value
+                            if (!isLocked && column.editable !== false && column.type === "number") {
+                              const raw = e.target.value;
+                              if (raw === "" || raw === "-" || raw === ".") return;
+                              const num = parseFloat(raw);
+                              if (isNaN(num)) {
+                                handleCellChange(rowIndex, column.key, "");
+                                return;
+                              }
+                              const clamped = Math.min(
+                                column.max !== undefined ? column.max : Infinity,
+                                Math.max(column.min !== undefined ? column.min : -Infinity, num),
+                              );
+                              handleCellChange(rowIndex, column.key, clamped.toString());
+                            }
+                          }}
+                          style={getCellInputStyles(rowIndex, column.key, lockedColumn)}
+                          placeholder=""
+                          readOnly={isLocked || column.editable === false}
+                        />
+                      );
+                    })()}
                   </div>
                 ))}
               </div>

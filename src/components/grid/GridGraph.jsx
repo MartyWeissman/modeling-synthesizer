@@ -53,10 +53,13 @@ const GridGraph = React.memo(
 
     // Calculate dynamic padding based on tick labels
     const calculatePadding = () => {
-      // Y-axis padding - depends on longest tick label
-      const maxYTickLength = Math.max(
-        ...yTicks.map((tick) => tick.toString().length),
-      );
+      // Y-axis padding — use actual label strings when yTickLabels is provided
+      const yLabelStrings = yTickLabels && yTickLabels.length > 0
+        ? yTickLabels.map((l) => String(l))
+        : yTicks.map((t) => t.toString());
+      const maxYTickLength = yLabelStrings.length > 0
+        ? Math.max(...yLabelStrings.map((l) => l.length))
+        : 1;
       const yTickWidth = Math.max(25, maxYTickLength * 6 + 10); // 6px per character + 10px margin
       const yAxisLabelWidth = 20; // Additional space for rotated y-axis label
 

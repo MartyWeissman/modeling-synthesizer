@@ -36,6 +36,7 @@ import TwoCompartmentMarkovTool from "../tools/TwoCompartmentMarkovTool";
 import MatrixVectorCalculatorTool from "../tools/MatrixVectorCalculatorTool";
 import ThreeCompartmentMatrixTool from "../tools/ThreeCompartmentMatrixTool";
 import TwoDimensionalMatrixVisualizerTool from "../tools/TwoDimensionalMatrixVisualizerTool";
+import LeslieMatrixTool from "../tools/LeslieMatrixTool";
 
 /**
  * Complete tool definitions with all metadata
@@ -488,6 +489,19 @@ export const toolDefinitions = {
     component: TwoDimensionalMatrixVisualizerTool,
     categories: {
       topics: ["physical"],
+      toolType: "explorer",
+      lab: "lab6",
+    },
+    visibility: "student",
+  },
+
+  "leslie-matrix": {
+    name: "Leslie Matrix Population Model",
+    description:
+      "Explore age-structured population dynamics using the Leslie matrix. Set fecundity and survival rates for each age class and watch the population evolve over time.",
+    component: LeslieMatrixTool,
+    categories: {
+      topics: ["ecology"],
       toolType: "explorer",
       lab: "lab6",
     },
