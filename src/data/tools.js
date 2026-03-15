@@ -466,7 +466,7 @@ export const toolDefinitions = {
       toolType: "calculator",
       lab: "lab1",
     },
-    visibility: "student",
+    visibility: "dev",
   },
 
   "three-compartment-matrix": {
