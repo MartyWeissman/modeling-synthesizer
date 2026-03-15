@@ -152,7 +152,7 @@ const HelpModal = ({ toolId, onClose }) => {
 
           {!isLoading && !error && (
             <div
-              className="markdown-content"
+              className="markdown-content [&_li>p]:mb-0 [&_li>p]:mt-0"
               style={{
                 lineHeight: "1.6",
               }}
@@ -182,13 +182,13 @@ const HelpModal = ({ toolId, onClose }) => {
                   ),
                   ul: ({ node, ...props }) => (
                     <ul
-                      className={`list-disc list-inside mb-3 ml-4 ${theme.text}`}
+                      className={`list-disc list-outside mb-3 ml-5 ${theme.text}`}
                       {...props}
                     />
                   ),
                   ol: ({ node, ...props }) => (
                     <ol
-                      className={`list-decimal list-inside mb-3 ml-4 ${theme.text}`}
+                      className={`list-decimal list-outside mb-3 ml-5 ${theme.text}`}
                       {...props}
                     />
                   ),
@@ -198,30 +198,30 @@ const HelpModal = ({ toolId, onClose }) => {
                   strong: ({ node, ...props }) => (
                     <strong className="font-bold" {...props} />
                   ),
-                  code: ({ node, inline, ...props }) =>
-                    inline ? (
+                  code: ({ node, children, ...props }) => {
+                    const isBlock = String(children).includes("\n");
+                    const colorClass = isUnicorn
+                      ? "bg-pink-100 text-pink-800"
+                      : isDark
+                        ? "bg-gray-700 text-gray-200"
+                        : "bg-gray-200 text-gray-800";
+                    return isBlock ? (
                       <code
-                        className={`px-1 py-0.5 rounded ${
-                          isUnicorn
-                            ? "bg-pink-100 text-pink-800"
-                            : isDark
-                              ? "bg-gray-700 text-gray-200"
-                              : "bg-gray-200 text-gray-800"
-                        }`}
+                        className={`block px-4 py-3 rounded mb-3 ${colorClass}`}
                         {...props}
-                      />
+                      >
+                        {children}
+                      </code>
                     ) : (
                       <code
-                        className={`block px-4 py-3 rounded mb-3 ${
-                          isUnicorn
-                            ? "bg-pink-100 text-pink-800"
-                            : isDark
-                              ? "bg-gray-700 text-gray-200"
-                              : "bg-gray-200 text-gray-800"
-                        }`}
+                        className={`px-1 rounded ${colorClass}`}
+                        style={{ fontFamily: "monospace", fontSize: "0.9em" }}
                         {...props}
-                      />
-                    ),
+                      >
+                        {children}
+                      </code>
+                    );
+                  },
                   a: ({ node, ...props }) => (
                     <a
                       className={`underline ${

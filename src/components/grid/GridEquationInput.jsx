@@ -165,8 +165,27 @@ const GridEquationInput = React.memo(
               height: `${contentHeight}px`,
             }}
           >
+            {/* Optional label above the input */}
+            {label && (
+              <div
+                style={{
+                  fontSize: "13px",
+                  fontWeight: "500",
+                  textAlign: "center",
+                  marginBottom: "4px",
+                  color: isUnicornMode
+                    ? "#7c3aed"
+                    : isDarkMode
+                      ? "#e5e7eb"
+                      : "#1f2937",
+                  ...getFontStyle("sans", "500"),
+                }}
+              >
+                {label}
+              </div>
+            )}
             {/* Equation layout: Variable = Input */}
-            <div className="flex items-center w-full h-full">
+            <div className="flex items-center w-full" style={{ flex: 1 }}>
               {/* Variable and equals sign */}
               {variable && (
                 <div

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This tool explores one-dimensional dynamical systems defined by a single differential equation X' = f(X). It provides phase line analysis showing equilibrium points, stability, and flow direction, along with time series visualization of trajectories. The tool also supports delay differential equations using X(t-τ).
+This tool explores one-dimensional dynamical systems defined by a single differential equation X' = f(X). It provides phase line analysis showing equilibrium points, stability, and flow direction, along with time series visualization of trajectories. The tool also supports delay differential equations using X(t-τ) and optional Gaussian noise for stochastic simulations.
 
 ## The Model
 
@@ -11,6 +11,10 @@ A one-dimensional dynamical system has the form:
 **X' = f(X, k)**
 
 Where X is the state variable, k is a parameter, and f describes how X changes over time. The sign of f(X) determines whether X increases or decreases.
+
+With noise enabled, the simulation uses the Euler-Maruyama method, adding a Gaussian random increment at each time step:
+
+**X(t + dt) = X(t) + f(X, k) · dt + (ε/2) · √dt · N(0,1)**
 
 ## Parameters
 
@@ -32,6 +36,9 @@ Adjustable parameter in your equation. Default: 0.5.
 
 ### Xmin, Xmax: -10 to 10
 Viewing range for the phase line and time series. Default: -0.5 to 1.5.
+
+### Noise ε: 0 to 1
+Intensity of Gaussian noise added at each simulation step (Euler-Maruyama). Default: 0 (deterministic). At ε = 1, noise is near the maximum practically useful level. Set to 0 for a purely deterministic simulation.
 
 ### Delay τ: 0 to 1
 Time delay for X_tau variable. When τ > 0, the equation uses past values of X. Default: 0.
@@ -71,14 +78,12 @@ Shows:
 ## What to Observe
 
 1. **Phase line dynamics**: Drop balls at different locations and watch them flow toward stable equilibria or away from unstable ones.
-
 2. **Bifurcations**: Adjust k and watch equilibria appear, disappear, or change stability.
-
 3. **Derivative plot interpretation**: The X' plot shows where dynamics are fast (large |X'|) vs slow (near zero).
-
-4. **Delay effects**: With τ > 0, observe oscillations that can emerge from delayed feedback.
-
-5. **Basins of attraction**: Find the regions of initial conditions that flow to each stable equilibrium.
+4. **Stochastic behavior**: Increase ε to add noise. With X' = 0 (set equation to `0`), trajectories perform a pure random walk — a useful test of noise scaling. With a stable equilibrium, noise causes fluctuations around it; with an unstable equilibrium, noise can trigger escape to another basin.
+5. **Noise near equilibria**: Near a stable equilibrium, small noise keeps trajectories in the vicinity. Near an unstable equilibrium, noise can push trajectories across the boundary — observe this with a bistable system like `X*(1-X)*(X-0.5)`.
+6. **Delay effects**: With τ > 0, observe oscillations that can emerge from delayed feedback.
+7. **Basins of attraction**: Find the regions of initial conditions that flow to each stable equilibrium.
 
 ## Delay Equations
 

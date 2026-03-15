@@ -28,6 +28,7 @@ const OneDimensionalCalculator = () => {
   const [xMin, setXMin] = useState(-0.5);
   const [xMax, setXMax] = useState(1.5);
   const [tau, setTau] = useState(0);
+  const [epsilon, setEpsilon] = useState(0.0);
   const [showDerivativePlot, setShowDerivativePlot] = useState(false);
 
   // Dynamical system and analysis
@@ -49,23 +50,36 @@ const OneDimensionalCalculator = () => {
     balls: [], // Array of {id, x, t, history: [{t, x}], active: boolean}
     animationId: null,
     isRunning: false,
-    params: { k, tau },
+    params: { k, tau, epsilon },
     nextBallId: 0,
   });
 
   // Sync UI params to animation state
   useEffect(() => {
-    animationStateRef.current.params = { k, tau };
-  }, [k, tau]);
+    animationStateRef.current.params = { k, tau, epsilon };
+  }, [k, tau, epsilon]);
+
+  // Box-Muller transform: standard normal sample
+  const randn = useCallback(() => {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  }, []);
 
   // RK4 integration for 1D system with delay support
   const rk4Step = useCallback(
     (history, dt, params) => {
+      const currentX = history[history.length - 1].x;
+
+      // Always compute noise - must be outside the validity check so X'=0 still drifts
+      const epsilon = params.epsilon || 0;
+      const noise = (epsilon / 2) * Math.sqrt(dt) * randn();
+
       if (!dynamicalSystem || !dynamicalSystem.isValidSystem()) {
-        return history[history.length - 1].x;
+        return currentX + noise;
       }
 
-      const currentX = history[history.length - 1].x;
       const tau = params.tau || 0;
 
       // Helper to get delayed value X(t - tau)
@@ -104,9 +118,9 @@ const OneDimensionalCalculator = () => {
         evalParams,
       );
 
-      return currentX + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+      return currentX + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4) + noise;
     },
-    [dynamicalSystem],
+    [dynamicalSystem, randn],
   );
 
   // Draw balls on phase line (only those within extended bounds)
@@ -419,16 +433,16 @@ const OneDimensionalCalculator = () => {
 
       state.balls.push(newBall);
 
-      // Start animation if not already running
-      if (!state.isRunning) {
-        state.isRunning = true;
-        animationLoop();
-      }
-
-      // Immediate draw
+      // Draw at initial position FIRST (before animation moves the ball)
       if (ballCanvasRef.current) {
         const ctx = ballCanvasRef.current.getContext("2d");
         drawBalls(ballCanvasRef.current, ctx);
+      }
+
+      // Start animation via rAF so browser can render the initial draw first
+      if (!state.isRunning) {
+        state.isRunning = true;
+        state.animationId = requestAnimationFrame(animationLoop);
       }
     },
     [dynamicalSystem, xMin, xMax, animationLoop, drawBalls],
@@ -1068,7 +1082,7 @@ const OneDimensionalCalculator = () => {
         h={1}
         value={equation}
         onChange={setEquation}
-        label="Equation"
+        label="Change equation for X"
         variable="X'"
         placeholder="e.g., k*X*(1-X)"
         tooltip="Enter equation for X' = f(X, k). Use X_tau for X(t-τ)"
@@ -1085,7 +1099,7 @@ const OneDimensionalCalculator = () => {
         value={k * 100}
         onChange={(value) => setK(value / 100)}
         variant="bipolar"
-        label={`k = ${k.toFixed(2)}`}
+        label={`Parameter k = ${k.toFixed(2)}`}
         tooltip="Parameter k"
         theme={theme}
       />
@@ -1093,7 +1107,7 @@ const OneDimensionalCalculator = () => {
       {/* Xmin input */}
       <GridInput
         x={6}
-        y={2}
+        y={5}
         w={1}
         h={1}
         value={xMin}
@@ -1109,10 +1123,10 @@ const OneDimensionalCalculator = () => {
         theme={theme}
       />
 
-      {/* Xmax input */}
+      {/* Xmax input - stacked below Xmin */}
       <GridInput
-        x={7}
-        y={2}
+        x={6}
+        y={3}
         w={1}
         h={1}
         value={xMax}
@@ -1128,9 +1142,37 @@ const OneDimensionalCalculator = () => {
         theme={theme}
       />
 
+      {/* Noise epsilon slider */}
+      <GridSliderHorizontal
+        x={7}
+        y={2}
+        w={2}
+        h={1}
+        value={epsilon * 100}
+        onChange={(value) => setEpsilon(value / 100)}
+        variant="unipolar"
+        label={`Noise ε = ${epsilon.toFixed(2)}`}
+        tooltip="Noise intensity ε (Gaussian noise added each step)"
+        theme={theme}
+      />
+
+      {/* Time delay tau slider */}
+      <GridSliderHorizontal
+        x={7}
+        y={3}
+        w={2}
+        h={1}
+        value={tau * 100}
+        onChange={(value) => setTau(value / 100)}
+        variant="unipolar"
+        label={`Delay τ = ${tau.toFixed(2)}`}
+        tooltip="Time delay τ (0 to 1)"
+        theme={theme}
+      />
+
       {/* Show/Hide X' toggle button */}
       <GridButton
-        x={8}
+        x={6}
         y={2}
         w={1}
         h={1}
@@ -1146,24 +1188,10 @@ const OneDimensionalCalculator = () => {
         </div>
       </GridButton>
 
-      {/* Time delay tau slider (2x1) - beneath Xmin/Xmax */}
-      <GridSliderHorizontal
-        x={6}
-        y={3}
-        w={2}
-        h={1}
-        value={tau * 100}
-        onChange={(value) => setTau(value / 100)}
-        variant="unipolar"
-        label={`Delay τ = ${tau.toFixed(2)}`}
-        tooltip="Time delay τ (0 to 1)"
-        theme={theme}
-      />
-
       {/* Clear Plots button */}
       <GridButton
-        x={8}
-        y={3}
+        x={6}
+        y={4}
         w={1}
         h={1}
         onPress={handleClearPlots}
@@ -1178,9 +1206,9 @@ const OneDimensionalCalculator = () => {
       {/* Status/Error Display */}
       {equationError && (
         <GridDisplay
-          x={6}
+          x={7}
           y={4}
-          w={3}
+          w={2}
           h={1}
           value={equationError}
           variant="status"
@@ -1203,9 +1231,9 @@ const OneDimensionalCalculator = () => {
         dynamicalSystem.isValidSystem() &&
         phaseLineAnalysis && (
           <GridDisplay
-            x={6}
+            x={7}
             y={4}
-            w={3}
+            w={2}
             h={2}
             variant="info"
             align="left"
