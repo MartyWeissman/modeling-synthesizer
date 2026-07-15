@@ -1,0 +1,34 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mfrac>
+    <mrow>
+      <mi>Δ</mi>
+      <mi mathvariant="bold-italic">I</mi>
+    </mrow>
+    <mrow>
+      <mi>Δ</mi>
+      <mi>t</mi>
+    </mrow>
+  </mfrac>
+  <mo>=</mo>
+  <mi>q</mi>
+  <mi>B</mi>
+  <mfrac>
+    <mrow>
+      <msup>
+        <mi mathvariant="bold-italic">G</mi>
+        <mn>2</mn>
+      </msup>
+    </mrow>
+    <mrow>
+      <mn>1</mn>
+      <mo>+</mo>
+      <msup>
+        <mi mathvariant="bold-italic">G</mi>
+        <mn>2</mn>
+      </msup>
+    </mrow>
+  </mfrac>
+  <mo>−</mo>
+  <mi>γ</mi>
+  <mi mathvariant="bold-italic">I</mi>
+</math>

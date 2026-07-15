@@ -1,0 +1,18 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mfrac>
+    <mrow>
+      <mi>Δ</mi>
+      <mi mathvariant="bold-italic">G</mi>
+    </mrow>
+    <mrow>
+      <mi>Δ</mi>
+      <mi>t</mi>
+    </mrow>
+  </mfrac>
+  <mo>=</mo>
+  <mi>m</mi>
+  <mo>−</mo>
+  <mi>s</mi>
+  <mi mathvariant="bold-italic">I</mi>
+  <mi mathvariant="bold-italic">G</mi>
+</math>

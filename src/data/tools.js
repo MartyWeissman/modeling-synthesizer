@@ -2,6 +2,7 @@
 // Centralized tool metadata for the Modeling Synthesizer
 
 import InsulinGlucoseTool from "../tools/InsulinGlucoseTool";
+import MinimalInsulinGlucoseTool from "../tools/MinimalInsulinGlucoseTool";
 import CaffeineMetabolismTool from "../tools/CaffeineMetabolismTool";
 import GentamicinDosageTool from "../tools/GentamicinDosageTool";
 import GlycolysisTool from "../tools/GlycolysisTool";
@@ -52,6 +53,19 @@ export const toolDefinitions = {
       topics: ["physiology"],
       toolType: "simulation",
       labs: ["lab1", "lab4"],
+    },
+    visibility: "student",
+  },
+
+  "insulin-glucose-minimal": {
+    name: "Minimal Insulin-Glucose Simulator",
+    description:
+      "A stripped-down introduction to glucose homeostasis and insulin response, for a first look at the model.",
+    component: MinimalInsulinGlucoseTool,
+    categories: {
+      topics: ["physiology"],
+      toolType: "simulation",
+      labs: ["lab1"],
     },
     visibility: "student",
   },
