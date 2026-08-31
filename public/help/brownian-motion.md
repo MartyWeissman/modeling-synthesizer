@@ -20,7 +20,7 @@ This tool simulates Brownian motion—the random movement of a microscopic parti
 
 **Data Table:** Records displacement data at integer second intervals from t = 0 to t = 10 seconds. Columns show time t (s), x-displacement (μm), y-displacement (μm), and squared displacement d² (μm²). The table data can be selected and copied (Cmd+C / Ctrl+C) for pasting into spreadsheet software.
 
-**Equation Display:** Shows the Einstein-Stokes formula for expected squared displacement: E(d²) = (k_B T)/(3πrη) · t, where k_B is Boltzmann's constant.
+**Equation Display:** Shows the Einstein-Stokes formula for expected squared displacement: E(d²) = (2 k_B T)/(3πrη) · t, where k_B is Boltzmann's constant.
 
 **Diffuse!/Stop! Button:** Starts a new simulation run (resetting position to origin) or stops a running simulation. The simulation runs for 10 seconds of simulated time.
 
