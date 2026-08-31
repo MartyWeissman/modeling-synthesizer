@@ -231,7 +231,7 @@ const BrownianMotionSimulator = () => {
 
       // E(d²) in m², then convert to μm²
       const expectedD2_m2 =
-        ((BOLTZMANN * tempKelvin) /
+        ((2*BOLTZMANN * tempKelvin) /
           (3 * Math.PI * radiusMeters * viscosityPascalSec)) *
         state.time;
       const expectedD2_um2 = expectedD2_m2 * 1e12; // Convert m² to μm²
