@@ -10,6 +10,7 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { setupCanvas, clearCanvas } from "../utils/canvas";
 
 const GrowthCollapseSimulatorTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -26,6 +27,7 @@ const GrowthCollapseSimulatorTool = () => {
   const [statistics, setStatistics] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
+  const [runTime, setRunTime] = useState(timeSpan); // Time used by the current run
 
   // Canvas refs
   const samplesCanvasRef = useRef(null);
@@ -76,8 +78,7 @@ const GrowthCollapseSimulatorTool = () => {
       const canvas = samplesCanvasRef.current;
       if (!canvas || data.length === 0) return;
 
-      const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
+      const { ctx, width, height } = setupCanvas(canvas);
       const padding = { top: 28, right: 20, bottom: 20, left: 55 };
 
       ctx.clearRect(0, 0, width, height);
@@ -108,7 +109,7 @@ const GrowthCollapseSimulatorTool = () => {
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
 
-      const yTicks = [0, Math.round(displayMax / 2), displayMax];
+      const yTicks = [...new Set([0, Math.round(displayMax / 2), displayMax])];
       yTicks.forEach((tick) => {
         const y = height - padding.bottom - (tick / displayMax) * chartHeight;
         ctx.fillText(tick.toString(), padding.left - 5, y);
@@ -172,18 +173,19 @@ const GrowthCollapseSimulatorTool = () => {
       const canvas = samplesCanvasRef.current;
       if (!canvas || data.length === 0) return;
 
-      const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
+      const { ctx, width, height } = setupCanvas(canvas);
       const padding = { top: 28, right: 20, bottom: 20, left: 55 };
 
       ctx.clearRect(0, 0, width, height);
 
       const chartWidth = width - padding.left - padding.right;
       const chartHeight = height - padding.top - padding.bottom;
-      const maxHeight = stats.max;
+      // Axis maximum: at least 1, so all heights 0 (e.g. P(Growth) = 0)
+      // still gives a valid scale
+      const maxHeight = Math.max(stats.max, 1);
 
       // Calculate M for consistent 10-step gradient with histogram
-      const M = maxHeight > 0 ? Math.ceil((maxHeight + 1) / 10) * 10 : 10;
+      const M = stats.max > 0 ? Math.ceil((stats.max + 1) / 10) * 10 : 10;
 
       const barWidth = Math.max(1, chartWidth / data.length - 1);
 
@@ -202,7 +204,7 @@ const GrowthCollapseSimulatorTool = () => {
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
 
-      const yTicks = [0, Math.round(maxHeight / 2), maxHeight];
+      const yTicks = [...new Set([0, Math.round(maxHeight / 2), maxHeight])];
       yTicks.forEach((tick) => {
         const y = height - padding.bottom - (tick / maxHeight) * chartHeight;
         ctx.fillText(tick.toString(), padding.left - 5, y);
@@ -275,12 +277,12 @@ const GrowthCollapseSimulatorTool = () => {
       ctx.font = "bold 12px sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(
-        `Height of 500 samples after ${timeSpan} steps`,
+        `Height of 500 samples after ${stats.timeSpan} steps`,
         width / 2,
         12,
       );
     },
-    [currentTheme, getHeightColor, timeSpan],
+    [currentTheme, getHeightColor],
   );
 
   // Draw histogram
@@ -289,8 +291,7 @@ const GrowthCollapseSimulatorTool = () => {
       const canvas = histogramCanvasRef.current;
       if (!canvas || data.length === 0) return;
 
-      const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
+      const { ctx, width, height } = setupCanvas(canvas);
       const padding = { top: 28, right: 10, bottom: 38, left: 45 };
 
       ctx.clearRect(0, 0, width, height);
@@ -329,7 +330,7 @@ const GrowthCollapseSimulatorTool = () => {
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
 
-      const yTicks = [0, Math.round(maxCount / 2), maxCount];
+      const yTicks = [...new Set([0, Math.round(maxCount / 2), maxCount])];
       yTicks.forEach((tick) => {
         const y = height - padding.bottom - (tick / maxCount) * chartHeight;
         ctx.fillText(tick.toString(), padding.left - 5, y);
@@ -394,34 +395,18 @@ const GrowthCollapseSimulatorTool = () => {
     [currentTheme, getHeightColor],
   );
 
-  // Initialize canvases
+  // Draw placeholder text before the first run
   useEffect(() => {
-    const initCanvas = (ref) => {
-      const canvas = ref.current;
-      if (canvas) {
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    };
-
-    initCanvas(samplesCanvasRef);
-    initCanvas(histogramCanvasRef);
-
-    // Draw placeholder text if no results
     if (results.length === 0) {
       const samplesCanvas = samplesCanvasRef.current;
       if (samplesCanvas) {
-        const ctx = samplesCanvas.getContext("2d");
+        const { ctx, width, height } = setupCanvas(samplesCanvas);
+        ctx.clearRect(0, 0, width, height);
         ctx.fillStyle = currentTheme === "dark" ? "#666666" : "#999999";
         ctx.font = "14px sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(
-          'Click "Run!" to simulate',
-          samplesCanvas.width / 2,
-          samplesCanvas.height / 2,
-        );
+        ctx.fillText('Click "Run!" to simulate', width / 2, height / 2);
       }
     }
   }, [currentTheme, results.length]);
@@ -436,14 +421,16 @@ const GrowthCollapseSimulatorTool = () => {
 
   // Run animated simulation
   const runSimulation = useCallback(() => {
-    // Cancel any existing animation
-    if (animationStateRef.current.animationId) {
-      clearInterval(animationStateRef.current.animationId);
-    }
+    // Ignore clicks while a run is in progress
+    if (animationStateRef.current.isRunning) return;
 
     setIsRunning(true);
     setCurrentStep(0);
+    setRunTime(timeSpan);
     setStatistics(null);
+
+    // Remove the previous run's histogram until this run finishes
+    clearCanvas(histogramCanvasRef.current);
 
     // Pre-generate all random values for deterministic playback
     const randomSeeds = [];
@@ -480,6 +467,7 @@ const GrowthCollapseSimulatorTool = () => {
       animationId: null,
       isRunning: true,
       finalMax,
+      timeSpan,
     };
 
     // Draw initial state
@@ -500,7 +488,7 @@ const GrowthCollapseSimulatorTool = () => {
         const average = sum / state.heights.length;
 
         setResults([...state.heights]);
-        setStatistics({ max, average });
+        setStatistics({ max, average, timeSpan: state.timeSpan });
         setCurrentStep(timeSpan);
         setIsRunning(false);
         return;
@@ -611,7 +599,6 @@ const GrowthCollapseSimulatorTool = () => {
         type="momentary"
         variant="function"
         onPress={runSimulation}
-        disabled={isRunning}
         theme={theme}
       >
         <div style={{ textAlign: "center", lineHeight: "1.1" }}>
@@ -654,7 +641,7 @@ const GrowthCollapseSimulatorTool = () => {
             <div>
               <span style={{ fontWeight: "bold" }}>Step: </span>
               <span>
-                {currentStep} / {timeSpan}
+                {currentStep} / {runTime}
               </span>
             </div>
           </div>
