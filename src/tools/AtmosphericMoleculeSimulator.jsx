@@ -9,14 +9,94 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
+import { randomNormal } from "../utils/random";
 
 const NUM_PARTICLES = 200;
-const NUM_BINS = 16; // More bins, visually same size after 2x zoom
-const BIN_SIZE = 6.25; // Height units per bin (100 / 16)
-const MAX_HEIGHT = NUM_BINS * BIN_SIZE; // 100 units
-const GROUND_HEIGHT_PX = 20; // Fixed ground height in pixels
-const PIXELS_PER_UNIT = 4; // Height units to pixels conversion (2x zoom)
-const HISTOGRAM_UPDATE_INTERVAL = 200; // Update histogram every 200ms (5 times per second)
+const NUM_BINS = 16;
+const MAX_HEIGHT = 100; // Ceiling of the box (height units); top of the window
+const BIN_SIZE = MAX_HEIGHT / NUM_BINS; // 6.25 height units per bin
+const GROUND_HEIGHT_PX = 12; // Visible ground strip at the bottom
+const WINDOW_INSET = 0.03; // GridWindow clips 3% on each side
+const STEPS_PER_SECOND = 60; // One random-walk step per frame at 60 Hz
+const HISTOGRAM_UPDATE_INTERVAL = 200; // ms between histogram/stat updates while running
+
+// ---- Model (pure functions) ----
+
+/** Mean step per time step (negative = downward). */
+const driftOf = (gravity) => gravity / 200;
+/** Variance of the random part of one step. */
+const varianceOf = (temperature) => temperature / 300;
+
+/**
+ * One random-walk step: drift from gravity plus Gaussian thermal noise,
+ * reflected at the ground (0) and at the ceiling (MAX_HEIGHT).
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function stepHeight(h, gravity, temperature, z) {
+  let newH = h + driftOf(gravity) + Math.sqrt(varianceOf(temperature)) * z;
+  // Reflect (loop in case a step is larger than the box, which can't happen
+  // for the slider ranges, but keeps the height valid regardless)
+  for (let i = 0; i < 4 && (newH < 0 || newH > MAX_HEIGHT); i++) {
+    if (newH < 0) newH = -newH;
+    if (newH > MAX_HEIGHT) newH = 2 * MAX_HEIGHT - newH;
+  }
+  return Math.min(MAX_HEIGHT, Math.max(0, newH));
+}
+
+/**
+ * Scale height H of the equilibrium profile. A random walk with drift mu and
+ * step variance sigma^2, reflected at the ground, settles into an
+ * exponential density exp(-h / H) with H = sigma^2 / (2|mu|).
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function scaleHeight(gravity, temperature) {
+  const mu = Math.abs(driftOf(gravity));
+  if (mu === 0) return Infinity;
+  return varianceOf(temperature) / (2 * mu);
+}
+
+/** Expected fraction of molecules in each bin (exponential cut off at the ceiling). */
+// eslint-disable-next-line react-refresh/only-export-components
+export function expectedBinFractions(gravity, temperature) {
+  const H = scaleHeight(gravity, temperature);
+  if (!isFinite(H)) return Array(NUM_BINS).fill(1 / NUM_BINS);
+  const probs = [];
+  for (let i = 0; i < NUM_BINS; i++) {
+    probs.push(Math.exp(-(i * BIN_SIZE) / H) - Math.exp(-((i + 1) * BIN_SIZE) / H));
+  }
+  const total = probs.reduce((a, b) => a + b, 0);
+  return probs.map((p) => p / total);
+}
+
+/** Mean height of the exponential profile cut off at the ceiling. */
+// eslint-disable-next-line react-refresh/only-export-components
+export function expectedMeanHeight(gravity, temperature) {
+  const H = scaleHeight(gravity, temperature);
+  if (!isFinite(H)) return MAX_HEIGHT / 2;
+  const r = MAX_HEIGHT / H;
+  if (r < 1e-6) return MAX_HEIGHT / 2;
+  return H - MAX_HEIGHT / Math.expm1(r);
+}
+
+const initialHeights = () =>
+  Array.from({ length: NUM_PARTICLES }, () => 7.5 + (Math.random() * 2 - 1));
+
+function heightStats(heights) {
+  const mean = heights.reduce((a, b) => a + b, 0) / heights.length;
+  const variance =
+    heights.reduce((sum, h) => sum + (h - mean) * (h - mean), 0) / heights.length;
+  return { mean, stdDev: Math.sqrt(variance) };
+}
+
+/** Vertical layout shared by both windows, in CSS pixels. */
+function verticalGeometry(height) {
+  const inset = height * WINDOW_INSET;
+  const groundTop = height - inset - GROUND_HEIGHT_PX;
+  const skyTop = inset + 3;
+  return { groundTop, skyTop, pxPerUnit: (groundTop - skyTop) / MAX_HEIGHT };
+}
 
 const AtmosphericMoleculeSimulator = () => {
   const { theme, currentTheme } = useTheme();
@@ -24,61 +104,24 @@ const AtmosphericMoleculeSimulator = () => {
   // Canvas refs
   const simulationCanvasRef = useRef(null);
   const histogramCanvasRef = useRef(null);
-  const animationRef = useRef(null);
   const lastHistogramUpdateRef = useRef(0);
+  const stepCarryRef = useRef(0);
 
   // Parameters
   const [gravity, setGravity] = useState(-10);
   const [temperature, setTemperature] = useState(300);
 
-  // Simulation state
+  // Simulation state: heights live in a ref (updated every frame);
+  // the statistics shown in the panel are refreshed a few times a second.
   const [isRunning, setIsRunning] = useState(false);
-  // Initialize particles near the ground (height ~7.5 with small random offset)
-  const [particleHeights, setParticleHeights] = useState(() =>
-    Array.from({ length: NUM_PARTICLES }, () => 7.5 + (Math.random() * 2 - 1)),
-  );
+  const heightsRef = useRef(null);
+  if (heightsRef.current === null) heightsRef.current = initialHeights();
+  const [stats, setStats] = useState(() => heightStats(heightsRef.current));
 
-  // Store stable x positions for each particle (distributed across width)
+  // Stable x positions for each particle (distributed across width)
   const particleXPositions = useRef(
-    Array.from({ length: NUM_PARTICLES }, (_, i) => i / NUM_PARTICLES),
+    Array.from({ length: NUM_PARTICLES }, (_, i) => (i + 0.5) / NUM_PARTICLES),
   );
-
-  // Pre-cached normal random values for performance
-  const normalCacheRef = useRef([]);
-  const normalIndexRef = useRef(0);
-
-  // Generate normal random values using Box-Muller transform
-  const generateNormalCache = useCallback(() => {
-    const cache = [];
-    for (let i = 0; i < 1000; i += 2) {
-      const u1 = Math.random();
-      const u2 = Math.random();
-      const r = Math.sqrt(-2.0 * Math.log(u1));
-      const theta = 2.0 * Math.PI * u2;
-      cache.push(r * Math.cos(theta));
-      cache.push(r * Math.sin(theta));
-    }
-    normalCacheRef.current = cache;
-    normalIndexRef.current = 0;
-  }, []);
-
-  // Get next normal random value
-  const getNormalValue = useCallback(
-    (g, t) => {
-      if (normalIndexRef.current >= normalCacheRef.current.length) {
-        generateNormalCache();
-      }
-      const normalVal = normalCacheRef.current[normalIndexRef.current++];
-      // Gravity pulls down (negative g means downward), temperature scales random motion
-      return g / 200 + Math.sqrt(t / 300) * normalVal;
-    },
-    [generateNormalCache],
-  );
-
-  // Initialize normal cache
-  useEffect(() => {
-    generateNormalCache();
-  }, [generateNormalCache]);
 
   // Colors
   const getParticleColor = useCallback(() => {
@@ -178,263 +221,161 @@ const AtmosphericMoleculeSimulator = () => {
     [currentTheme],
   );
 
-  // Calculate histogram bins
-  const calculateBins = useCallback((heights) => {
+  // Calculate histogram bins (every molecule is between ground and ceiling)
+  const calculateBins = (heights) => {
     const bins = new Array(NUM_BINS).fill(0);
     heights.forEach((h) => {
-      const binIndex = Math.floor(h / BIN_SIZE);
-      if (binIndex >= 0 && binIndex < NUM_BINS) {
-        bins[binIndex]++;
-      }
+      const binIndex = Math.min(NUM_BINS - 1, Math.max(0, Math.floor(h / BIN_SIZE)));
+      bins[binIndex]++;
     });
     return bins;
-  }, []);
-
-  // Calculate expected distribution (Boltzmann/barometric formula)
-  // For a random walk with drift g/200 and variance (t/300), the stationary
-  // distribution is exponential: P(h) ∝ exp(-h / scale_height)
-  // where scale_height = variance / |drift| = (t/300) / (|g|/200) = 200t / (300|g|) = 2t / (3|g|)
-  const getExpectedDistribution = useCallback(() => {
-    const drift = Math.abs(gravity) / 200;
-    const variance = temperature / 300;
-
-    if (drift < 0.001) {
-      // No gravity - uniform distribution
-      return Array(NUM_BINS).fill(1 / NUM_BINS);
-    }
-
-    const scaleHeight = variance / drift;
-
-    // Calculate expected fraction in each bin
-    const expected = [];
-    let total = 0;
-
-    for (let i = 0; i < NUM_BINS; i++) {
-      const hLow = i * BIN_SIZE;
-      const hHigh = (i + 1) * BIN_SIZE;
-      // Integral of exp(-h/scale) from hLow to hHigh
-      const prob =
-        Math.exp(-hLow / scaleHeight) - Math.exp(-hHigh / scaleHeight);
-      expected.push(prob);
-      total += prob;
-    }
-
-    // Normalize
-    return expected.map((p) => p / total);
-  }, [gravity, temperature]);
+  };
 
   // Draw simulation
-  const drawSimulation = useCallback(
-    (heights) => {
-      const canvas = simulationCanvasRef.current;
-      if (!canvas) return;
+  const drawSimulation = useCallback(() => {
+    const setup = setupCanvas(simulationCanvasRef.current);
+    if (!setup) return;
+    const { ctx, width, height } = setup;
+    const { groundTop, pxPerUnit } = verticalGeometry(height);
 
-      const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
+    // Draw sky with gradient and clouds
+    drawSky(ctx, width, height);
 
-      // Draw sky with gradient and clouds
-      drawSky(ctx, width, height);
+    // Draw ground
+    ctx.fillStyle = getGroundColor();
+    ctx.fillRect(0, groundTop, width, height - groundTop);
 
-      // Draw ground (fixed 20px from bottom)
-      ctx.fillStyle = getGroundColor();
-      ctx.fillRect(0, height - GROUND_HEIGHT_PX, width, GROUND_HEIGHT_PX);
-
-      // Draw particles
-      const particleColor = getParticleColor();
-      const particleRadius = 2; // Smaller dots like original
-
-      ctx.fillStyle = particleColor;
-      heights.forEach((h, i) => {
-        // Use stable x position for each particle
-        const x = particleXPositions.current[i] * width;
-        // Map height units to pixels (2 pixels per unit), measured from top of ground
-        const y = height - GROUND_HEIGHT_PX - h * PIXELS_PER_UNIT;
-
-        ctx.beginPath();
-        ctx.arc(
-          x,
-          Math.max(
-            particleRadius,
-            Math.min(y, height - GROUND_HEIGHT_PX - particleRadius),
-          ),
-          particleRadius,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fill();
-      });
-    },
-    [drawSky, getGroundColor, getParticleColor],
-  );
+    // Draw particles
+    const particleRadius = 2;
+    ctx.fillStyle = getParticleColor();
+    ctx.beginPath();
+    heightsRef.current.forEach((h, i) => {
+      const x = particleXPositions.current[i] * width;
+      const y = Math.min(groundTop - particleRadius, groundTop - h * pxPerUnit);
+      ctx.moveTo(x + particleRadius, y);
+      ctx.arc(x, y, particleRadius, 0, Math.PI * 2);
+    });
+    ctx.fill();
+  }, [drawSky, getGroundColor, getParticleColor]);
 
   // Draw histogram
-  const drawHistogram = useCallback(
-    (heights) => {
-      const canvas = histogramCanvasRef.current;
-      if (!canvas) return;
+  const drawHistogram = useCallback(() => {
+    const setup = setupCanvas(histogramCanvasRef.current);
+    if (!setup) return;
+    const { ctx, width, height } = setup;
+    const { groundTop, pxPerUnit } = verticalGeometry(height);
+    const isDark = currentTheme === "dark";
 
-      const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
+    // Background
+    ctx.fillStyle = isDark ? "#1f2937" : "#f9fafb";
+    ctx.fillRect(0, 0, width, height);
 
-      // Clear
-      ctx.fillStyle = currentTheme === "dark" ? "#1f2937" : "#f9fafb";
-      ctx.fillRect(0, 0, width, height);
+    // Ground strip to match the simulation window
+    ctx.fillStyle = getGroundColor();
+    ctx.fillRect(0, groundTop, width, height - groundTop);
 
-      // Draw ground area to match simulation (same 20px from bottom)
-      ctx.fillStyle = getGroundColor();
-      ctx.fillRect(0, height - GROUND_HEIGHT_PX, width, GROUND_HEIGHT_PX);
+    const bins = calculateBins(heightsRef.current);
+    const expected = expectedBinFractions(gravity, temperature);
 
-      // Calculate bins and expected distribution
-      const bins = calculateBins(heights);
-      const expected = getExpectedDistribution();
-      const maxCount = Math.max(...bins, 1);
-      const maxExpected = Math.max(...expected);
-
-      // Draw histogram bars - positioned to align exactly with simulation
-      const barHeightPx = BIN_SIZE * PIXELS_PER_UNIT;
-      const leftPadding = 10; // Shift bars right to avoid GridWindow edge
-      const maxBarWidth = width - leftPadding - 5;
-
-      bins.forEach((count, i) => {
-        const density = count / NUM_PARTICLES;
-        // Scale so NUM_PARTICLES (200) = full width
-        const barWidth = (count / NUM_PARTICLES) * maxBarWidth;
-        // Position bars to align with height units in simulation
-        const y = height - GROUND_HEIGHT_PX - (i + 1) * barHeightPx;
-
-        ctx.fillStyle = getHistogramColor(density);
-        ctx.fillRect(leftPadding, y, barWidth, barHeightPx - 1);
-      });
-
-      // Draw expected distribution overlay (line)
-      ctx.strokeStyle = currentTheme === "dark" ? "#F59E0B" : "#B45309"; // Amber
-      ctx.lineWidth = 2;
+    // Height axis labels on the left (same heights as the atmosphere window)
+    const insetX = width * WINDOW_INSET;
+    const leftPadding = insetX + 24;
+    const maxBarWidth = width - leftPadding - insetX - 4;
+    ctx.fillStyle = isDark ? "#d1d5db" : "#374151";
+    ctx.strokeStyle = isDark ? "#6b7280" : "#9ca3af";
+    ctx.lineWidth = 1;
+    ctx.font = "10px monospace";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (let hTick = 0; hTick <= MAX_HEIGHT; hTick += 25) {
+      const y = groundTop - hTick * pxPerUnit;
+      ctx.fillText(String(hTick), leftPadding - 5, Math.max(y, height * WINDOW_INSET + 7));
       ctx.beginPath();
-
-      expected.forEach((prob, i) => {
-        // Scale expected line same as bars (probability = fraction of particles)
-        const expectedWidth = leftPadding + prob * maxBarWidth;
-        const y = height - GROUND_HEIGHT_PX - (i + 0.5) * barHeightPx;
-
-        if (i === 0) {
-          ctx.moveTo(expectedWidth, y);
-        } else {
-          ctx.lineTo(expectedWidth, y);
-        }
-      });
+      ctx.moveTo(leftPadding - 3, y);
+      ctx.lineTo(leftPadding, y);
       ctx.stroke();
-    },
-    [
-      currentTheme,
-      calculateBins,
-      getHistogramColor,
-      getGroundColor,
-      getExpectedDistribution,
-    ],
-  );
+    }
 
-  // Animation loop
-  const animate = useCallback(() => {
-    setParticleHeights((prevHeights) => {
-      const newHeights = prevHeights.map((h) => {
-        let newH = h + getNormalValue(gravity, temperature);
-        // Bounce off ground (elastic reflection)
-        if (newH < 0) {
-          newH = -newH;
-        }
-        return newH;
-      });
-      return newHeights;
+    // Histogram bars: width = fraction of the 200 molecules in that bin
+    const barHeightPx = BIN_SIZE * pxPerUnit;
+    bins.forEach((count, i) => {
+      const density = count / NUM_PARTICLES;
+      const barWidth = density * maxBarWidth;
+      const y = groundTop - (i + 1) * barHeightPx;
+      ctx.fillStyle = getHistogramColor(density);
+      ctx.fillRect(leftPadding, y, barWidth, barHeightPx - 1);
     });
 
-    animationRef.current = requestAnimationFrame(animate);
-  }, [gravity, temperature, getNormalValue]);
+    // Expected distribution overlay (line), same scale as the bars
+    ctx.strokeStyle = isDark ? "#F59E0B" : "#B45309"; // Amber
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    expected.forEach((prob, i) => {
+      const x = leftPadding + prob * maxBarWidth;
+      const y = groundTop - (i + 0.5) * barHeightPx;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }, [currentTheme, gravity, temperature, getHistogramColor, getGroundColor]);
+
+  // Animation loop: advance by real elapsed time (60 steps per second, the
+  // same speed as the original one-step-per-frame loop on a 60 Hz display)
+  const loop = useAnimationLoop((dt, now) => {
+    stepCarryRef.current += dt * STEPS_PER_SECOND;
+    const steps = Math.floor(stepCarryRef.current);
+    stepCarryRef.current -= steps;
+    const heights = heightsRef.current;
+    for (let s = 0; s < steps; s++) {
+      for (let i = 0; i < heights.length; i++) {
+        heights[i] = stepHeight(heights[i], gravity, temperature, randomNormal());
+      }
+    }
+    drawSimulation();
+    if (now - lastHistogramUpdateRef.current >= HISTOGRAM_UPDATE_INTERVAL) {
+      lastHistogramUpdateRef.current = now;
+      drawHistogram();
+      setStats(heightStats(heights));
+    }
+    return true;
+  });
 
   // Start/stop simulation
   const toggleSimulation = useCallback(() => {
-    if (isRunning) {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-        animationRef.current = null;
-      }
+    if (loop.isRunning()) {
+      loop.stop();
       setIsRunning(false);
+      drawHistogram();
+      setStats(heightStats(heightsRef.current));
     } else {
+      stepCarryRef.current = 0;
       setIsRunning(true);
-      animationRef.current = requestAnimationFrame(animate);
+      loop.start();
     }
-  }, [isRunning, animate]);
+  }, [loop, drawHistogram]);
 
   // Reset simulation
   const resetSimulation = useCallback(() => {
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
+    loop.stop();
     setIsRunning(false);
-    // Reset particles near the ground (height ~7.5 with small random offset)
-    setParticleHeights(
-      Array.from(
-        { length: NUM_PARTICLES },
-        () => 7.5 + (Math.random() * 2 - 1),
-      ),
-    );
-    generateNormalCache();
-  }, [generateNormalCache]);
+    heightsRef.current = initialHeights();
+    setStats(heightStats(heightsRef.current));
+    drawSimulation();
+    drawHistogram();
+  }, [loop, drawSimulation, drawHistogram]);
 
-  // Update animation when parameters change while running
+  // Redraw both windows right away on theme or parameter changes (also while
+  // paused, so the theory curve always matches the sliders)
   useEffect(() => {
-    if (isRunning) {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-      animationRef.current = requestAnimationFrame(animate);
-    }
-  }, [gravity, temperature, isRunning, animate]);
+    drawSimulation();
+    drawHistogram();
+  }, [drawSimulation, drawHistogram]);
 
-  // Draw whenever heights change (throttle histogram updates)
-  useEffect(() => {
-    drawSimulation(particleHeights);
-
-    // Throttle histogram updates to 5 per second
-    const now = Date.now();
-    if (now - lastHistogramUpdateRef.current >= HISTOGRAM_UPDATE_INTERVAL) {
-      drawHistogram(particleHeights);
-      lastHistogramUpdateRef.current = now;
-    }
-  }, [particleHeights, drawSimulation, drawHistogram]);
-
-  // Initialize canvases
-  useEffect(() => {
-    const initCanvas = (canvasRef) => {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    };
-
-    initCanvas(simulationCanvasRef);
-    initCanvas(histogramCanvasRef);
-    drawSimulation(particleHeights);
-    drawHistogram(particleHeights);
-  }, [currentTheme]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, []);
-
-  // Calculate statistics
-  const meanHeight = particleHeights.reduce((a, b) => a + b, 0) / NUM_PARTICLES;
-  const variance =
-    particleHeights.reduce((sum, h) => sum + Math.pow(h - meanHeight, 2), 0) /
-    NUM_PARTICLES;
-  const stdDev = Math.sqrt(variance);
+  const H = scaleHeight(gravity, temperature);
+  const theoryMean = expectedMeanHeight(gravity, temperature);
+  const isDark = currentTheme === "dark";
+  const barColor = isDark ? "#60a5fa" : currentTheme === "unicorn" ? "#7c3aed" : "#1e3a5f";
+  const lineColor = isDark ? "#F59E0B" : "#B45309";
 
   // Convert temperature to Fahrenheit for display
   const tempFahrenheit = (((temperature - 273.15) * 9) / 5 + 32).toFixed(0);
@@ -446,7 +387,14 @@ const AtmosphericMoleculeSimulator = () => {
       canvasHeight={5}
     >
       {/* Main simulation display */}
-      <GridWindow x={0} y={0} w={6} h={5} title="Atmosphere" theme={theme}>
+      <GridWindow
+        x={0}
+        y={0}
+        w={6}
+        h={5}
+        tooltip="Atmosphere: 200 molecules in a closed box (ground to ceiling)"
+        theme={theme}
+      >
         <canvas
           ref={simulationCanvasRef}
           style={{
@@ -458,7 +406,14 @@ const AtmosphericMoleculeSimulator = () => {
       </GridWindow>
 
       {/* Histogram display */}
-      <GridWindow x={6} y={0} w={2} h={5} title="Density" theme={theme}>
+      <GridWindow
+        x={6}
+        y={0}
+        w={2}
+        h={5}
+        tooltip="Density: bars = share of molecules at each height; amber line = theory"
+        theme={theme}
+      >
         <canvas
           ref={histogramCanvasRef}
           style={{
@@ -544,16 +499,27 @@ const AtmosphericMoleculeSimulator = () => {
             flexDirection: "column",
             justifyContent: "center",
             height: "100%",
-            lineHeight: "1.6",
+            lineHeight: "1.45",
           }}
         >
           <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
             Statistics
           </div>
           <div>Particles: {NUM_PARTICLES}</div>
-          <div>Mean height: {meanHeight.toFixed(1)}</div>
-          <div>Std dev: {stdDev.toFixed(1)}</div>
-          <div style={{ marginTop: "4px", opacity: 0.7 }}>
+          <div>Mean height: {stats.mean.toFixed(1)}</div>
+          <div>Std dev: {stats.stdDev.toFixed(1)}</div>
+          <div style={{ marginTop: "4px" }}>
+            Theory: H = {H.toFixed(1)}
+          </div>
+          <div>Theory mean: {theoryMean.toFixed(1)}</div>
+          <div style={{ marginTop: "4px", fontSize: "10px" }}>
+            <span style={{ color: barColor }}>{"\u25A0"}</span> molecules{" "}
+            <span style={{ color: lineColor, fontWeight: "bold" }}>
+              {"\u2014"}
+            </span>{" "}
+            theory
+          </div>
+          <div style={{ marginTop: "2px", opacity: 0.7 }}>
             {isRunning ? "Running..." : "Paused"}
           </div>
         </div>
