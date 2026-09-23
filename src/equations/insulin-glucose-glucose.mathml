@@ -13,10 +13,12 @@
         <mi>e</mi>
         <mrow>
           <mi>k</mi>
-          <msub>
-            <mi mathvariant="bold-italic">I</mi>
-            <mi>σ</mi>
-          </msub>
+          <mi mathvariant="bold-italic">I</mi>
+          <mo stretchy="false">(</mo>
+          <mi>t</mi>
+          <mo>−</mo>
+          <mi>σ</mi>
+          <mo stretchy="false">)</mo>
           <mo>−</mo>
           <mi>c</mi>
         </mrow>

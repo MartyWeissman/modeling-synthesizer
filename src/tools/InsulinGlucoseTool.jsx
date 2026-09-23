@@ -12,6 +12,17 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
+import {
+  simulateInsulinGlucoseEuler,
+  MEAL_TIMES,
+  CHALLENGE_TIME,
+} from "./insulinGlucoseModel";
+import { drawInsulinGlucosePlot } from "./insulinGlucosePlot";
+
+// Axis tops. Values above these are drawn off the top of the graph with a ▲
+// marker, and the legend shows the peak value.
+const GLUCOSE_AXIS_MAX = 12; // mM
+const INSULIN_AXIS_MAX = 200; // pM (insulin is displayed as I × 100 pM)
 
 const InsulinGlucoseTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -37,14 +48,18 @@ const InsulinGlucoseTool = () => {
   const [timeSeriesData, setTimeSeriesData] = useState([]);
   const [currentMode, setCurrentMode] = useState("baseline"); // "baseline", "meals", or "challenge"
 
+  // σ acts only through the liver term, which vanishes when α = 0.
+  const sigmaActive = alpha !== 0;
+
   // Canvas and transform refs
   const canvasRef = useRef(null);
   const transformRef = useRef(null);
 
-  // Differential equation solver using Euler's method with delay support
+  // Solve the model with the delays (see simulateInsulinGlucoseEuler in
+  // insulinGlucoseModel.js: the original 0.1 h Euler scheme, with automatic
+  // sub-steps where one step would be unstable, instead of clamping at 0).
   const runSimulation = useCallback(
     (mode = "baseline", params = null) => {
-      // Use provided params or current state values
       const currentParams = params || {
         m,
         s,
@@ -57,119 +72,7 @@ const InsulinGlucoseTool = () => {
         c,
         sigma,
       };
-      const dt = 0.1; // Time step in hours
-      const tMax = 20;
-      const steps = tMax / dt;
-
-      let G = 1; // Initial glucose concentration (normalized)
-      let I = 0.5; // Initial insulin concentration (normalized)
-
-      // History buffer for delayed glucose values (G --> I delay)
-      // Convert tau from minutes to hours
-      const tauHours = currentParams.tau / 60;
-      const tauDelaySteps = Math.round(tauHours / dt);
-      const glucoseHistory = [];
-
-      // Initialize glucose history with initial glucose value
-      for (let i = 0; i <= tauDelaySteps; i++) {
-        glucoseHistory.push(G);
-      }
-
-      // History buffer for delayed insulin values (I --> G delay)
-      // Convert sigma from minutes to hours
-      const sigmaHours = currentParams.sigma / 60;
-      const sigmaDelaySteps = Math.round(sigmaHours / dt);
-      const insulinHistory = [];
-
-      // Initialize insulin history with initial insulin value
-      for (let i = 0; i <= sigmaDelaySteps; i++) {
-        insulinHistory.push(I);
-      }
-
-      const dataPoints = [];
-
-      for (let i = 0; i <= steps; i++) {
-        const t = i * dt;
-
-        // Store data (convert to real units)
-        dataPoints.push({
-          time: t,
-          glucose: G * 5, // Convert to mmol/L
-          insulin: I * 6, // Convert to pmol/L
-        });
-
-        // Get delayed glucose value G_tau (for insulin production)
-        let G_tau;
-        if (tauDelaySteps === 0 || glucoseHistory.length <= tauDelaySteps) {
-          // No delay or not enough history yet - use current value
-          G_tau = G;
-        } else {
-          // Look back tau time units in history
-          G_tau = glucoseHistory[glucoseHistory.length - tauDelaySteps - 1];
-        }
-
-        // Get delayed insulin value I_sigma (for liver glucose production)
-        let I_sigma;
-        if (sigmaDelaySteps === 0 || insulinHistory.length <= sigmaDelaySteps) {
-          // No delay or not enough history yet - use current value
-          I_sigma = I;
-        } else {
-          // Look back sigma time units in history
-          I_sigma = insulinHistory[insulinHistory.length - sigmaDelaySteps - 1];
-        }
-
-        // Hill equation for insulin production with delayed glucose
-        const f = (G_tau * G_tau) / (1 + G_tau * G_tau);
-
-        // Glucose production based on mode
-        let mEffective = currentParams.m;
-        if (mode === "challenge") {
-          // Add glucose spike at t=5
-          mEffective += Math.exp(-Math.pow(t - 5, 2));
-        } else if (mode === "meals") {
-          // Add meal surges at t=6, 10, 16 (30-minute duration each)
-          const mealSurge = (mealTime) => {
-            const timeDiff = Math.abs(t - mealTime);
-            return timeDiff < 0.25
-              ? 0.8 * Math.exp(-Math.pow((t - mealTime) * 4, 2))
-              : 0;
-          };
-          mEffective += mealSurge(6) + mealSurge(10) + mealSurge(16);
-        }
-
-        // Liver glucose production term: alpha / (1 + e^(kI_sigma - c))
-        // Uses delayed insulin I_sigma
-        const liverProduction =
-          currentParams.alpha /
-          (1 + Math.exp(currentParams.k * I_sigma - currentParams.c));
-
-        // Differential equations - glucose uses current insulin, insulin uses delayed glucose
-        const dGdt = mEffective + liverProduction - currentParams.s * I * G;
-        const dIdt =
-          currentParams.q * currentParams.B * f - currentParams.gamma * I;
-
-        // Update using Euler's method
-        G += dGdt * dt;
-        I += dIdt * dt;
-
-        // Prevent negative values
-        G = Math.max(0, G);
-        I = Math.max(0, I);
-
-        // Add current values to history buffers
-        glucoseHistory.push(G);
-        insulinHistory.push(I);
-
-        // Keep history buffers from growing unboundedly
-        if (glucoseHistory.length > tauDelaySteps + 50) {
-          glucoseHistory.shift();
-        }
-        if (insulinHistory.length > sigmaDelaySteps + 50) {
-          insulinHistory.shift();
-        }
-      }
-
-      setTimeSeriesData(dataPoints);
+      setTimeSeriesData(simulateInsulinGlucoseEuler(currentParams, { mode }));
       setCurrentMode(mode);
     },
     [m, s, q, B, gamma, tau, alpha, k, c, sigma],
@@ -177,145 +80,23 @@ const InsulinGlucoseTool = () => {
 
   // Draw the time series on the dual Y-axis graph canvas
   const drawTimeSeries = useCallback(() => {
-    const canvas = canvasRef.current;
-    const transform = transformRef.current;
-    if (!canvas || !transform || timeSeriesData.length === 0) return;
-
-    const ctx = canvas.getContext("2d");
-    const { plotWidth, plotHeight, dataToPixelLeft } = transform;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, plotWidth, plotHeight);
-
-    // Draw normal glucose range background (using left axis for glucose)
-    const normalLow = 3.9;
-    const normalHigh = 5.5;
-    const normalLowPos = dataToPixelLeft(0, normalLow);
-    const normalHighPos = dataToPixelLeft(0, normalHigh);
-
-    ctx.fillStyle = "rgba(0, 255, 0, 0.1)";
-    ctx.fillRect(
-      0,
-      normalHighPos.y,
-      plotWidth,
-      normalLowPos.y - normalHighPos.y,
-    );
-
-    // Draw glucose curve (red) - uses left Y axis
-    ctx.strokeStyle = "#ff4444";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-
-    timeSeriesData.forEach((point, index) => {
-      const pos = dataToPixelLeft(point.time, Math.min(point.glucose, 12));
-      if (index === 0) {
-        ctx.moveTo(pos.x, pos.y);
-      } else {
-        ctx.lineTo(pos.x, pos.y);
-      }
-    });
-    ctx.stroke();
-
-    // Draw insulin curve (blue) - uses right Y axis (same scale in this case)
-    ctx.strokeStyle = "#4444ff";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-
-    timeSeriesData.forEach((point, index) => {
-      // Using dataToPixelLeft since both axes have same range [0, 12]
-      const pos = dataToPixelLeft(point.time, Math.min(point.insulin, 12));
-      if (index === 0) {
-        ctx.moveTo(pos.x, pos.y);
-      } else {
-        ctx.lineTo(pos.x, pos.y);
-      }
-    });
-    ctx.stroke();
-
-    // Draw mode indicators
+    const markers = [];
     if (currentMode === "challenge") {
-      const challengePos = dataToPixelLeft(5, 12); // t=5, top of graph
-      ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
-      ctx.font = "12px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("Challenge", challengePos.x, 15);
-
-      // Draw challenge marker line
-      ctx.strokeStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
-      ctx.setLineDash([3, 3]);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(challengePos.x, 20);
-      ctx.lineTo(challengePos.x, plotHeight);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      markers.push({ time: CHALLENGE_TIME, label: "Challenge", dash: [3, 3] });
     } else if (currentMode === "meals") {
-      // Draw meal indicators at t=6, 10, 16
-      const mealTimes = [6, 10, 16];
-      mealTimes.forEach((mealTime) => {
-        const mealPos = dataToPixelLeft(mealTime, 12);
-        ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
-        ctx.font = "11px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText("Meal", mealPos.x, 15);
-
-        // Draw meal marker line
-        ctx.strokeStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
-        ctx.setLineDash([2, 2]);
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(mealPos.x, 20);
-        ctx.lineTo(mealPos.x, plotHeight);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      });
+      MEAL_TIMES.forEach((t) => markers.push({ time: t, label: "Meal" }));
     }
-
-    // Legend in top-middle of graph
-    const legendCenterPos = dataToPixelLeft(12.5, 12);
-    const legendWidth = 126;
-    const legendHeight = 45;
-    const legendX = legendCenterPos.x - legendWidth / 2;
-    const legendY = 40;
-
-    // Legend background
-    ctx.fillStyle =
-      currentTheme === "dark"
-        ? "rgba(31, 41, 55, 0.9)"
-        : "rgba(255, 255, 255, 0.9)";
-    ctx.fillRect(legendX, legendY - 5, legendWidth, legendHeight);
-    ctx.strokeStyle =
-      currentTheme === "dark"
-        ? "rgba(255, 255, 255, 0.3)"
-        : "rgba(0, 0, 0, 0.3)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(legendX, legendY - 5, legendWidth, legendHeight);
-
-    // Legend items
-    ctx.font = "13px Arial";
-    ctx.textAlign = "left";
-
-    // Red line for glucose
-    ctx.strokeStyle = "#ff4444";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(legendX + 15, legendY + 6);
-    ctx.lineTo(legendX + 35, legendY + 6);
-    ctx.stroke();
-
-    ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
-    ctx.fillText("Glucose", legendX + 40, legendY + 11);
-
-    // Blue line for insulin
-    ctx.strokeStyle = "#4444ff";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(legendX + 15, legendY + 25);
-    ctx.lineTo(legendX + 35, legendY + 25);
-    ctx.stroke();
-
-    ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
-    ctx.fillText("Insulin", legendX + 40, legendY + 30);
+    drawInsulinGlucosePlot(
+      canvasRef.current,
+      transformRef.current,
+      timeSeriesData,
+      {
+        isDark: currentTheme === "dark",
+        glucoseMax: GLUCOSE_AXIS_MAX,
+        insulinMax: INSULIN_AXIS_MAX,
+        markers,
+      },
+    );
   }, [timeSeriesData, currentMode, currentTheme]);
 
   // Run initial simulation only once on mount
@@ -470,14 +251,14 @@ const InsulinGlucoseTool = () => {
         yLabelLeft="glucose"
         yLabelRight="insulin"
         xUnit="hours"
-        yUnitLeft="mmol/L"
-        yUnitRight="pmol/L"
+        yUnitLeft="mM"
+        yUnitRight="pM"
         xTicks={[0, 5, 10, 15, 20]}
         yTicksLeft={[0, 3, 6, 9, 12]}
-        yTicksRight={[0, 3, 6, 9, 12]}
+        yTicksRight={[0, 50, 100, 150, 200]}
         xRange={[0, 20]}
-        yRangeLeft={[0, 12]}
-        yRangeRight={[0, 12]}
+        yRangeLeft={[0, GLUCOSE_AXIS_MAX]}
+        yRangeRight={[0, INSULIN_AXIS_MAX]}
         leftAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
         rightAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
         tooltip="Insulin-Glucose Dynamics"
@@ -486,12 +267,7 @@ const InsulinGlucoseTool = () => {
         {(transform) => {
           transformRef.current = transform;
           return (
-            <canvas
-              ref={canvasRef}
-              style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
-            />
+            <canvas ref={canvasRef} style={transform.plotStyle} />
           );
         }}
       </GridGraphDualY>
@@ -595,19 +371,36 @@ const InsulinGlucoseTool = () => {
         theme={theme}
       />
 
-      {/* I --> G delay (sigma) slider */}
-      <GridSliderHorizontal
-        x={8}
-        y={4}
-        w={2}
-        h={1}
-        value={sigma * (100 / 60)} // Convert 0-60 to 0-100 scale
-        onChange={(value) => setSigma(value * (60 / 100))}
-        variant="unipolar"
-        label={`I → G delay (σ) = ${sigma.toFixed(0)} min`}
-        tooltip={`Insulin to glucose delay (sigma): ${sigma.toFixed(0)} minutes`}
-        theme={theme}
-      />
+      {/* I --> G delay (sigma) slider. σ only delays insulin's effect on the
+          liver term α / (1 + e^(k·I(t − σ) − c)), so it has no effect when
+          α = 0 (the default): the slider is dimmed and says so. */}
+      <div
+        style={{
+          opacity: sigmaActive ? 1 : 0.45,
+          transition: "opacity 0.2s",
+        }}
+      >
+        <GridSliderHorizontal
+          x={8}
+          y={4}
+          w={2}
+          h={1}
+          value={sigma * (100 / 60)} // Convert 0-60 to 0-100 scale
+          onChange={(value) => setSigma(value * (60 / 100))}
+          variant="unipolar"
+          label={
+            sigmaActive
+              ? `I → G delay (σ) = ${sigma.toFixed(0)} min`
+              : `σ = ${sigma.toFixed(0)} min (no effect: α = 0)`
+          }
+          tooltip={
+            sigmaActive
+              ? `Insulin to glucose (liver) delay (sigma): ${sigma.toFixed(0)} minutes`
+              : "Insulin to glucose (liver) delay (sigma). It only acts through the liver term, so it has no effect while α = 0. Set α > 0 to use it."
+          }
+          theme={theme}
+        />
+      </div>
     </ToolContainer>
   );
 };
