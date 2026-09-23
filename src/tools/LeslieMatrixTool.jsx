@@ -10,7 +10,9 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
-import { CELL_SIZE } from "../themes";
+import { setupCanvas } from "../utils/canvas";
+import { leslieLambda } from "../utils/linearAlgebra";
+import { pseudoLog, roundPercents } from "./leslieHelpers";
 
 const DEFAULT_STRATA   = 5;
 const MAX_STRATA       = 10;
@@ -18,8 +20,6 @@ const STEP_INTERVAL_MS = 300;
 
 // ── Pure helpers (outside component) ──────────────────────────────────────
 
-// Pseudolog: 0→0, 1→1, 10→2, 100→3, 1000→4 — evenly spaced on the axis
-const pseudoLog = (v) => (v <= 0 ? 0 : Math.log10(v) + 1);
 
 // Green (#22c55e = 34,197,94) → amber-brown (#b45309 = 180,83,9)
 const getStratumColor = (i, n) => {
@@ -111,38 +111,11 @@ const SECTION_GAP = 24;
 
 // ── Eigenanalysis ──────────────────────────────────────────────────────────
 
-const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
-
-// Returns { lambda, eigenvec } | "imprimitive" | null (trivial/zero matrix).
-// eigenvec entries sum to 1 (stable age distribution proportions).
-// Period = gcd of 1-indexed positions of positive fecundity entries.
-// Primitive iff period = 1 → power iteration is guaranteed to converge.
-const computeDominantEigen = (matrix, n) => {
-  const fecAges = [];
-  for (let c = 0; c < n; c++)
-    if (parseFloat(matrix[0][c] || 0) > 0) fecAges.push(c + 1);
-
-  if (fecAges.length === 0) return null;
-  if (fecAges.reduce(gcd) > 1) return "imprimitive";
-
-  // Power iteration (converges for primitive matrices)
-  let v = Array(n).fill(1 / n);
-  let lambda = 0;
-  for (let iter = 0; iter < 300; iter++) {
-    const nv = Array(n).fill(0);
-    for (let r = 0; r < n; r++)
-      for (let c = 0; c < n; c++)
-        nv[r] += parseFloat(matrix[r][c] || 0) * v[c];
-    const norm = Math.sqrt(nv.reduce((s, x) => s + x * x, 0));
-    if (norm < 1e-12) return null;
-    lambda = norm; // ‖M·v‖ → λ₁ at convergence (since ‖v‖ = 1)
-    v = nv.map((x) => x / norm);
-  }
-
-  const absV = v.map(Math.abs);
-  const sum = absV.reduce((s, x) => s + x, 0);
-  if (sum < 1e-12) return null;
-  return { lambda, eigenvec: absV.map((x) => x / sum) };
+const fmtSig = (v, digits = 3) => {
+  if (!Number.isFinite(v)) return "–";
+  if (v === 0) return "0";
+  if (Math.abs(v) >= 1e5 || Math.abs(v) < 1e-3) return v.toExponential(2);
+  return String(parseFloat(v.toPrecision(digits)));
 };
 
 // ── Value formatting ────────────────────────────────────────────────────────
@@ -163,37 +136,43 @@ const measureColWidths = (ctx, matrix, n) => {
   return widths;
 };
 
-const drawLeslieMatrixOnCanvas = (canvas, paramsRef, numStrata, currentTheme, currentPop = null) => {
-  const ctx = canvas.getContext("2d");
-  const W = canvas.width, H = canvas.height;
+const getParamVectors = (params, n) => ({
+  fec: Array.from({ length: n }, (_, i) => params[i].fecundity),
+  surv: Array.from({ length: n - 1 }, (_, i) => params[i].survival),
+});
+
+// sim: { t, n (current vector or null), history }
+const drawLeslieMatrixOnCanvas = (canvas, params, numStrata, currentTheme, sim) => {
+  const setup = setupCanvas(canvas);
+  if (!setup) return;
+  const { ctx, width: W, height: H } = setup;
   ctx.clearRect(0, 0, W, H);
   const n = numStrata;
 
   // Build Leslie matrix
   const matrix = Array.from({ length: n }, () => Array(n).fill("0"));
   for (let c = 0; c < n; c++) {
-    const f = paramsRef.current[c].fecundity;
+    const f = params[c].fecundity;
     matrix[0][c] = f !== "" ? f : "0";
   }
   for (let r = 1; r < n; r++) {
-    const s = paramsRef.current[r - 1].survival;
-    matrix[r][r - 1] = s !== "" ? s : "0";
+    const sv = params[r - 1].survival;
+    matrix[r][r - 1] = sv !== "" ? sv : "0";
   }
 
-  // Dominant eigenvector (for display and tooltip)
-  const eigenResult = computeDominantEigen(matrix, n);
-  if (eigenResult === "imprimitive") {
-    canvas.title = "Leslie matrix is imprimitive";
-  } else {
-    canvas.removeAttribute("title");
-  }
+  // Dominant eigenvalue, stable age distribution and reproductive values,
+  // computed exactly from the Euler–Lotka equation.
+  const { fec, surv } = getParamVectors(params, n);
+  const eig = leslieLambda(fec, surv);
+  const hasEigen = eig.lambda > 0 && eig.stableDistribution;
+  const percents = hasEigen ? roundPercents(eig.stableDistribution) : null;
 
   // Population vector — use current simulation state if available, else initPop
-  const popVec = currentPop !== null
-    ? currentPop
+  const popVec = sim.n !== null
+    ? sim.n
     : Array.from({ length: n }, (_, i) => {
-        const v = paramsRef.current[i].initPop;
-        return v !== "" ? parseFloat(v) : 0;
+        const v = params[i].initPop;
+        return v !== "" ? parseFloat(v) || 0 : 0;
       });
 
   // Theme colors
@@ -204,33 +183,77 @@ const drawLeslieMatrixOnCanvas = (canvas, paramsRef, numStrata, currentTheme, cu
   const survColor    = isUnicorn ? "#065f46" : isDark ? "#4ade80" : "#16a34a";
   const bracketColor = isUnicorn ? "#7c3aed" : isDark ? "#9ca3af" : "#374151";
   const labelColor   = isUnicorn ? "#7c3aed" : isDark ? "#d1d5db" : "#374151";
+  const noteColor    = isDark ? "#fbbf24" : "#b45309";
 
-  // Measure widths
+  // ── Readout at the bottom (not scaled): t, N(t), N(t)/N(t−1), λ₁ ──────────
+  const total = (v) => v.reduce((a, b) => a + (Number(b) || 0), 0);
+  const t = sim.n !== null ? sim.t : 0;
+  const Nt = total(popVec);
+  let ratioStr = "–";
+  if (sim.history.length >= 2) {
+    const prev = total(sim.history[sim.history.length - 2].n);
+    if (prev > 0) ratioStr = (Nt / prev).toFixed(4);
+  }
+  const lambdaStr = hasEigen ? eig.lambda.toFixed(4) : "–";
+  const readout1 = `t = ${t}    N(t) = ${fmtPop(Nt)}    N(t)/N(t−1) = ${ratioStr}    λ₁ = ${lambdaStr}`;
+  let readout2 = "";
+  if (!hasEigen) {
+    readout2 = "No age class that newborns can reach reproduces: the population dies out.";
+  } else if (eig.period > 1) {
+    readout2 = `Imprimitive (period ${eig.period}): the age structure oscillates forever, so N(t)/N(t−1) keeps changing; N grows by λ₁ per step on average.`;
+  }
+  const READOUT_FONT = 12;
+  const readoutH = readout2 ? 2 * (READOUT_FONT + 5) + 4 : READOUT_FONT + 9;
+
+  // ── Measure the matrix / vector block (drawn scaled to fit) ──────────────
   ctx.font = `${NUM_FONT}px monospace`;
   const colWidths    = measureColWidths(ctx, matrix, n);
-  const matrixInnerW = colWidths.reduce((s, w) => s + w + COL_PAD * 2, 0);
+  const matrixInnerW = colWidths.reduce((acc, w) => acc + w + COL_PAD * 2, 0);
   const matrixH      = n * ROW_H;
   const fullMatrixW  = matrixInnerW + BRACKET_W * 2;
 
-  let vecInnerW = 0;
-  for (let r = 0; r < n; r++)
-    vecInnerW = Math.max(vecInnerW, ctx.measureText(fmtPop(popVec[r])).width);
-  vecInnerW += COL_PAD * 2;
-  const fullVecW = vecInnerW + BRACKET_W * 2;
+  const colW = (strs) => Math.max(...strs.map((x) => ctx.measureText(x).width)) + COL_PAD * 2;
+  const popStrs = Array.from({ length: n }, (_, r) => fmtPop(popVec[r]));
+  const eigStrs = Array.from({ length: n }, (_, r) => (hasEigen ? `${percents[r]}%` : "–"));
+  const rvStrs  = Array.from({ length: n }, (_, r) =>
+    hasEigen && eig.reachable[r] ? fmtSig(eig.reproductiveValues[r]) : "–");
+  const vecInnerW   = colW(popStrs);
+  const eigenInnerW = Math.max(colW(eigStrs), ctx.measureText("100%").width + COL_PAD * 2);
+  const rvInnerW    = Math.max(colW(rvStrs), ctx.measureText("0.00").width + COL_PAD * 2);
+  const fullVecW   = vecInnerW + BRACKET_W * 2;
+  const fullEigenW = eigenInnerW + BRACKET_W * 2;
+  const fullRvW    = rvInnerW + BRACKET_W * 2;
 
-  // Eigenvector column — fixed width to fit "100%" regardless of actual values
-  const eigenInnerW = ctx.measureText("100%").width + COL_PAD * 2;
-  const fullEigenW  = eigenInnerW + BRACKET_W * 2;
+  ctx.font = `bold ${LABEL_FONT}px sans-serif`;
+  const labelW = (...ls) => Math.max(...ls.map((l) => ctx.measureText(l).width));
+  const lambdaLabel = hasEigen ? `λ₁ = ${eig.lambda.toPrecision(4)}` : "λ₁ = –";
+  const secW = [
+    Math.max(fullMatrixW, labelW("Leslie", "Matrix")),
+    Math.max(fullVecW, labelW("Current", "Population")),
+    Math.max(fullEigenW, labelW("Dominant", "Eigenvector", lambdaLabel)),
+    Math.max(fullRvW, labelW("Reproductive", "Value")),
+  ];
+  const gaps = [SECTION_GAP, SECTION_GAP * 2, SECTION_GAP];
+  const blockW = secW.reduce((a, b) => a + b, 0) + gaps.reduce((a, b) => a + b, 0);
+  const blockH = LABEL_ABOVE + matrixH;
+  const availH = H - readoutH - 4;
+  const scale = Math.min(1, (W - 8) / blockW, availH / blockH);
 
-  // Center label+matrix block vertically
-  const blockH      = LABEL_ABOVE + matrixH;
-  const blockStartY = Math.max(2, (H - blockH) / 2);
-  const matrixY     = blockStartY + LABEL_ABOVE;
-  const labelY      = blockStartY + LABEL_ABOVE / 2;
+  ctx.save();
+  const offX = (W - blockW * scale) / 2;
+  const offY = Math.max(2, (availH - blockH * scale) / 2);
+  ctx.translate(offX, offY);
+  ctx.scale(scale, scale);
 
-  const startX = Math.max(4, (W - (fullMatrixW + SECTION_GAP + fullVecW + SECTION_GAP * 3 + fullEigenW)) / 2);
-  const vecX   = startX + fullMatrixW + SECTION_GAP;
-  const eigenX = vecX + fullVecW + SECTION_GAP * 3;
+  const matrixY = LABEL_ABOVE;
+  const labelY  = LABEL_ABOVE / 2 + 4;
+  const secX = [0];
+  for (let k = 1; k < 4; k++) secX[k] = secX[k - 1] + secW[k - 1] + gaps[k - 1];
+  // Center each bracketed column within its section
+  const startX = secX[0] + (secW[0] - fullMatrixW) / 2;
+  const vecX   = secX[1] + (secW[1] - fullVecW) / 2;
+  const eigenX = secX[2] + (secW[2] - fullEigenW) / 2;
+  const rvX    = secX[3] + (secW[3] - fullRvW) / 2;
 
   // Labels
   ctx.font = `bold ${LABEL_FONT}px sans-serif`;
@@ -247,12 +270,10 @@ const drawLeslieMatrixOnCanvas = (canvas, paramsRef, numStrata, currentTheme, cu
     ctx.fillText(l2, cx, labelY - LINE_H);
     ctx.fillText(l3, cx, labelY);
   };
-  drawLabel2("Leslie",  "Matrix",     startX + fullMatrixW / 2);
-  drawLabel2("Current", "Population", vecX   + fullVecW   / 2);
-  const eigenValueStr = eigenResult && eigenResult !== "imprimitive"
-    ? `Eigenvalue = ${eigenResult.lambda.toPrecision(3)}`
-    : "";
-  drawLabel3("Dominant", "Eigenvector", eigenValueStr, eigenX + fullEigenW / 2);
+  drawLabel2("Leslie",  "Matrix",     secX[0] + secW[0] / 2);
+  drawLabel2("Current", "Population", secX[1] + secW[1] / 2);
+  drawLabel3("Dominant", "Eigenvector", lambdaLabel, secX[2] + secW[2] / 2);
+  drawLabel2("Reproductive", "Value", secX[3] + secW[3] / 2);
 
   // Bracket helper
   const drawBL = (x, y, h) => {
@@ -284,30 +305,41 @@ const drawLeslieMatrixOnCanvas = (canvas, paramsRef, numStrata, currentTheme, cu
     curX += cellW;
   }
 
-  // Population vector
-  drawBL(vecX, matrixY, matrixH);
-  drawBR(vecX + BRACKET_W + vecInnerW, matrixY, matrixH);
-  const vecCX = vecX + BRACKET_W + vecInnerW / 2;
-  for (let r = 0; r < n; r++) {
-    const str = fmtPop(popVec[r]), cellCY = matrixY + r * ROW_H + ROW_H / 2;
-    ctx.fillStyle = str === "0" ? zeroColor : getStratumColor(r, n);
-    ctx.fillText(str, vecCX, cellCY);
-  }
+  // A bracketed column vector of strings
+  const drawColumn = (x, innerW, strs, colorFor) => {
+    drawBL(x, matrixY, matrixH);
+    drawBR(x + BRACKET_W + innerW, matrixY, matrixH);
+    const cx = x + BRACKET_W + innerW / 2;
+    strs.forEach((str, r) => {
+      ctx.fillStyle = colorFor(str, r);
+      ctx.fillText(str, cx, matrixY + r * ROW_H + ROW_H / 2);
+    });
+  };
+  const stratumOrZero = (str, r) => (str === "0" || str === "–" ? zeroColor : getStratumColor(r, n));
+  drawColumn(vecX, vecInnerW, popStrs, stratumOrZero);
+  drawColumn(eigenX, eigenInnerW, eigStrs, stratumOrZero);
+  drawColumn(rvX, rvInnerW, rvStrs, stratumOrZero);
+  ctx.restore();
 
-  // Eigenvector column
-  drawBL(eigenX, matrixY, matrixH);
-  drawBR(eigenX + BRACKET_W + eigenInnerW, matrixY, matrixH);
-  const eigenCX = eigenX + BRACKET_W + eigenInnerW / 2;
-  const hasEigen = eigenResult && eigenResult !== "imprimitive";
-  for (let r = 0; r < n; r++) {
-    const cellCY = matrixY + r * ROW_H + ROW_H / 2;
-    if (hasEigen) {
-      ctx.fillStyle = getStratumColor(r, n);
-      ctx.fillText(Math.round(eigenResult.eigenvec[r] * 100) + "%", eigenCX, cellCY);
-    } else {
-      ctx.fillStyle = zeroColor;
-      ctx.fillText("–", eigenCX, cellCY);
-    }
+  // Readout
+  ctx.font = `${READOUT_FONT}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  const fitText = (str, y, color) => {
+    ctx.fillStyle = color;
+    const w = ctx.measureText(str).width;
+    const k = Math.min(1, (W - 8) / w);
+    ctx.save();
+    ctx.translate(W / 2, y);
+    ctx.scale(k, 1);
+    ctx.fillText(str, 0, 0);
+    ctx.restore();
+  };
+  if (readout2) {
+    fitText(readout1, H - READOUT_FONT - 9, labelColor);
+    fitText(readout2, H - 4, noteColor);
+  } else {
+    fitText(readout1, H - 5, labelColor);
   }
 };
 
@@ -350,7 +382,7 @@ const LeslieMatrixTool = () => {
   const drawMatrix = useCallback(() => {
     const canvas = matrixCanvasRef.current;
     if (!canvas) return;
-    drawLeslieMatrixOnCanvas(canvas, paramsRef, numStrata, currentTheme, simRef.current.n);
+    drawLeslieMatrixOnCanvas(canvas, paramsRef.current, numStrata, currentTheme, simRef.current);
   }, [currentTheme, numStrata]);
 
   useEffect(() => { drawMatrixRef.current = drawMatrix; }, [drawMatrix]);
@@ -358,12 +390,8 @@ const LeslieMatrixTool = () => {
   useEffect(() => {
     const canvas = matrixCanvasRef.current;
     if (!canvas) return;
-    const raf = requestAnimationFrame(() => {
-      const rect = canvas.getBoundingClientRect();
-      canvas.width  = rect.width  > 0 ? Math.round(rect.width)  : 6 * CELL_SIZE - 16;
-      canvas.height = rect.height > 0 ? Math.round(rect.height) : 3 * CELL_SIZE - 16;
-      drawMatrix();
-    });
+    // setupCanvas (inside the draw) sizes the canvas to its layout size × DPR
+    const raf = requestAnimationFrame(() => drawMatrix());
     return () => cancelAnimationFrame(raf);
   }, [drawMatrix]);
 
@@ -372,8 +400,11 @@ const LeslieMatrixTool = () => {
   const drawTimeSeries = useCallback((transform) => {
     const canvas = timeSeriesCanvasRef.current;
     if (!canvas || !transform) return;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const { ctx, width, height } = setupCanvas(canvas, {
+      width: transform.plotWidth,
+      height: transform.plotHeight,
+    });
+    ctx.clearRect(0, 0, width, height);
     const { history } = simRef.current;
     if (!history.length) return;
     const n = numStrataRef.current;
@@ -472,7 +503,8 @@ const LeslieMatrixTool = () => {
 
   const handleStep = useCallback(() => {
     if (simRef.current.isRunning) return;
-    if (!simRef.current.n) { initSimulation(); return; }
+    // The first press starts from the Start Population column and takes a step
+    if (!simRef.current.n) initSimulation();
     advanceStep();
   }, [initSimulation, advanceStep]);
 
@@ -489,8 +521,8 @@ const LeslieMatrixTool = () => {
 
   // Cleanup on unmount
   useEffect(() => {
+    const sim = simRef.current;
     return () => {
-      const sim = simRef.current;
       if (sim.intervalId) clearInterval(sim.intervalId);
     };
   }, []);
@@ -545,8 +577,6 @@ const LeslieMatrixTool = () => {
               ref={timeSeriesCanvasRef}
               className="absolute"
               style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
@@ -587,7 +617,7 @@ const LeslieMatrixTool = () => {
         x={6} y={4} w={1} h={1}
         type="momentary"
         onPress={handleStart}
-        bgColor="#16a34a"
+        bgColor={isRunning ? "#14532d" : "#16a34a"}
         theme={theme}
       >
         <div style={{ textAlign: "center" }}>Start</div>

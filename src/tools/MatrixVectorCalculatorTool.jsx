@@ -22,7 +22,7 @@ import {
 } from "../utils/linearAlgebra";
 
 const MatrixVectorCalculatorTool = () => {
-  const { theme, currentTheme } = useTheme();
+  const { theme } = useTheme();
 
   // Dimension state
   const [dim, setDim] = useState(2);
@@ -148,9 +148,9 @@ const MatrixVectorCalculatorTool = () => {
         cols={dim}
         values={mTimesN}
         readOnly
-        label="M × N"
+        label="MN"
         theme={theme}
-        tooltip="Matrix product M × N"
+        tooltip="Matrix product MN"
       />
 
       {/* ---- Spacer label between inputs and results (col 6) ---- */}
@@ -206,7 +206,7 @@ const MatrixVectorCalculatorTool = () => {
         readOnly
         label="Mv"
         theme={theme}
-        tooltip="Matrix-vector product M × v"
+        tooltip="Matrix-vector product Mv"
       />
 
       <GridMatrixInput
@@ -220,7 +220,7 @@ const MatrixVectorCalculatorTool = () => {
         readOnly
         label="Nw"
         theme={theme}
-        tooltip="Matrix-vector product N × w"
+        tooltip="Matrix-vector product Nw"
       />
 
       <GridMatrixInput
