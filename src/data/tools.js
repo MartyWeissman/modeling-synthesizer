@@ -132,7 +132,7 @@ export const toolDefinitions = {
   "shark-tuna-interaction": {
     name: "Shark-Tuna Interactions",
     description:
-      "Spatial predator-prey simulation showing real-time predation events in an ocean ecosystem.",
+      "Spatial predator-prey experiment: place sharks and tuna at random in a patch of ocean and count the encounters (interactions) between them.",
     component: SharkTunaInteractionTool,
     categories: {
       topics: ["ecology"],
@@ -249,7 +249,7 @@ export const toolDefinitions = {
       "Particle collision simulator showing random motion and interactions in a circular space. Track collision frequency over time.",
     component: SelfInteractionSimulatorTool,
     categories: {
-      topics: [],
+      topics: ["ecology"],
       toolType: "explorer",
       lab: "lab3",
     },
@@ -298,7 +298,7 @@ export const toolDefinitions = {
   "simple-harmonic-oscillator": {
     name: "Simple Harmonic Oscillator",
     description:
-      "Explore classical harmonic motion with position and momentum phase space visualization. Observe circular trajectories and perfect periodic oscillations.",
+      "Explore classical harmonic motion with position and momentum phase space visualization. Observe closed trajectories and perfectly periodic oscillations.",
     component: SimpleHarmonicOscillatorTool,
     categories: {
       topics: ["physical"],
@@ -376,7 +376,7 @@ export const toolDefinitions = {
   "tree-ring-simulator": {
     name: "Tree Ring Simulator",
     description:
-      "Simulate annual tree ring growth with random variation. Visualize growth patterns and compare total growth with expected values using z-scores.",
+      "Simulate annual tree ring growth with random variation. Visualize growth patterns and compare total growth with expected values.",
     component: TreeRingSimulatorTool,
     categories: {
       topics: ["ecology"],
@@ -402,7 +402,7 @@ export const toolDefinitions = {
   "yule-process-simulator": {
     name: "Yule Process Simulator",
     description:
-      "Simulate stochastic birth-death branching processes. Watch multiple population trajectories with adjustable division and death probabilities.",
+      "Simulate a stochastic birth–death process (a Yule process with deaths): in each time interval every cell may die or divide, with adjustable probabilities. Watch many population trajectories at once.",
     component: YuleProcessSimulatorTool,
     categories: {
       topics: ["ecology"],
@@ -415,7 +415,7 @@ export const toolDefinitions = {
   "brownian-motion": {
     name: "Brownian Motion Simulator",
     description:
-      "Visualize random molecular motion with adjustable particle radius, fluid viscosity, and temperature. Track displacement over time using the Einstein-Stokes diffusion equation.",
+      "Visualize random molecular motion with adjustable particle radius, fluid viscosity, and temperature. Track displacement over time using the Stokes–Einstein diffusion equation.",
     component: BrownianMotionSimulator,
     categories: {
       topics: ["molecular", "physical"],
@@ -506,7 +506,7 @@ export const toolDefinitions = {
   "2d-matrix-visualizer": {
     name: "2D Matrix Visualizer",
     description:
-      "Visualize how a 2×2 matrix acts as a linear map on the plane. Choose a shape, watch it transform in real time, iterate M repeatedly, and explore eigenvectors and matrix properties.",
+      "Visualize how a 2×2 matrix acts as a linear map on the plane. Choose a shape, apply M to it step by step, and explore eigenvectors and matrix properties.",
     component: TwoDimensionalMatrixVisualizerTool,
     categories: {
       topics: ["physical"],
