@@ -12,6 +12,7 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
 import { DynamicalSystem } from "../utils/equationParser";
+import { localPointer } from "../components/grid/pointer";
 
 const DynamicalSystemsCalculator = () => {
   const { theme, currentTheme } = useTheme();
@@ -575,11 +576,11 @@ const DynamicalSystemsCalculator = () => {
       const canvas = dynamicCanvasRef.current;
       if (!canvas || !transform) return;
 
-      const rect = canvas.getBoundingClientRect();
       const { pixelToData, plotWidth, plotHeight } = transform;
 
-      const canvasX = event.clientX - rect.left;
-      const canvasY = event.clientY - rect.top;
+      // Pointer position in the canvas's own CSS pixels (stays correct when
+      // ToolContainer scales the tool down to fit a narrow window)
+      const { x: canvasX, y: canvasY } = localPointer(event, canvas);
 
       // Check if click is within drawable area
       if (
