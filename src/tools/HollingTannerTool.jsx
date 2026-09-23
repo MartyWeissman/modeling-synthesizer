@@ -768,7 +768,9 @@ const HollingTannerTool = () => {
                   marginTop: "4px",
                   fontSize: "0.9em",
                   fontWeight: "bold",
-                  color: equilibriumColors(coexistence).fill,
+                  color: isDark
+                    ? equilibriumColors(coexistence).textDark
+                    : equilibriumColors(coexistence).text,
                 }}
               >
                 {capitalize(coexistence.type)}

@@ -636,7 +636,9 @@ const SharkTunaTrajectoryTool = () => {
                   marginTop: "4px",
                   fontSize: "0.9em",
                   fontWeight: "bold",
-                  color: equilibriumColors(interior).fill,
+                  color: isDark
+                    ? equilibriumColors(interior).textDark
+                    : equilibriumColors(interior).text,
                 }}
               >
                 {capitalize(interior.type)}

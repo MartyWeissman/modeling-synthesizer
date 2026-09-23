@@ -159,9 +159,15 @@ export function advanceState(f, rate, s, t, dt, { maxStep = 0.05, maxSubsteps = 
   return { s, t, blownUp: false };
 }
 
-/** Fill/stroke colors for an equilibrium marker, by stability. */
+/**
+ * Colors for an equilibrium, by stability: marker fill/stroke, plus text
+ * colors readable on light and dark backgrounds.
+ */
 export function equilibriumColors(cls) {
-  if (cls.stable === true) return { fill: "#2563eb", stroke: "#1d4ed8" }; // blue
-  if (cls.stable === false) return { fill: "#f59e0b", stroke: "#d97706" }; // orange
-  return { fill: "#8b5cf6", stroke: "#6d28d9" }; // purple: center / neutral
+  if (cls.stable === true) // blue
+    return { fill: "#2563eb", stroke: "#1d4ed8", text: "#1d4ed8", textDark: "#60a5fa" };
+  if (cls.stable === false) // orange
+    return { fill: "#f59e0b", stroke: "#d97706", text: "#b45309", textDark: "#fbbf24" };
+  // purple: center / neutral
+  return { fill: "#8b5cf6", stroke: "#6d28d9", text: "#6d28d9", textDark: "#a78bfa" };
 }
