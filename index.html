@@ -2,7 +2,18 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
-        <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+        <link rel="icon" type="image/png" href="/favicon.png" />
+        <link rel="apple-touch-icon" href="/favicon.png" />
+        <script>
+            // Paint the themed background before the app's JavaScript loads,
+            // so ?theme=dark pages don't flash white on every navigation.
+            (function () {
+                var bg = { dark: "#111827", unicorn: "#fef7ff" }[
+                    new URLSearchParams(location.search).get("theme")
+                ];
+                if (bg) document.documentElement.style.backgroundColor = bg;
+            })();
+        </script>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>
             Modeling Synthesizer - Interactive Mathematical Biology Simulations
@@ -33,6 +44,16 @@
             property="og:url"
             content="https://martyweissman.github.io/modeling-synthesizer/"
         />
+        <meta
+            property="og:image"
+            content="https://martyweissman.github.io/modeling-synthesizer/screenshot-sharks-tuna.png"
+        />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="828" />
+        <meta
+            property="og:image:alt"
+            content="The Shark-Tuna Trajectories tool: a phase portrait with vector field and trajectories"
+        />
 
         <!-- Twitter Card -->
         <meta name="twitter:card" content="summary_large_image" />
@@ -40,6 +61,10 @@
         <meta
             name="twitter:description"
             content="Free interactive simulations for mathematical biology education."
+        />
+        <meta
+            name="twitter:image"
+            content="https://martyweissman.github.io/modeling-synthesizer/screenshot-sharks-tuna.png"
         />
 
         <!-- Google Search Console Verification -->
