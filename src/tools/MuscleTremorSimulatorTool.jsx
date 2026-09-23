@@ -12,7 +12,12 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
 import Equation from "../components/Equation";
+import { delayRegime, dominantFrequency } from "./delayModels";
+
+const T_MAX = 2000; // ms simulated (and played back in 2 s of real time)
 
 const MuscleTremorSimulatorTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -28,9 +33,9 @@ const MuscleTremorSimulatorTool = () => {
 
   // Animation state for forearm visualization
   const [isAnimating, setIsAnimating] = useState(false);
-  const [currentAnimationLength, setCurrentAnimationLength] = useState(null);
-  const animationFrameRef = useRef(null);
-  const animationStartTimeRef = useRef(null);
+  // Playback time (ms of model time) shown by the forearm; null = at start
+  const [playbackTime, setPlaybackTime] = useState(null);
+  const playbackRef = useRef(0);
 
   // Canvas refs for visualization
   const canvasRef = useRef(null);
@@ -72,7 +77,7 @@ const MuscleTremorSimulatorTool = () => {
     };
 
     // L'(t) = (r/1000) * (Leq - L(t - tau))
-    // r is 0-100, divided by 1000 to convert from cm/s to cm/ms
+    // r is in 1/s; time is in ms, so the rate per ms is r/1000
     const derivative = (L, t) => {
       const L_delayed = getDelayedL(t);
       return (r / 1000) * (Leq - L_delayed);
@@ -92,23 +97,22 @@ const MuscleTremorSimulatorTool = () => {
     return newL;
   }, []);
 
-  // Oscillation detection state
+  // Oscillation analysis (regime from theory, frequency measured)
   const [oscillationStats, setOscillationStats] = useState({
-    period: null,
+    regime: "none",
     frequency: null,
   });
 
   // Run simulation
   const runSimulation = useCallback(() => {
     const dt = 1; // 1 ms timestep
-    const tMax = 2000; // 2 seconds = 2000 ms
     const params = { r, Leq, tau };
 
     const data = [];
     const history = [{ t: 0, L: L0 }];
     data.push({ t: 0, L: L0 });
 
-    for (let t = dt; t <= tMax; t += dt) {
+    for (let t = dt; t <= T_MAX; t += dt) {
       const newL = rk4Step(history, dt, params);
       const newPoint = { t, L: newL };
       history.push(newPoint);
@@ -117,67 +121,11 @@ const MuscleTremorSimulatorTool = () => {
 
     setSimulationData(data);
 
-    // Detect oscillations using FFT between 1000ms and 2000ms
-    const analysisStart = 1000;
-    const analysisEnd = 2000;
-    const analysisData = data.filter(
-      (point) => point.t >= analysisStart && point.t <= analysisEnd,
-    );
-
-    if (analysisData.length > 10) {
-      // Detrend the data (remove DC component and linear trend)
-      const values = analysisData.map((p) => p.L);
-      const n = values.length;
-      const mean = values.reduce((sum, v) => sum + v, 0) / n;
-      const detrended = values.map((v) => v - mean);
-
-      // Simple DFT for frequency analysis (looking for dominant frequency)
-      // We only need to check frequencies between 1-50 Hz
-      const sampleRate = 1000; // 1 sample per ms = 1000 Hz
-      const minFreq = 1; // Hz
-      const maxFreq = 50; // Hz
-
-      let maxPower = 0;
-      let dominantFreq = null;
-
-      // Check frequencies from 1 to 50 Hz in 0.1 Hz steps
-      for (let f = minFreq; f <= maxFreq; f += 0.1) {
-        let realSum = 0;
-        let imagSum = 0;
-
-        // Compute DFT at this frequency
-        for (let i = 0; i < n; i++) {
-          const angle = (2 * Math.PI * f * i) / sampleRate;
-          realSum += detrended[i] * Math.cos(angle);
-          imagSum += detrended[i] * Math.sin(angle);
-        }
-
-        // Power at this frequency
-        const power = realSum * realSum + imagSum * imagSum;
-
-        if (power > maxPower) {
-          maxPower = power;
-          dominantFreq = f;
-        }
-      }
-
-      // Only report if there's a clear oscillation (power threshold)
-      // Normalized power relative to signal variance
-      const variance = detrended.reduce((sum, v) => sum + v * v, 0) / n;
-      const normalizedPower = maxPower / (n * n * variance);
-
-      if (normalizedPower > 0.3 && dominantFreq !== null) {
-        const period = 1000 / dominantFreq; // Convert Hz to ms
-        setOscillationStats({
-          period: period,
-          frequency: dominantFreq,
-        });
-      } else {
-        setOscillationStats({ period: null, frequency: null });
-      }
-    } else {
-      setOscillationStats({ period: null, frequency: null });
-    }
+    const regime = delayRegime(r / 1000, tau);
+    // Measure the frequency between 1000 ms and 2000 ms
+    const values = data.filter((p) => p.t >= 1000).map((p) => p.L);
+    const frequency = regime === "none" ? null : dominantFrequency(values);
+    setOscillationStats({ regime, frequency });
   }, [r, Leq, tau, L0, rk4Step]);
 
   // Draw simulation on canvas
@@ -186,11 +134,13 @@ const MuscleTremorSimulatorTool = () => {
     const canvas = canvasRef.current;
     if (!canvas || !transform || simulationData.length === 0) return;
 
-    const ctx = canvas.getContext("2d");
-    const { dataToPixel, plotWidth, plotHeight } = transform;
+    const setup = setupCanvas(canvas);
+    if (!setup) return;
+    const { ctx } = setup;
+    const { dataToPixel, plotWidth } = transform;
 
     // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, setup.width, setup.height);
 
     // Draw invalid regions (shaded areas)
     ctx.fillStyle =
@@ -200,17 +150,17 @@ const MuscleTremorSimulatorTool = () => {
 
     // Bottom invalid region (0-10 cm)
     const bottomLeft = dataToPixel(0, 0);
-    const bottomRight = dataToPixel(2000, 10);
+    const bottomRight = dataToPixel(T_MAX, 10);
     ctx.fillRect(0, bottomRight.y, plotWidth, bottomLeft.y - bottomRight.y);
 
     // Top invalid region (30-40 cm)
     const topLeft = dataToPixel(0, 40);
-    const topRight = dataToPixel(2000, 30);
+    const topRight = dataToPixel(T_MAX, 30);
     ctx.fillRect(0, topLeft.y, plotWidth, topRight.y - topLeft.y);
 
     // Draw equilibrium line (red dashed)
     const eqLeft = dataToPixel(0, Leq);
-    const eqRight = dataToPixel(2000, Leq);
+    const eqRight = dataToPixel(T_MAX, Leq);
     ctx.strokeStyle = currentTheme === "dark" ? "#ef4444" : "#dc2626";
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 5]);
@@ -244,6 +194,21 @@ const MuscleTremorSimulatorTool = () => {
 
     ctx.stroke();
 
+    // Playback cursor: where the forearm is in time
+    if (playbackTime !== null) {
+      const top = dataToPixel(playbackTime, 40);
+      const bottom = dataToPixel(playbackTime, 0);
+      ctx.strokeStyle =
+        currentTheme === "dark"
+          ? "rgba(255, 255, 255, 0.45)"
+          : "rgba(0, 0, 0, 0.35)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(top.x, top.y);
+      ctx.lineTo(bottom.x, bottom.y);
+      ctx.stroke();
+    }
+
     // Draw current state (black dot at end)
     if (simulationData.length > 0) {
       const lastPoint = simulationData[simulationData.length - 1];
@@ -255,7 +220,8 @@ const MuscleTremorSimulatorTool = () => {
       ctx.fill();
     }
 
-    // Draw delayed state (red dot) if tau > 0
+    // Draw delayed state (red dot) if tau > 0: the value L(t - tau) that
+    // the reflex is responding to at the final time t = 2000 ms
     if (tau > 0 && simulationData.length > 0) {
       const lastPoint = simulationData[simulationData.length - 1];
       const lastT = lastPoint.t;
@@ -286,17 +252,7 @@ const MuscleTremorSimulatorTool = () => {
       ctx.arc(delayedPos.x, delayedPos.y, 5, 0, 2 * Math.PI);
       ctx.fill();
     }
-  }, [simulationData, Leq, L0, tau, currentTheme]);
-
-  // Initialize canvas
-  useEffect(() => {
-    if (canvasRef.current && transformRef.current) {
-      const canvas = canvasRef.current;
-      canvas.width = transformRef.current.plotWidth;
-      canvas.height = transformRef.current.plotHeight;
-      drawSimulation();
-    }
-  }, [drawSimulation]);
+  }, [simulationData, Leq, L0, tau, currentTheme, playbackTime]);
 
   // Redraw when simulation data or theme changes
   useEffect(() => {
@@ -310,13 +266,14 @@ const MuscleTremorSimulatorTool = () => {
 
   // Draw forearm at a specific muscle length
   const drawForearm = useCallback(
-    (canvas, ctx, muscleLength) => {
+    (muscleLength) => {
+      const canvas = forearmCanvasRef.current;
       if (!canvas) return;
+      const setup = setupCanvas(canvas);
+      if (!setup) return;
+      const { ctx, width, height } = setup;
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const width = canvas.width;
-      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
 
       // Elbow position - vertical position chosen so horizontal arm aligns with L=20cm
       const elbowX = width * 0.8;
@@ -330,11 +287,10 @@ const MuscleTremorSimulatorTool = () => {
       // Move elbow down 36 pixels from center to make upper arm longer
       const elbowY = height * 0.5 + 36;
 
-      // Map muscle length (10-30 cm) to angle
-      // L=10 -> arm points down about 45 degrees
-      // L=20 -> arm is horizontal pointing left (angle 180 degrees)
-      // L=30 -> arm points up about 45 degrees
-      // Angle in radians: Math.PI + (20 - L) / 20 * (Math.PI / 2)
+      // Map muscle length (10-30 cm) to angle (canvas y points down):
+      // L=10 -> forearm angled about 45 degrees UP (elbow flexed)
+      // L=20 -> forearm horizontal, pointing left (angle 180 degrees)
+      // L=30 -> forearm angled about 45 degrees DOWN (elbow extended)
       const angle = Math.PI + ((Leq - muscleLength) / 20) * (Math.PI / 2);
 
       // Hand position (end of forearm)
@@ -385,111 +341,60 @@ const MuscleTremorSimulatorTool = () => {
     [Leq, currentTheme],
   );
 
-  // Animation loop for forearm
-  const animateForearm = useCallback(
-    (timestamp) => {
-      if (!animationStartTimeRef.current) {
-        animationStartTimeRef.current = timestamp;
-      }
-
-      const elapsed = timestamp - animationStartTimeRef.current;
-
-      if (elapsed >= 2000 || simulationData.length === 0) {
-        // Animation complete - leave hand at final position
-        setIsAnimating(false);
-        animationStartTimeRef.current = null;
-
-        // Set final position
-        const finalLength = simulationData[simulationData.length - 1]?.L || L0;
-        setCurrentAnimationLength(finalLength);
-
-        if (forearmCanvasRef.current) {
-          const canvas = forearmCanvasRef.current;
-          const ctx = canvas.getContext("2d");
-          drawForearm(canvas, ctx, finalLength);
-        }
-        return;
-      }
-
-      // Find corresponding muscle length from simulation data
-      const dataIndex = Math.floor(elapsed);
-      const muscleLength = simulationData[dataIndex]?.L || L0;
-      setCurrentAnimationLength(muscleLength);
-
-      // Draw forearm at this position
-      if (forearmCanvasRef.current) {
-        const canvas = forearmCanvasRef.current;
-        const ctx = canvas.getContext("2d");
-        drawForearm(canvas, ctx, muscleLength);
-      }
-
-      // Continue animation
-      animationFrameRef.current = requestAnimationFrame(animateForearm);
+  // Muscle length at model time t (ms), from the current simulation
+  const lengthAt = useCallback(
+    (t) => {
+      if (simulationData.length === 0) return L0;
+      const i = Math.max(0, Math.min(simulationData.length - 1, Math.floor(t)));
+      const j = Math.min(simulationData.length - 1, i + 1);
+      const frac = Math.max(0, Math.min(1, t - i));
+      return simulationData[i].L + frac * (simulationData[j].L - simulationData[i].L);
     },
-    [simulationData, L0, drawForearm],
+    [simulationData, L0],
   );
 
-  // Start animation
+  // Forearm playback: 1 ms of model time per 1 ms of real time. Always
+  // reads the latest simulation, so changing a slider mid-play is safe.
+  const playLoop = useAnimationLoop((dtSeconds) => {
+    const t = Math.min(T_MAX, playbackRef.current + dtSeconds * 1000);
+    playbackRef.current = t;
+    setPlaybackTime(t);
+    if (t >= T_MAX) {
+      setIsAnimating(false);
+      return false; // leave the hand at the final position
+    }
+    return true;
+  });
+  const { start: startPlay, stop: stopPlay } = playLoop;
+
+  // Start animation (from the beginning)
   const handlePlayAnimation = useCallback(() => {
     if (isAnimating) return;
-
+    playbackRef.current = 0;
+    setPlaybackTime(0);
     setIsAnimating(true);
-    setCurrentAnimationLength(null);
-    animationStartTimeRef.current = null;
-    animationFrameRef.current = requestAnimationFrame(animateForearm);
-  }, [isAnimating, animateForearm]);
+    startPlay();
+  }, [isAnimating, startPlay]);
 
   // Reset animation to starting position
   const handleResetAnimation = useCallback(() => {
+    stopPlay();
     setIsAnimating(false);
-    setCurrentAnimationLength(null);
-    animationStartTimeRef.current = null;
+    playbackRef.current = 0;
+    setPlaybackTime(null);
+  }, [stopPlay]);
 
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-
-    // Draw at initial position
-    if (forearmCanvasRef.current) {
-      const canvas = forearmCanvasRef.current;
-      const ctx = canvas.getContext("2d");
-      drawForearm(canvas, ctx, L0);
-    }
-  }, [L0, drawForearm]);
-
-  // Initialize forearm canvas
+  // A finished playback belongs to the old parameters: when the simulation
+  // changes (and nothing is playing), show the new starting position.
   useEffect(() => {
-    if (forearmCanvasRef.current) {
-      const canvas = forearmCanvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+    if (!isAnimating) setPlaybackTime(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simulationData]);
 
-      // Draw initial position
-      const ctx = canvas.getContext("2d");
-      drawForearm(canvas, ctx, L0);
-    }
-  }, [L0, drawForearm]);
-
-  // Redraw forearm when parameters change (if not animating)
+  // Draw the forearm whenever the shown time, data or theme changes
   useEffect(() => {
-    if (!isAnimating && forearmCanvasRef.current) {
-      const canvas = forearmCanvasRef.current;
-      const ctx = canvas.getContext("2d");
-      const displayLength =
-        currentAnimationLength !== null ? currentAnimationLength : L0;
-      drawForearm(canvas, ctx, displayLength);
-    }
-  }, [L0, isAnimating, currentAnimationLength, drawForearm]);
-
-  // Cleanup animation on unmount
-  useEffect(() => {
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, []);
+    drawForearm(playbackTime === null ? L0 : lengthAt(playbackTime));
+  }, [playbackTime, L0, lengthAt, drawForearm]);
 
   return (
     <ToolContainer
@@ -513,6 +418,7 @@ const MuscleTremorSimulatorTool = () => {
         yRange={[0, 40]}
         leftAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
         theme={theme}
+        tooltip="Green: muscle length L(t). Red dashed: L = 20 cm. Black dot: L at t = 2000 ms; red dot: the delayed value L(t − τ) the reflex is reacting to then."
       >
         {(transform) => {
           transformRef.current = transform;
@@ -521,8 +427,6 @@ const MuscleTremorSimulatorTool = () => {
               ref={canvasRef}
               className="absolute pointer-events-none"
               style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
@@ -534,8 +438,11 @@ const MuscleTremorSimulatorTool = () => {
         y={3}
         w={3}
         h={1}
-        value={(L0 - 10) * 5}
-        onChange={(value) => setL0(10 + value / 5)}
+        value={L0}
+        onChange={(value) => setL0(Math.round(value * 5) / 5)}
+        min={10}
+        max={30}
+        step={0.2}
         variant="unipolar"
         label={`Initial length L₀ = ${L0.toFixed(1)} cm`}
         theme={theme}
@@ -566,7 +473,7 @@ const MuscleTremorSimulatorTool = () => {
         value={r}
         onChange={setR}
         variant="unipolar"
-        label={`Reflex magnitude r = ${r.toFixed(0)}`}
+        label={`Reflex magnitude r = ${r.toFixed(0)} s⁻¹`}
         theme={theme}
       />
 
@@ -576,8 +483,11 @@ const MuscleTremorSimulatorTool = () => {
         y={4}
         w={3}
         h={1}
-        value={tau * (100 / 30)}
-        onChange={(value) => setTau(Math.round(value * (30 / 100)))}
+        value={tau}
+        onChange={(value) => setTau(Math.round(value))}
+        min={0}
+        max={30}
+        step={1}
         variant="unipolar"
         label={`Time delay τ = ${tau} ms`}
         theme={theme}
@@ -595,7 +505,7 @@ const MuscleTremorSimulatorTool = () => {
         />
       </GridWindow>
 
-      {/* Play Animation Button (1.5x1) - below forearm window */}
+      {/* Play / Reset buttons and playback time - below forearm window */}
       <GridButton
         x={6}
         y={2}
@@ -610,11 +520,10 @@ const MuscleTremorSimulatorTool = () => {
         </div>
       </GridButton>
 
-      {/* Reset Animation Button (1.5x1) - below forearm window */}
       <GridButton
         x={7}
         y={2}
-        w={2}
+        w={1}
         h={1}
         onPress={handleResetAnimation}
         theme={theme}
@@ -623,6 +532,22 @@ const MuscleTremorSimulatorTool = () => {
           <div>Reset</div>
         </div>
       </GridButton>
+
+      <GridDisplay
+        x={8}
+        y={2}
+        w={1}
+        h={1}
+        variant="info"
+        align="center"
+        fontSize="small"
+        theme={theme}
+      >
+        <div style={{ textAlign: "center", lineHeight: "1.3" }}>
+          <div style={{ fontSize: "0.85em", opacity: 0.7 }}>t</div>
+          <div>{Math.round(playbackTime ?? 0)} ms</div>
+        </div>
+      </GridDisplay>
 
       {/* Oscillation Statistics Display (3x2) - bottom right */}
       <GridDisplay
@@ -640,14 +565,25 @@ const MuscleTremorSimulatorTool = () => {
             Oscillation Analysis
           </div>
           <div style={{ fontSize: "0.9em", lineHeight: "1.4" }}>
-            {oscillationStats.period !== null ? (
+            <div style={{ fontWeight: "bold" }}>
+              {oscillationStats.regime === "sustained"
+                ? "Sustained oscillations"
+                : oscillationStats.regime === "damped"
+                  ? "Damped oscillations (die out)"
+                  : "No oscillations"}
+            </div>
+            {oscillationStats.frequency !== null ? (
               <>
-                <div>Period: {oscillationStats.period.toFixed(1)} ms</div>
+                <div>
+                  Period: {(1000 / oscillationStats.frequency).toFixed(1)} ms
+                </div>
                 <div>Frequency: {oscillationStats.frequency.toFixed(2)} Hz</div>
               </>
             ) : (
               <div style={{ fontStyle: "italic", opacity: 0.7 }}>
-                No oscillations detected
+                {oscillationStats.regime === "none"
+                  ? "L returns smoothly to 20 cm"
+                  : "Dies out too fast to measure"}
               </div>
             )}
           </div>
