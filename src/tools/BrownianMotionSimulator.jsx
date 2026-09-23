@@ -10,14 +10,30 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
-import { CELL_SIZE } from "../themes";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
+import { randomNormal } from "../utils/random";
+import { stokesEinsteinD } from "./stochasticToolsMath";
+
+// Simulation timing
+const TIME_STEP = 0.05; // simulated seconds per step
+const STEPS_PER_SECOND = Math.round(1 / TIME_STEP); // 20 steps per simulated second
+const TOTAL_STEPS = 10 * STEPS_PER_SECOND; // a run is 10 simulated seconds
+// Steps per real second: one step per frame at 60 Hz, as before, so a run
+// still takes 200/60 ≈ 3.3 s at any refresh rate.
+const STEPS_PER_REAL_SECOND = 60;
+
+// View: at least 15 μm from the center to the edge; doubles (30, 60, ... μm)
+// whenever the particle would otherwise leave the viewport
+const BASE_VIEW_RADIUS = 15;
+
+// Expected squared displacement in 2-D after t seconds: E(d²) = 4Dt
+// (= 2 k_B T t / (3π r η)), in μm²
+const expectedD2 = (params, t) =>
+  4 * stokesEinsteinD(params.temperature, params.viscosity, params.radius) * t;
 
 const BrownianMotionSimulator = () => {
   const { theme, currentTheme } = useTheme();
-
-  // Physical constants
-  const BOLTZMANN = 1.38e-23; // Boltzmann constant in J/K
-  const TIME_STEP = 0.05; // seconds per simulation step
 
   // UI State - React state for controls
   const [uiParams, setUiParams] = useState({
@@ -51,59 +67,33 @@ const BrownianMotionSimulator = () => {
   const animationStateRef = useRef({
     position: { x: 0, y: 0 },
     trajectory: [{ x: 0, y: 0 }],
-    time: 0,
-    animationId: null,
+    step: 0, // integer step counter (time = step · TIME_STEP)
+    stepAccumulator: 0, // fractional steps carried between frames
+    viewRadius: BASE_VIEW_RADIUS,
     isRunning: false,
-    params: { ...uiParams },
+    params: { ...uiParams }, // parameters used by the current/last run
     recordedData: emptyTableData(),
   });
 
-  // Update animation parameters when UI changes
-  useEffect(() => {
-    animationStateRef.current.params = { ...uiParams };
-  }, [uiParams]);
+  // state.params is set when a run starts (and on Reset), so the trajectory,
+  // table and expectation circle always belong to one set of parameters.
 
   // Sync showExpectation ref with state
   useEffect(() => {
     showExpectationRef.current = showExpectation;
   }, [showExpectation]);
 
-  // Calculate step size (standard deviation of displacement) using Einstein-Stokes
-  // D = kT / (6 * pi * eta * r), then sigma = sqrt(2 * D * dt)
-  const calculateStepSize = useCallback(
-    (temp, viscosity, radius) => {
-      const tempKelvin = temp + 273.15;
-      const viscosityPascalSec = viscosity * 0.001; // centiPoise to Pascal-seconds
-      const radiusMeters = radius * 1e-6; // microns to meters
-
-      // D in m^2/s
-      const D =
-        (BOLTZMANN * tempKelvin) /
-        (6 * Math.PI * viscosityPascalSec * radiusMeters);
-
-      // Standard deviation of displacement in microns
-      const sigma = Math.sqrt(2 * D * TIME_STEP) * 1e6;
-
-      return sigma;
-    },
-    [TIME_STEP],
-  );
-
-  // Generate a random number from normal distribution (Box-Muller transform)
-  const randomNormal = useCallback(() => {
-    const u1 = Math.random();
-    const u2 = Math.random();
-    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  }, []);
+  // Standard deviation (μm) of each coordinate's displacement in one step:
+  // σ = √(2 D Δt), with D from Stokes–Einstein, D = k_B T / (6π η r)
+  const calculateStepSize = (temp, viscosity, radius) =>
+    Math.sqrt(2 * stokesEinsteinD(temp, viscosity, radius) * TIME_STEP);
 
   // Draw the particle and trajectory on canvas
   const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext("2d");
-    const width = canvas.width;
-    const height = canvas.height;
+    const { ctx, width, height } = setupCanvas(canvas);
     const centerX = width / 2;
     const centerY = height / 2;
 
@@ -114,11 +104,16 @@ const BrownianMotionSimulator = () => {
     ctx.fillStyle = currentTheme === "dark" ? "#1f2937" : "#f8fafc";
     ctx.fillRect(0, 0, width, height);
 
-    // Scale: 15 microns visible radius
-    const pixelsPerMicron = Math.min(width, height) / 2 / 15;
+    const state = animationStateRef.current;
 
-    // Draw grid lines (5 micron spacing)
-    const gridSpacing = 5 * pixelsPerMicron;
+    // Scale: viewRadius microns from the center to the edge (15 μm, or
+    // larger if the particle has wandered farther)
+    const viewRadius = state.viewRadius;
+    const pixelsPerMicron = Math.min(width, height) / 2 / viewRadius;
+    const gridMicrons = viewRadius / 3; // 5 μm at the default scale
+
+    // Draw grid lines (gridMicrons spacing)
+    const gridSpacing = gridMicrons * pixelsPerMicron;
     ctx.strokeStyle =
       currentTheme === "dark"
         ? "rgba(255, 255, 255, 0.15)"
@@ -159,8 +154,6 @@ const BrownianMotionSimulator = () => {
     // Convert position (microns) to pixels
     const toPixelX = (x) => centerX + x * pixelsPerMicron;
     const toPixelY = (y) => centerY - y * pixelsPerMicron;
-
-    const state = animationStateRef.current;
 
     // Draw trajectory
     if (state.trajectory.length > 1) {
@@ -220,22 +213,12 @@ const BrownianMotionSimulator = () => {
     ctx.arc(particleX, particleY, particlePixelRadius, 0, 2 * Math.PI);
     ctx.fill();
 
-    // Draw expectation circle if enabled
-    // E(d²) = (k_B * T) / (3 * π * r * η) * t
-    // So expected d = sqrt(E(d²))
-    if (showExpectationRef.current && state.time > 0) {
-      const { temperature, viscosity, radius } = state.params;
-      const tempKelvin = temperature + 273.15;
-      const viscosityPascalSec = viscosity * 0.001;
-      const radiusMeters = radius * 1e-6;
-
-      // E(d²) in m², then convert to μm²
-      const expectedD2_m2 =
-        ((2*BOLTZMANN * tempKelvin) /
-          (3 * Math.PI * radiusMeters * viscosityPascalSec)) *
-        state.time;
-      const expectedD2_um2 = expectedD2_m2 * 1e12; // Convert m² to μm²
-      const expectedD_um = Math.sqrt(expectedD2_um2);
+    // Draw expectation circle if enabled: radius √E(d²), where in 2-D
+    // E(d²) = 4Dt = 2 k_B T t / (3π r η)
+    if (showExpectationRef.current && state.step > 0) {
+      const expectedD_um = Math.sqrt(
+        expectedD2(state.params, state.step * TIME_STEP),
+      );
 
       const expectedRadiusPixels = expectedD_um * pixelsPerMicron;
 
@@ -251,9 +234,9 @@ const BrownianMotionSimulator = () => {
       ctx.stroke();
     }
 
-    // Draw scale arrow (5 microns) - offset to align with grid square, within circular viewport
-    const scaleBarLength = 5 * pixelsPerMicron;
-    const scaleOffsetX = 2.5 * pixelsPerMicron; // Shift right to center under a grid square
+    // Draw scale arrow (one grid square) - offset to align with a grid square, within circular viewport
+    const scaleBarLength = gridMicrons * pixelsPerMicron;
+    const scaleOffsetX = scaleBarLength / 2; // Shift right to center under a grid square
     const scaleArrowX = centerX - scaleBarLength / 2 + scaleOffsetX;
     const scaleArrowY = centerY + (Math.min(width, height) / 2) * 0.7; // 70% down from center
     const arrowHeadSize = 5;
@@ -293,72 +276,87 @@ const BrownianMotionSimulator = () => {
     // Scale label - centered beneath the arrow
     ctx.font = "bold 12px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("5 μm", scaleArrowX + scaleBarLength / 2, scaleArrowY + 15);
+    ctx.fillText(
+      `${gridMicrons} μm`,
+      scaleArrowX + scaleBarLength / 2,
+      scaleArrowY + 15,
+    );
   }, [currentTheme]);
 
-  // Animation loop
-  const animationLoop = useCallback(() => {
+  // Zoom out (15 → 30 → 60 ... μm) so the particle, and the expectation
+  // circle when shown, stay inside the circular viewport
+  const updateViewRadius = () => {
     const state = animationStateRef.current;
-    if (!state.isRunning) return;
+    let extent = 0;
+    for (const p of state.trajectory) {
+      extent = Math.max(extent, Math.hypot(p.x, p.y));
+    }
+    if (showExpectationRef.current && state.step > 0) {
+      extent = Math.max(
+        extent,
+        Math.sqrt(expectedD2(state.params, state.step * TIME_STEP)),
+      );
+    }
+    let radius = BASE_VIEW_RADIUS;
+    // The window shows a circle of about 0.9 × the canvas half-width; keep a
+    // margin inside it
+    while (extent > 0.8 * radius && radius < 1e6) radius *= 2;
+    state.viewRadius = radius;
+  };
 
+  // Advance one step of 0.05 s: each coordinate moves by a normal random
+  // amount with SD σ = √(2DΔt)
+  const advanceStep = () => {
+    const state = animationStateRef.current;
     const { temperature, viscosity, radius } = state.params;
-
-    // Calculate step size
     const sigma = calculateStepSize(temperature, viscosity, radius);
 
-    // Random displacement using normal distribution
-    const dx = randomNormal() * sigma;
-    const dy = randomNormal() * sigma;
-
-    // Update position
-    state.position.x += dx;
-    state.position.y += dy;
-
-    // Add to trajectory (keep last 2000 points)
+    state.position.x += randomNormal(0, sigma);
+    state.position.y += randomNormal(0, sigma);
     state.trajectory.push({ x: state.position.x, y: state.position.y });
-    if (state.trajectory.length > 2000) {
-      state.trajectory.shift();
+    state.step += 1;
+
+    // Record data at whole seconds (integer step counter: no float drift)
+    if (state.step % STEPS_PER_SECOND === 0) {
+      const second = state.step / STEPS_PER_SECOND;
+      if (second <= 10) {
+        state.recordedData[second] = {
+          time: second,
+          x: state.position.x,
+          y: state.position.y,
+          d2: state.position.x ** 2 + state.position.y ** 2,
+        };
+      }
     }
+  };
 
-    // Update time
-    state.time += TIME_STEP;
+  // Animation loop: advances by real elapsed time (60 steps per real second)
+  const loop = useAnimationLoop((dt) => {
+    const state = animationStateRef.current;
+    if (!state.isRunning) return false;
 
-    // Record data at integer second intervals (0, 1, 2, ... 10)
-    const currentSecond = Math.floor(state.time);
-    const prevSecond = Math.floor(state.time - TIME_STEP);
-    if (currentSecond !== prevSecond && currentSecond <= 10) {
-      // Update the row for this second
-      state.recordedData[currentSecond] = {
-        time: currentSecond,
-        x: state.position.x,
-        y: state.position.y,
-        d2: state.position.x ** 2 + state.position.y ** 2,
-      };
-    }
+    state.stepAccumulator += dt * STEPS_PER_REAL_SECOND;
+    let steps = Math.floor(state.stepAccumulator);
+    state.stepAccumulator -= steps;
+    steps = Math.min(steps, TOTAL_STEPS - state.step);
+    for (let i = 0; i < steps; i++) advanceStep();
 
-    // Update React state periodically for UI updates
-    if (
-      Math.floor(state.time * 20) !== Math.floor((state.time - TIME_STEP) * 20)
-    ) {
-      setCurrentTime(state.time);
+    if (steps > 0) {
+      setCurrentTime(state.step * TIME_STEP);
       setTableData([...state.recordedData]);
     }
 
-    // Stop after 10 seconds
-    if (state.time >= 10) {
-      state.isRunning = false;
-      setIsSimulating(false);
-      setCurrentTime(state.time);
-      setTableData([...state.recordedData]);
-      drawCanvas();
-      return;
-    }
-
-    // Draw
+    updateViewRadius();
     drawCanvas();
 
-    state.animationId = requestAnimationFrame(animationLoop);
-  }, [calculateStepSize, randomNormal, drawCanvas, TIME_STEP]);
+    // Stop after 10 seconds
+    if (state.step >= TOTAL_STEPS) {
+      state.isRunning = false;
+      setIsSimulating(false);
+      return false;
+    }
+    return true;
+  });
 
   // Start/Stop simulation
   const toggleSimulation = useCallback(() => {
@@ -368,15 +366,15 @@ const BrownianMotionSimulator = () => {
       // Stop
       state.isRunning = false;
       setIsSimulating(false);
-      if (state.animationId) {
-        cancelAnimationFrame(state.animationId);
-        state.animationId = null;
-      }
+      loop.stop();
     } else {
-      // Start fresh
+      // Start fresh, with the parameters locked for the whole run
+      state.params = { ...uiParams };
       state.position = { x: 0, y: 0 };
       state.trajectory = [{ x: 0, y: 0 }];
-      state.time = 0;
+      state.step = 0;
+      state.stepAccumulator = 0;
+      state.viewRadius = BASE_VIEW_RADIUS;
       // Initialize with t=0 data, rest blank
       const initialData = emptyTableData();
       initialData[0] = { time: 0, x: 0, y: 0, d2: 0 };
@@ -385,9 +383,9 @@ const BrownianMotionSimulator = () => {
       setIsSimulating(true);
       setCurrentTime(0);
       setTableData(initialData);
-      animationLoop();
+      loop.start();
     }
-  }, [animationLoop]);
+  }, [loop, uiParams]);
 
   // Reset simulation
   const resetSimulation = useCallback(() => {
@@ -396,61 +394,49 @@ const BrownianMotionSimulator = () => {
     // Stop animation
     state.isRunning = false;
     setIsSimulating(false);
-    if (state.animationId) {
-      cancelAnimationFrame(state.animationId);
-      state.animationId = null;
-    }
+    loop.stop();
 
     // Reset state
     state.position = { x: 0, y: 0 };
     state.trajectory = [{ x: 0, y: 0 }];
-    state.time = 0;
+    state.step = 0;
+    state.stepAccumulator = 0;
+    state.viewRadius = BASE_VIEW_RADIUS;
+    state.params = { ...uiParams };
     state.recordedData = emptyTableData();
 
     setCurrentTime(0);
     setTableData(emptyTableData());
 
     drawCanvas();
-  }, [drawCanvas]);
+  }, [drawCanvas, loop, uiParams]);
 
-  // Update parameter helper
+  // Update parameter helper. The parameters are locked during a run, so one
+  // trajectory always has a single diffusion coefficient D.
   const updateParam = useCallback((param, value) => {
+    if (animationStateRef.current.isRunning) return;
     setUiParams((prev) => ({ ...prev, [param]: value }));
   }, []);
 
-  // Initialize canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      // Size canvas to fill GridWindow (6x6 grid units minus padding)
-      const size = 6 * CELL_SIZE - 32; // Account for GridWindow padding
-      canvas.width = size;
-      canvas.height = size;
-      drawCanvas();
-    }
-  }, [drawCanvas]);
-
-  // Redraw when theme changes
-  useEffect(() => {
-    drawCanvas();
-  }, [currentTheme, drawCanvas]);
-
-  // Redraw when showExpectation changes (for when simulation is stopped)
+  // Redraw when the theme, the sliders (between runs) or the expectation
+  // toggle change; the animation loop draws while running.
   useEffect(() => {
     if (!animationStateRef.current.isRunning) {
+      updateViewRadius();
       drawCanvas();
     }
-  }, [showExpectation, drawCanvas]);
+  });
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      const state = animationStateRef.current;
-      if (state.animationId) {
-        cancelAnimationFrame(state.animationId);
-      }
-    };
-  }, []);
+  // Diffusion coefficient of the current run (or of the slider settings
+  // between runs)
+  const displayParams = isSimulating
+    ? animationStateRef.current.params
+    : uiParams;
+  const displayD = stokesEinsteinD(
+    displayParams.temperature,
+    displayParams.viscosity,
+    displayParams.radius,
+  );
 
   // Table styles
   const tableStyles = {
@@ -497,29 +483,35 @@ const BrownianMotionSimulator = () => {
       </GridWindow>
 
       {/* Parameter Controls */}
-      {/* Particle Radius: 0.1 to 2 μm, default 1.0 at slider value 47.4 */}
+      {/* Particle Radius: 0.1 to 2 μm in steps of 0.01, default 0.5 */}
       <GridSliderHorizontal
         x={6}
         y={0}
         w={3}
         h={1}
-        value={((uiParams.radius - 0.1) / 1.9) * 100}
-        onChange={(value) => updateParam("radius", 0.1 + (value / 100) * 1.9)}
+        min={0.1}
+        max={2}
+        step={0.01}
+        value={uiParams.radius}
+        onChange={(value) => updateParam("radius", Math.round(value * 100) / 100)}
         variant="unipolar"
         label={`Particle Radius (r): ${uiParams.radius.toFixed(2)} μm`}
         tooltip="Particle radius in microns (0.1 - 2 μm)"
         theme={theme}
       />
 
-      {/* Viscosity: 0.2 to 5 cP, default 1.0 at slider value 16.7 */}
+      {/* Viscosity: 0.2 to 5 cP in steps of 0.01, default 1.0 */}
       <GridSliderHorizontal
         x={6}
         y={1}
         w={3}
         h={1}
-        value={((uiParams.viscosity - 0.2) / 4.8) * 100}
+        min={0.2}
+        max={5}
+        step={0.01}
+        value={uiParams.viscosity}
         onChange={(value) =>
-          updateParam("viscosity", 0.2 + (value / 100) * 4.8)
+          updateParam("viscosity", Math.round(value * 100) / 100)
         }
         variant="unipolar"
         label={`Viscosity (η): ${uiParams.viscosity.toFixed(2)} cP`}
@@ -527,14 +519,17 @@ const BrownianMotionSimulator = () => {
         theme={theme}
       />
 
-      {/* Temperature: 0 to 80 °C, default 25 at slider value 31.25 */}
+      {/* Temperature: 0 to 80 °C in steps of 1, default 25 */}
       <GridSliderHorizontal
         x={6}
         y={2}
         w={3}
         h={1}
-        value={(uiParams.temperature / 80) * 100}
-        onChange={(value) => updateParam("temperature", (value / 100) * 80)}
+        min={0}
+        max={80}
+        step={1}
+        value={uiParams.temperature}
+        onChange={(value) => updateParam("temperature", Math.round(value))}
         variant="unipolar"
         label={`Temperature (T): ${uiParams.temperature.toFixed(0)} °C`}
         tooltip="Temperature in Celsius (0 - 80 °C)"
@@ -595,6 +590,12 @@ const BrownianMotionSimulator = () => {
               animationStateRef.current.position.y ** 2
             ).toFixed(2)}{" "}
             μm²
+          </div>
+          <div
+            style={{ marginTop: "4px" }}
+            title="Diffusion coefficient D = k_B T / (6π η r) for this run"
+          >
+            D = {displayD.toFixed(3)} μm²/s
           </div>
         </div>
       </GridDisplay>
