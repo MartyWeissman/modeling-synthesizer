@@ -17,6 +17,22 @@ import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 import { localPointer } from "../components/grid/pointer";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas, clearCanvas } from "../utils/canvas";
+import { classifyEquilibrium2D } from "../utils/stability";
+import { linearTicks } from "../utils/ticks";
+
+// Integration and animation constants.
+// The model advances 0.05·speed time units per 1/60 s (the same visual speed
+// as before at 60 Hz), in RK4 steps of at most MAX_STEP.
+const TIME_PER_SECOND_PER_SPEED = 0.05 * 60;
+const MAX_STEP = 0.1;
+const TRAIL_TIME = 15; // time units of trail kept behind each trajectory
+const SERIES_WINDOW = 20; // time units shown in the time series
+// A trajectory stops (and no longer keeps the animation running) when it has
+// escaped far outside the plot (F or A above ESCAPE_LIMIT) or has come to rest.
+const ESCAPE_LIMIT = 30;
+const REST_SPEED = 1e-6;
 
 const GlycolysisTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -48,23 +64,25 @@ const GlycolysisTool = () => {
   const animationStateRef = useRef({
     trajectories: [],
     time: 0,
-    animationId: null,
-    isRunning: false,
+    // Time series of ONE trajectory (trackedId); it restarts if tracking
+    // switches, so data from different trajectories is never mixed.
     timeSeriesData: [],
+    trackedId: null,
     params: { ...uiParams },
     showNullclines: showNullclines,
     showPeriod: showPeriod,
-    periodData: {
-      crossingTimes: [],
-      lastF: null,
-      referenceLine: null,
-      currentPeriod: null,
-    },
   });
 
-  // Update animation parameters when UI changes
+  // Update animation parameters when UI changes. Period crossings recorded
+  // with the old parameters (old equilibrium line) are discarded.
   useEffect(() => {
-    animationStateRef.current.params = { ...uiParams };
+    const state = animationStateRef.current;
+    state.params = { ...uiParams };
+    state.trajectories.forEach((traj) => {
+      traj.crossings = [];
+      traj.lastF = null;
+    });
+    setDetectedPeriod(null);
   }, [uiParams]);
 
   // Sync UI state to animation state
@@ -94,7 +112,13 @@ const GlycolysisTool = () => {
       const aEq = v / k; // A* = v/k
 
       if (fEq > 0 && aEq > 0 && fEq <= fmax && aEq <= amax) {
-        points.push({ x: fEq, y: aEq, stability: "unstable" }); // Typically unstable for oscillations
+        // Jacobian of (v − cFA², cFA² − kA) at the equilibrium.
+        const J = [
+          [-c * aEq * aEq, -2 * c * fEq * aEq],
+          [c * aEq * aEq, 2 * c * fEq * aEq - k],
+        ];
+        const cls = classifyEquilibrium2D(J);
+        points.push({ x: fEq, y: aEq, type: cls.type });
       }
     }
 
@@ -109,6 +133,7 @@ const GlycolysisTool = () => {
 
       const { plotWidth, plotHeight, dataToPixel } = transform;
       const { v, c, k } = animationStateRef.current.params;
+      ({ ctx } = setupCanvas(canvas, { width: plotWidth, height: plotHeight }));
 
       // Clear canvas
       ctx.clearRect(0, 0, plotWidth, plotHeight);
@@ -156,6 +181,7 @@ const GlycolysisTool = () => {
         if (aNullcline.length > 0) {
           ctx.strokeStyle = currentTheme === "dark" ? "#f87171" : "#dc2626";
           ctx.lineWidth = 3;
+          ctx.setLineDash([9, 5]); // dashed, so it doesn't rely on color alone
           ctx.beginPath();
           aNullcline.forEach((point, i) => {
             const pos = dataToPixel(point.x, point.y);
@@ -163,6 +189,7 @@ const GlycolysisTool = () => {
             else ctx.lineTo(pos.x, pos.y);
           });
           ctx.stroke();
+          ctx.setLineDash([]);
         }
       }
 
@@ -265,16 +292,21 @@ const GlycolysisTool = () => {
   );
 
   // Dynamic elements drawing function - redraws every animation frame
-  const drawDynamicElements = useCallback((canvas, ctx) => {
+  const drawDynamicElements = useCallback((canvas) => {
     const transform = phaseTransformRef.current;
-    if (!transform) return;
+    if (!canvas || !transform) return;
 
     const { plotWidth, plotHeight, dataToPixel } = transform;
+    const { ctx } = setupCanvas(canvas, {
+      width: plotWidth,
+      height: plotHeight,
+    });
 
     // Clear canvas
     ctx.clearRect(0, 0, plotWidth, plotHeight);
 
-    // Draw trajectories only
+    // Draw trajectories only. Points outside the box are still integrated;
+    // the canvas simply clips what lies outside it.
     const state = animationStateRef.current;
     state.trajectories.forEach((traj) => {
       if (!traj.trail || traj.trail.length < 2) return;
@@ -291,7 +323,7 @@ const GlycolysisTool = () => {
       ctx.stroke();
 
       // Current position
-      if (traj.isActive && traj.f !== undefined && traj.a !== undefined) {
+      if (traj.isActive) {
         const pos = dataToPixel(traj.f, traj.a);
         ctx.fillStyle = traj.color;
         ctx.beginPath();
@@ -301,200 +333,166 @@ const GlycolysisTool = () => {
     });
   }, []);
 
-  // Draw time series
+  // Draw time series (uses the time-series graph's own axis transform)
   const drawTimeSeries = useCallback(
-    (canvas, ctx) => {
+    (canvas) => {
       const transform = timeSeriesTransformRef.current;
-      if (!transform) return;
+      if (!canvas || !transform) return;
 
-      const { plotWidth, plotHeight } = transform;
+      const { plotWidth, plotHeight, dataToPixel } = transform;
+      const { ctx } = setupCanvas(canvas, {
+        width: plotWidth,
+        height: plotHeight,
+      });
       const state = animationStateRef.current;
 
       ctx.clearRect(0, 0, plotWidth, plotHeight);
 
       if (state.timeSeriesData.length < 2) return;
 
-      const timeWindow = 20;
-      const currentTime = state.time;
-      const minTime = Math.max(0, currentTime - timeWindow);
-      const maxConc = Math.max(fmax, amax);
-
-      // Helper to convert time series data to pixel coordinates
-      const toPixel = (time, value) => {
-        const x = ((time - minTime) / timeWindow) * plotWidth;
-        const y = plotHeight - (value / maxConc) * plotHeight;
-        return { x, y };
+      const drawSeries = (key, color, dash) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash(dash);
+        ctx.beginPath();
+        state.timeSeriesData.forEach((point, i) => {
+          const pos = dataToPixel(point.time, point[key]);
+          if (i === 0) ctx.moveTo(pos.x, pos.y);
+          else ctx.lineTo(pos.x, pos.y);
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
       };
 
-      // Draw F6P concentration
-      ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      let firstPoint = true;
-      state.timeSeriesData.forEach((point) => {
-        const maxTime = Math.max(timeWindow, currentTime);
-        if (point.time >= minTime && point.time <= maxTime) {
-          const pos = toPixel(point.time, point.f6p);
-          if (firstPoint) {
-            ctx.moveTo(pos.x, pos.y);
-            firstPoint = false;
-          } else {
-            ctx.lineTo(pos.x, pos.y);
-          }
-        }
-      });
-      ctx.stroke();
-
-      // Draw ADP concentration
-      ctx.strokeStyle = currentTheme === "dark" ? "#f87171" : "#dc2626";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      firstPoint = true;
-      state.timeSeriesData.forEach((point) => {
-        const maxTime = Math.max(timeWindow, currentTime);
-        if (point.time >= minTime && point.time <= maxTime) {
-          const pos = toPixel(point.time, point.adp);
-          if (firstPoint) {
-            ctx.moveTo(pos.x, pos.y);
-            firstPoint = false;
-          } else {
-            ctx.lineTo(pos.x, pos.y);
-          }
-        }
-      });
-      ctx.stroke();
+      // F6P (blue, solid) and ADP (red, dashed)
+      drawSeries("f6p", currentTheme === "dark" ? "#60a5fa" : "#3b82f6", []);
+      drawSeries("adp", currentTheme === "dark" ? "#f87171" : "#dc2626", [
+        7, 4,
+      ]);
     },
     [currentTheme],
   );
 
-  // Animation loop
-  const animationLoop = useCallback(() => {
+  const redrawDynamic = useCallback(() => {
+    drawDynamicElements(dynamicCanvasRef.current);
+    drawTimeSeries(timeSeriesCanvasRef.current);
+  }, [drawDynamicElements, drawTimeSeries]);
+
+  // One RK4 step of the Higgins-Sel'kov equations
+  const rk4Step = (fv, av, h, v, c, k) => {
+    const rhs = (F, A) => [v - c * F * A * A, c * F * A * A - k * A];
+    const k1 = rhs(fv, av);
+    const k2 = rhs(fv + (h * k1[0]) / 2, av + (h * k1[1]) / 2);
+    const k3 = rhs(fv + (h * k2[0]) / 2, av + (h * k2[1]) / 2);
+    const k4 = rhs(fv + h * k3[0], av + h * k3[1]);
+    return [
+      Math.max(0, fv + (h / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])),
+      Math.max(0, av + (h / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])),
+    ];
+  };
+
+  // Animation frame: advance by real elapsed time; stop when nothing moves.
+  const loop = useAnimationLoop((dt) => {
     const state = animationStateRef.current;
-    if (!state.isRunning) return;
-
     const { v, c, k, speed } = state.params;
-    if (speed === 0) {
-      state.animationId = requestAnimationFrame(animationLoop);
-      return;
-    }
 
-    const h = 0.05 * speed;
+    if (speed > 0) {
+      const advance = TIME_PER_SECOND_PER_SPEED * speed * dt;
+      const n = Math.max(1, Math.ceil(advance / MAX_STEP - 1e-9));
+      const h = advance / n;
+      const fEq = v > 0 && c > 0 && k > 0 ? (k * k) / (c * v) : null;
 
-    // Update trajectories
-    state.trajectories = state.trajectories.map((traj) => {
-      if (!traj.isActive) return traj;
+      for (let step = 0; step < n; step++) {
+        state.time += h;
+        state.trajectories.forEach((traj) => {
+          if (!traj.isActive) return;
+          const [newF, newA] = rk4Step(traj.f, traj.a, h, v, c, k);
+          traj.f = newF;
+          traj.a = newA;
+          traj.trail.push({ x: newF, y: newA, t: state.time });
 
-      const f = (f_val, a_val) => [
-        v - c * f_val * a_val * a_val, // dF/dt
-        c * f_val * a_val * a_val - k * a_val, // dA/dt
-      ];
+          // Period detection (Poincaré section: F crosses F* upward), kept
+          // separately for each trajectory.
+          if (fEq !== null) {
+            if (traj.lastF !== null && traj.lastF < fEq && newF >= fEq) {
+              traj.crossings.push(state.time);
+              if (traj.crossings.length > 10) traj.crossings.shift();
+            }
+            traj.lastF = newF;
+          }
 
-      const [f_curr, a_curr] = [traj.f, traj.a];
+          const dF = v - c * newF * newA * newA;
+          const dA = c * newF * newA * newA - k * newA;
+          if (newF > ESCAPE_LIMIT || newA > ESCAPE_LIMIT) {
+            traj.isActive = false; // escaped to infinity
+          } else if (Math.abs(dF) + Math.abs(dA) < REST_SPEED) {
+            traj.isActive = false; // came to rest at an equilibrium
+          }
+        });
+      }
 
-      // RK4 integration
-      const k1 = f(f_curr, a_curr);
-      const k2 = f(f_curr + (h * k1[0]) / 2, a_curr + (h * k1[1]) / 2);
-      const k3 = f(f_curr + (h * k2[0]) / 2, a_curr + (h * k2[1]) / 2);
-      const k4 = f(f_curr + h * k3[0], a_curr + h * k3[1]);
+      // Trim trails by time, not by number of points.
+      const trailStart = state.time - TRAIL_TIME;
+      state.trajectories.forEach((traj) => {
+        let i = 0;
+        while (i < traj.trail.length - 2 && traj.trail[i].t < trailStart) i++;
+        if (i > 0) traj.trail.splice(0, i);
+      });
 
-      let newF = Math.max(
-        0,
-        f_curr + (h / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]),
-      );
-      let newA = Math.max(
-        0,
-        a_curr + (h / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]),
-      );
+      // Time series follows one trajectory; switch (and restart the series)
+      // only when the tracked one stops.
+      let tracked = state.trajectories.find((t) => t.id === state.trackedId);
+      if (!tracked || !tracked.isActive) {
+        const next = state.trajectories.find((t) => t.isActive);
+        if (next && next !== tracked) {
+          tracked = next;
+          state.trackedId = next.id;
+          state.timeSeriesData = [];
+        }
+      }
+      if (tracked && tracked.isActive) {
+        state.timeSeriesData.push({
+          time: state.time,
+          f6p: tracked.f,
+          adp: tracked.a,
+        });
+        const seriesStart = state.time - SERIES_WINDOW - 1;
+        let i = 0;
+        while (
+          i < state.timeSeriesData.length - 2 &&
+          state.timeSeriesData[i].time < seriesStart
+        )
+          i++;
+        if (i > 0) state.timeSeriesData.splice(0, i);
+      }
 
-      const isInBounds = newF <= fmax && newA <= amax;
-      const newTrail = [...traj.trail.slice(-150), { x: newF, y: newA }];
+      // Detected period of the tracked trajectory
+      if (state.showPeriod && tracked && tracked.crossings.length >= 2) {
+        const cr = tracked.crossings;
+        const period = cr[cr.length - 1] - cr[cr.length - 2];
+        setDetectedPeriod((prev) =>
+          prev !== null && Math.abs(prev - period) < 1e-9 ? prev : period,
+        );
+      }
 
-      return {
-        ...traj,
-        f: newF,
-        a: newA,
-        trail: newTrail,
-        isActive: isInBounds,
-      };
-    });
-
-    state.time += h;
-
-    // Update React time state periodically
-    if (Math.floor(state.time * 10) !== Math.floor((state.time - h) * 10)) {
       setCurrentTime(state.time);
     }
 
-    // Update time series data and detect periods
-    const activeTraj = state.trajectories.find((t) => t.isActive);
-    if (activeTraj) {
-      const currentF = activeTraj.f || 0;
-      const currentA = activeTraj.a || 0;
+    redrawDynamic();
 
-      state.timeSeriesData = [
-        ...state.timeSeriesData.slice(-500),
-        {
-          time: state.time,
-          f6p: currentF,
-          adp: currentA,
-        },
-      ];
-
-      // Period detection using Poincaré section (F6P crosses equilibrium upward)
-      if (state.showPeriod && v > 0 && c > 0 && k > 0) {
-        const fEq = (k * k) / (c * v); // Equilibrium F value
-        state.periodData.referenceLine = fEq;
-
-        if (state.periodData.lastF !== null) {
-          // Detect upward crossing of equilibrium
-          if (state.periodData.lastF < fEq && currentF >= fEq) {
-            state.periodData.crossingTimes.push(state.time);
-
-            // Keep only last 10 crossings
-            if (state.periodData.crossingTimes.length > 10) {
-              state.periodData.crossingTimes =
-                state.periodData.crossingTimes.slice(-10);
-            }
-
-            // Calculate period from last two crossings
-            if (state.periodData.crossingTimes.length >= 2) {
-              const lastTwo = state.periodData.crossingTimes.slice(-2);
-              const period = lastTwo[1] - lastTwo[0];
-              state.periodData.currentPeriod = period;
-
-              // Update React state on every crossing for real-time period display
-              setDetectedPeriod(period);
-            }
-          }
-        }
-        state.periodData.lastF = currentF;
-      }
+    const anyActive = state.trajectories.some((t) => t.isActive);
+    if (!anyActive) {
+      setIsAnimating(false);
+      setCurrentTime(state.time);
+      return false;
     }
+    return true;
+  });
 
-    // Draw only dynamic elements (efficient!)
-    const dynamicCanvas = dynamicCanvasRef.current;
-    const timeCanvas = timeSeriesCanvasRef.current;
-
-    if (dynamicCanvas) {
-      const ctx = dynamicCanvas.getContext("2d");
-      drawDynamicElements(dynamicCanvas, ctx);
-    }
-
-    if (timeCanvas) {
-      const ctx = timeCanvas.getContext("2d");
-      drawTimeSeries(timeCanvas, ctx);
-    }
-
-    state.animationId = requestAnimationFrame(animationLoop);
-  }, [drawDynamicElements, drawTimeSeries]);
-
-  // Control functions
   const startAnimation = useCallback(() => {
-    if (animationStateRef.current.isRunning) return;
-    animationStateRef.current.isRunning = true;
     setIsAnimating(true);
-    animationLoop();
-  }, [animationLoop]);
+    loop.start(); // never starts a second loop
+  }, [loop]);
 
   // Canvas click handler
   const handleCanvasClick = useCallback(
@@ -515,65 +513,52 @@ const GlycolysisTool = () => {
 
       if (data.x < 0 || data.y < 0 || data.x > fmax || data.y > amax) return;
 
+      const state = animationStateRef.current;
       const colorHues = [120, 240, 60, 300, 180, 0];
-      const hue =
-        colorHues[
-          animationStateRef.current.trajectories.length % colorHues.length
-        ];
+      const hue = colorHues[state.trajectories.length % colorHues.length];
 
-      const newTrajectory = {
+      if (state.trajectories.length === 0) {
+        state.time = 0;
+        state.timeSeriesData = [];
+        state.trackedId = null;
+        setCurrentTime(0);
+      }
+
+      state.trajectories.push({
         id: Date.now() + Math.random(),
         f: data.x,
         a: data.y,
         isActive: true,
         color: `hsl(${hue}, 70%, 50%)`,
-        trail: [{ x: data.x, y: data.y }],
-      };
-
-      animationStateRef.current.trajectories.push(newTrajectory);
-
-      if (animationStateRef.current.trajectories.length === 1) {
-        animationStateRef.current.time = 0;
-        animationStateRef.current.timeSeriesData = [];
-      }
+        trail: [{ x: data.x, y: data.y, t: state.time }],
+        crossings: [],
+        lastF: null,
+      });
 
       startAnimation();
     },
     [startAnimation],
   );
 
-  const stopAnimation = useCallback(() => {
-    animationStateRef.current.isRunning = false;
-    setIsAnimating(false);
-    if (animationStateRef.current.animationId) {
-      cancelAnimationFrame(animationStateRef.current.animationId);
-      animationStateRef.current.animationId = null;
-    }
-  }, []);
-
   const resetSimulation = useCallback(() => {
-    stopAnimation();
-    animationStateRef.current.trajectories = [];
-    animationStateRef.current.time = 0;
-    animationStateRef.current.timeSeriesData = [];
+    loop.stop();
+    setIsAnimating(false);
+    const state = animationStateRef.current;
+    state.trajectories = [];
+    state.time = 0;
+    state.timeSeriesData = [];
+    state.trackedId = null;
     setCurrentTime(0);
+    setDetectedPeriod(null);
 
-    // Redraw static elements
+    // Redraw static elements, clear the trajectory and time-series canvases
     if (staticCanvasRef.current) {
       const ctx = staticCanvasRef.current.getContext("2d");
       drawStaticElements(staticCanvasRef.current, ctx);
     }
-
-    if (timeSeriesCanvasRef.current) {
-      const ctx = timeSeriesCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        timeSeriesCanvasRef.current.width,
-        timeSeriesCanvasRef.current.height,
-      );
-    }
-  }, [stopAnimation, drawStaticElements]);
+    clearCanvas(dynamicCanvasRef.current);
+    clearCanvas(timeSeriesCanvasRef.current);
+  }, [loop, drawStaticElements]);
 
   const updateParam = useCallback((param, value) => {
     setUiParams((prev) => ({ ...prev, [param]: value }));
@@ -595,12 +580,16 @@ const GlycolysisTool = () => {
     }
   }, [uiParams, showNullclines, showPeriod, drawStaticElements]);
 
-  // Cleanup on unmount
+  // Redraw trajectories and time series when the theme changes (also while
+  // stopped)
   useEffect(() => {
-    return () => {
-      stopAnimation();
-    };
-  }, [stopAnimation]);
+    redrawDynamic();
+  }, [redrawDynamic]);
+
+  // Time-series x-axis: the sliding 20-unit window, with ticks every 5 units
+  const seriesMin = Math.max(0, currentTime - SERIES_WINDOW);
+  const seriesMax = Math.max(SERIES_WINDOW, currentTime);
+  const seriesTicks = linearTicks(seriesMin, seriesMax, 5);
 
   return (
     <ToolContainer
@@ -625,7 +614,7 @@ const GlycolysisTool = () => {
       >
         {(transform) => {
           phaseTransformRef.current = transform;
-          const { plotWidth, plotHeight, plotStyle } = transform;
+          const { plotStyle } = transform;
           return (
             <>
               {/* Static background layer - vector field, nullclines, equilibrium points */}
@@ -633,8 +622,6 @@ const GlycolysisTool = () => {
                 ref={staticCanvasRef}
                 className="absolute pointer-events-none"
                 style={plotStyle}
-                width={plotWidth}
-                height={plotHeight}
               />
 
               {/* Dynamic foreground layer - trajectories and moving particles */}
@@ -642,8 +629,6 @@ const GlycolysisTool = () => {
                 ref={dynamicCanvasRef}
                 className="absolute cursor-crosshair"
                 style={plotStyle}
-                width={plotWidth}
-                height={plotHeight}
                 onClick={handleCanvasClick}
               />
             </>
@@ -659,22 +644,20 @@ const GlycolysisTool = () => {
         h={2}
         xLabel="Time"
         yLabel="Concentration"
-        xRange={[Math.max(0, currentTime - 20), Math.max(20, currentTime)]}
+        xRange={[seriesMin, seriesMax]}
         yRange={[0, Math.max(fmax, amax)]}
-        xTicks={[]}
+        xTicks={seriesTicks}
         yTicks={[0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]}
         theme={theme}
         tooltip="Metabolite concentrations over time"
       >
         {(transform) => {
           timeSeriesTransformRef.current = transform;
-          const { plotWidth, plotHeight, plotStyle } = transform;
+          const { plotStyle } = transform;
           return (
             <canvas
               ref={timeSeriesCanvasRef}
               style={plotStyle}
-              width={plotWidth}
-              height={plotHeight}
             />
           );
         }}
@@ -848,6 +831,9 @@ const GlycolysisTool = () => {
                 />
                 {equilibria[0].y.toFixed(2)}
               </div>
+              <div style={{ fontSize: "0.85em", marginTop: "2px" }}>
+                Type (linearization): {equilibria[0].type}
+              </div>
             </>
           ) : (
             <div style={{ fontSize: "0.9em", opacity: 0.7 }}>
@@ -917,10 +903,10 @@ const GlycolysisTool = () => {
             <span
               style={{ color: currentTheme === "dark" ? "#f87171" : "#dc2626" }}
             >
-              Red: ADP
+              Red (dashed): ADP
             </span>
             {showNullclines &&
-              " | Nullclines: F-nullcline (blue), A-nullcline (red)"}
+              " | Nullclines: F-nullcline (blue), A-nullcline (red, dashed)"}
             {showPeriod && " | Purple dashed line: Poincaré section"}
           </div>
         </div>
