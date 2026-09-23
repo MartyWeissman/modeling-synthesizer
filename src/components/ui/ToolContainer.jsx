@@ -1,8 +1,9 @@
 // src/components/ui/ToolContainer.jsx
 
-import React, { useState, useEffect, useLayoutEffect } from "react";
+import React, { useState, useEffect, useLayoutEffect, lazy, Suspense } from "react";
 import { useTheme } from "../../hooks/useTheme";
-import HelpModal from "./HelpModal";
+// Loaded on demand: react-markdown is only needed once the help is opened.
+const HelpModal = lazy(() => import("./HelpModal"));
 import {
   LIGHT_NOISE_TEXTURE,
   DARK_NOISE_TEXTURE,
@@ -221,7 +222,9 @@ const ToolContainer = React.memo(
 
         {/* Help modal overlay (outside the scaled box so it stays fixed to the window) */}
         {showHelp && toolId && (
-          <HelpModal toolId={toolId} onClose={() => setShowHelp(false)} />
+          <Suspense fallback={null}>
+            <HelpModal toolId={toolId} onClose={() => setShowHelp(false)} />
+          </Suspense>
         )}
       </div>
     );

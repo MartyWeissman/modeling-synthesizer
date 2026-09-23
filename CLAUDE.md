@@ -1290,8 +1290,9 @@ Help files are stored in `public/help/{tool-id}.md` and are loaded by the HelpMo
 1. Reads the tool source code first (mandatory)
 2. Extracts actual parameter names, defaults, and ranges from code
 3. Documents every UI component with its actual behavior
-4. Marks biological interpretations with [VERIFY] for human review
-5. Leaves References section empty (user provides if needed)
+4. Checks every mathematical claim (numerically where possible) and checks the help against the Lab Manual, without giving away lab answers
+5. Leaves no [VERIFY] markers or placeholder sections in the student-facing file
+6. Lists real references only (omits the section if there are none)
 
 ### Adding References
 After the help file is generated, you can add references if the user provides them:

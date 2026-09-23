@@ -86,22 +86,26 @@ Combine observations with actions. Each item should reference actual UI controls
 Only describe behaviors that are actually implemented in the code. Do not invent features.
 
 #### References
-**Leave this section empty.** Write only:
-```
-## References
-[To be added]
-```
+Only list references the user has provided, or well-known primary sources you are certain exist (author, year, title). If there are none, **omit the References section entirely** — never write a placeholder such as "[To be added]" (help files are student-facing).
 
-References will be provided by the user if needed.
+### Step 4: Check the Math and the Lab Manual
 
-### Step 4: Verification Checklist
+Help files are read by students, so every mathematical statement must be true, not just consistent with the code:
+- Re-derive every claim about equilibria, stability, periods, thresholds, scaling ("doubling X doubles Y"), and parameter effects ("increasing b makes drift stronger"). Where possible, check numerically with a short script that re-implements the tool's model (same equations, parameters and step size as the code).
+- Check claims about what the defaults show (e.g. "trajectories converge to a limit cycle") by actually simulating the defaults.
+- Read the Lab Manual pages that use this tool (ask the user for the manual if it isn't available). The help must agree with the manual's names, notation and instructions, and must not give away answers the manual asks students to find (e.g. a threshold value or a formula the lab asks them to discover).
+- Do not leave "[VERIFY]" markers in the final file: resolve each one by checking it, or rephrase so the unverified claim is gone, and list what you could not verify in your summary to the user instead.
+
+### Step 5: Verification Checklist
 
 Before finishing, verify:
 - [ ] Every useState parameter is documented with correct default
 - [ ] Every range/min/max matches the actual component props
 - [ ] Every GridXxx component is described
 - [ ] No features are described that don't exist in the code
-- [ ] All biological claims are marked [VERIFY]
+- [ ] Every mathematical claim was re-derived or checked numerically
+- [ ] The help agrees with the Lab Manual and gives away no lab answers
+- [ ] No "[VERIFY]" markers or placeholder sections remain
 - [ ] No references are invented
 
 ## Output
@@ -109,4 +113,4 @@ Before finishing, verify:
 Write the help file to `public/help/{tool-id}.md` and summarize:
 1. Number of parameters documented
 2. Number of components documented  
-3. Items marked [VERIFY] that need human review
+3. Claims you could not verify (for the user to review)
