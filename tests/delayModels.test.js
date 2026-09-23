@@ -50,3 +50,34 @@ describe("dominantFrequency", () => {
     expect(dominantFrequency(samples((i) => 20 + 5 * Math.exp(-i / 1000)))).toBeNull();
   });
 });
+
+import { delayedValue, hutchinsonStep } from "../src/tools/delayModels.js";
+
+describe("delayedValue", () => {
+  const h = [0, 10, 20, 30];
+  it("interpolates and uses P0 before t = 0", () => {
+    expect(delayedValue(h, 0.5, 0.75, 5)).toBeCloseTo(15);
+    expect(delayedValue(h, 0.5, -1, 5)).toBe(5);
+    expect(delayedValue(h, 0.5, 10, 5)).toBe(30);
+  });
+});
+
+describe("hutchinsonStep", () => {
+  const solve = (params, dt = 0.05, T = 1000) => {
+    const h = [params.P0];
+    const n = Math.round(T / dt);
+    for (let i = 0; i < n; i++) h.push(hutchinsonStep(h, dt, params));
+    return h;
+  };
+  it("tau = 0 matches the logistic solution", () => {
+    const h = solve({ beta: 0.1, k: 100, tau: 0, P0: 50 }, 0.05, 20);
+    const exact = 100 / (1 + Math.exp(-0.1 * 20));
+    expect(h[h.length - 1]).toBeCloseTo(exact, 6);
+  });
+  it("beta*tau below pi/2 settles, above sustains (lab: beta = 0.02, k = 100)", () => {
+    const late = (h) => h.slice(-4000);
+    const span = (a) => Math.max(...a) - Math.min(...a);
+    expect(span(late(solve({ beta: 0.02, k: 100, tau: 40, P0: 50 })))).toBeLessThan(1);
+    expect(span(late(solve({ beta: 0.02, k: 100, tau: 90, P0: 50 })))).toBeGreaterThan(50);
+  });
+});

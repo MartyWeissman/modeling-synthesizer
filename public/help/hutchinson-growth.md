@@ -2,85 +2,55 @@
 
 ## Overview
 
-The Hutchinson Growth Simulator models population dynamics with a time delay, extending the classic logistic growth model to account for the lag between when population density is sensed and when its effects are realized.
+This simulator solves Hutchinson's delayed logistic equation
 
-The model uses Hutchinson's delay differential equation:
-- **P'(t) = βP(t)(1 - P(t-τ)/k)**
+- **P′ = β · P(t) · (1 − P(t − τ)/k)**
 
-Where P(t) is the current population, P(t-τ) is the population τ time units ago, β is the birth rate, and k is the carrying capacity. [VERIFY: This model was proposed by G. Evelyn Hutchinson in 1948 to explain oscillations in populations of organisms like Daphnia.]
+where P(t) is the population at time t, P(t − τ) is the population τ time units earlier, β is the net birth rate under ideal conditions, k is the carrying capacity, and τ is the time delay. Crowding does not slow growth immediately: if the population is above k at some moment, the effect is felt τ time units later. G. Evelyn Hutchinson proposed this model in 1948, in part to explain the oscillations Pratt observed in laboratory populations of the water flea *Daphnia*.
 
-The time delay can cause oscillations that would not occur in the standard logistic model, providing insight into why real populations often fluctuate rather than smoothly approaching equilibrium.
+With τ = 0 it is ordinary logistic growth. A delay can make the population overshoot k, and then oscillate.
 
 ## Parameters
 
-### Carrying Capacity (k)
-- **Range**: 0 to 300
-- **Default**: 100
-- Maximum sustainable population
-- Shown as a red dashed horizontal line on the graph
-- Population oscillates around this value in the oscillatory regime
+### Carrying capacity (k)
+- **Range**: 1 to 300, **default** 100
+- Shown as the red dashed line.
 
-### Birth Rate (β)
-- **Range**: 0.0 to 0.1
-- **Default**: 0.1
-- Intrinsic growth rate coefficient
-- Higher values lead to faster growth and potentially larger oscillations
-- [VERIFY: Typical values depend on the organism's generation time]
+### Birth rate (β)
+- **Range**: 0 to 0.1 (steps of 0.001), **default** 0.1
 
-### Time Delay (τ)
-- **Range**: 0 to 100
-- **Default**: 10
-- Lag period for population feedback
-- Represents biological delays such as maturation time
-- Critical parameter for determining stability vs oscillation
-- [VERIFY: Oscillations occur when βτ > π/2 ≈ 1.57]
+### Time delay (τ)
+- **Range**: 0 to 100, **default** 10
 
-### Initial Population (P₀)
-- **Range**: 0 to 300
-- **Default**: 50
-- Starting population at t=0
-- Shown as a green dot at the origin
-- Affects transient behavior but not long-term dynamics
+### Initial population (P₀)
+- **Range**: 0 to 300 (steps of 3), **default** 50
+- The population at t = 0, and also before t = 0 (the delay term uses P₀ until t reaches τ).
+
+Moving a slider does not change the curve by itself: press **Solve**. If you change a parameter after solving, the old curve is shown faded with a reminder to press Solve.
 
 ## Components
 
-### Population Time Series Graph
-- **X-axis**: Time from 0 to 1000
-- **Y-axis**: Population from 0 to 300
-- **Red dashed line**: Carrying capacity (k)
-- **Green dot**: Initial condition at t=0
-- **Green curve**: Population trajectory over time
-- **Black dot**: Current population position during animation
-- **Gray "ghost" dot**: Population at t-τ (delayed value used in the equation)
+### Population graph
+- **X-axis**: time t from 0 to 1000
+- **Y-axis**: population P, from 0 to 300. If the population goes higher, the axis grows so the whole curve stays visible (the scale is shown by the tick labels).
+- **Red dashed line**: carrying capacity k
+- **Green dot**: the initial population, at t = 0, P = P₀
+- **Green curve**: the solution P(t)
+- **Black dot** (while solving or paused): the current time and population
+- **Gray dot** (while solving or paused, once t > τ): the population τ time units ago, P(t − τ), which is what controls the current growth rate
 
-### Parameter Sliders
-- **Carrying capacity (k)**: Sets the equilibrium population level
-- **Birth rate (β)**: Controls growth speed and oscillation amplitude
-- **Time delay (τ)**: Critical parameter for stability analysis
-- **Initial population (P₀)**: Starting point for simulation
-
-### Control Buttons
-- **Solve**: Start the numerical integration from t=0
-- **Stop**: Pause the simulation at current time
-
-### Equation Display
-- Shows the Hutchinson delay differential equation
+### Buttons
+- **Solve**: solves from t = 0 with the current parameters. The curve is drawn over about 3 seconds. Pressing Solve again restarts.
+- **Stop**: pauses the solution. The button then reads **Resume**; press it to continue.
 
 ## What to Observe
 
-1. **Delay-Induced Oscillations**: With τ = 0, the model behaves like standard logistic growth (smooth approach to k). Increase τ to see oscillations emerge. The critical threshold is approximately βτ > π/2.
-
-2. **Ghost Dot Visualization**: Watch the gray ghost dot - it shows where the population was τ time units ago. The current growth rate depends on this delayed value, which explains why oscillations occur.
-
-3. **Overshoot and Undershoot**: When τ is large, the population "doesn't know" it has reached carrying capacity until it's too late. It overshoots, then overcorrects in the opposite direction.
-
-4. **Amplitude Depends on βτ Product**: The amplitude of oscillations increases with the product βτ. Try β = 0.1, τ = 30 (product = 3) for dramatic oscillations.
-
-5. **Effect of Initial Condition**: Start below or above carrying capacity. Below: population rises, potentially overshooting. Above: population falls, potentially undershooting. The transient differs but the eventual oscillation pattern is the same.
-
-6. **Stable vs Unstable**: Compare τ = 5 (stable, smooth approach) with τ = 30 (sustained oscillations). Find the critical delay where behavior transitions.
-
-7. **Damped vs Sustained Oscillations**: Near the stability boundary, oscillations are damped (gradually decrease). Far into the unstable regime, oscillations persist indefinitely.
-
-## References
-
+1. **No delay**: with τ = 0 the population rises smoothly to k (logistic growth).
+2. **Three kinds of behavior** as the delay grows (try β = 0.1, k = 100, P₀ = 50):
+   - τ = 3: a smooth approach to k, with no overshoot;
+   - τ = 10: damped oscillations: the population overshoots k, then the swings shrink;
+   - τ = 20: sustained oscillations that do not die out.
+3. **Critical delay**: for each birth rate there is a critical delay τc. Below it the oscillations die out; above it they persist. Find τc for several birth rates.
+4. **Ghost dot**: watch the gray dot while solving. The population keeps growing while the delayed value P(t − τ) is still below k, even after P(t) has passed k.
+5. **Boom and bust**: with a long delay and a high birth rate (for example β = 0.1, τ = 50), the population shoots far above k and then crashes almost to zero. In a real population, a crash like that would mean extinction.
+6. **Initial population**: P₀ changes the early part of the curve, but not whether the oscillations eventually die out or persist (as long as P₀ > 0).

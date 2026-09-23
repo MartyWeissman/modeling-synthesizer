@@ -10,6 +10,33 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
+import { niceStep, linearTicks } from "../utils/ticks";
+import { hutchinsonStep, delayedValue } from "./delayModels";
+
+const T_MAX = 1000;
+const DT = 0.05;
+// Model time per real second. The original loop took 100 steps of 0.05 per
+// frame (5 time units) at 60 frames/s = 300 per second, so a full run takes
+// about 3.3 s; we keep that speed but advance by real elapsed time.
+const SIM_RATE = 300;
+// Default y-axis top; the axis grows when the population goes higher.
+const BASE_P_MAX = 300;
+
+// Nice axis top and ticks for a population maximum
+function yAxisFor(maxP) {
+  if (!(maxP > BASE_P_MAX)) {
+    return { top: BASE_P_MAX, ticks: [0, 50, 100, 150, 200, 250, 300] };
+  }
+  const target = maxP * 1.05;
+  const step = niceStep(0, target, 6);
+  const top = Math.ceil(target / step) * step;
+  return { top, ticks: linearTicks(0, top, step) };
+}
+
+const sameParams = (p, q) =>
+  p.k === q.k && p.beta === q.beta && p.tau === q.tau && p.P0 === q.P0;
 
 const HutchinsonGrowthTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -21,270 +48,186 @@ const HutchinsonGrowthTool = () => {
     tau: 10, // Time delay
     P0: 50, // Initial population
   });
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [redrawTrigger, setRedrawTrigger] = useState(0);
+  // "idle" (nothing solved), "running", "paused", "done"
+  const [runStatus, setRunStatus] = useState("idle");
+  const [yAxis, setYAxis] = useState(() => yAxisFor(0));
 
   // Canvas ref
   const canvasRef = useRef(null);
   // Transform ref for coordinate conversion
   const transformRef = useRef(null);
 
-  // Animation state
+  // Animation state. history[i] is P at time i*DT; runParams are the
+  // parameters the current curve was solved with.
   const animationStateRef = useRef({
-    time: 0,
-    population: 50,
-    history: [], // Store [time, population] pairs
-    animationId: null,
-    isRunning: false,
-    params: { ...uiParams },
+    history: [],
+    runParams: null,
+    stepAccumulator: 0,
+    maxP: 0,
   });
-
-  // Sync UI to animation
-  useEffect(() => {
-    animationStateRef.current.params = { ...uiParams };
-  }, [uiParams]);
 
   // Update parameter helper
   const updateParam = useCallback((key, value) => {
     setUiParams((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  // Get past population value for delay differential equation
-  const getPastValue = useCallback(
-    (history, currentTime, delay, initialValue) => {
-      const targetTime = currentTime - delay;
+  // Draw the simulation (reads the latest UI parameters each call)
+  const drawSimulation = useCallback(() => {
+    const canvas = canvasRef.current;
+    const transform = transformRef.current;
+    if (!canvas || !transform) return;
+    const setup = setupCanvas(canvas);
+    if (!setup) return;
+    const { ctx, width, height } = setup;
 
-      if (targetTime <= 0) {
-        return initialValue;
-      }
+    const { dataToPixel } = transform;
+    ctx.clearRect(0, 0, width, height);
 
-      // Find the closest historical value
-      for (let i = history.length - 1; i >= 0; i--) {
-        if (history[i][0] <= targetTime) {
-          return history[i][1];
-        }
-      }
+    const state = animationStateRef.current;
+    const { history, runParams } = state;
+    const { k, P0 } = uiParams;
+    const stale = runParams !== null && !sameParams(runParams, uiParams);
 
-      return initialValue;
-    },
-    [],
-  );
+    // Carrying capacity line (current k)
+    const kLeft = dataToPixel(0, k);
+    const kRight = dataToPixel(T_MAX, k);
+    ctx.strokeStyle =
+      currentTheme === "dark"
+        ? "rgba(239, 68, 68, 0.6)"
+        : "rgba(220, 38, 38, 0.6)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(kLeft.x, kLeft.y);
+    ctx.lineTo(kRight.x, kRight.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
-  // Hutchinson delay differential equation: P'(t) = β P(t) (1 - P(t-τ)/k)
-  const hutchinsonDerivative = useCallback((P, PDelayed, beta, k) => {
-    return beta * P * (1 - PDelayed / k);
-  }, []);
+    // Green dot: the initial population, at (t = 0, P0)
+    const initialPixel = dataToPixel(0, P0);
+    ctx.fillStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
+    ctx.beginPath();
+    ctx.arc(initialPixel.x, initialPixel.y, 5, 0, 2 * Math.PI);
+    ctx.fill();
 
-  // RK4 integration step
-  const rk4Step = useCallback(
-    (P, t, dt, history, params) => {
-      const { beta, k, tau, P0 } = params;
-
-      const PDelayed = getPastValue(history, t, tau, P0);
-      const k1 = hutchinsonDerivative(P, PDelayed, beta, k);
-
-      const PDelayed_k2 = getPastValue(history, t + dt / 2, tau, P0);
-      const k2 = hutchinsonDerivative(P + (dt / 2) * k1, PDelayed_k2, beta, k);
-
-      const PDelayed_k3 = getPastValue(history, t + dt / 2, tau, P0);
-      const k3 = hutchinsonDerivative(P + (dt / 2) * k2, PDelayed_k3, beta, k);
-
-      const PDelayed_k4 = getPastValue(history, t + dt, tau, P0);
-      const k4 = hutchinsonDerivative(P + dt * k3, PDelayed_k4, beta, k);
-
-      return P + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
-    },
-    [getPastValue, hutchinsonDerivative],
-  );
-
-  // Draw the simulation
-  const drawSimulation = useCallback(
-    (canvas, ctx) => {
-      const transform = transformRef.current;
-      if (!canvas || !transform) return;
-
-      const { dataToPixel } = transform;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const tMax = 1000;
-      const PMin = 0;
-      const PMax = 300;
-
-      const state = animationStateRef.current;
-      const { history } = state;
-      // Use current UI parameter for carrying capacity line
-      const { k } = uiParams;
-
-      // Draw carrying capacity line
-      const kLeft = dataToPixel(0, k);
-      const kRight = dataToPixel(tMax, k);
-      ctx.strokeStyle =
-        currentTheme === "dark"
-          ? "rgba(239, 68, 68, 0.6)"
-          : "rgba(220, 38, 38, 0.6)";
+    if (history.length > 1) {
+      // A curve solved with other parameters is shown faded
+      ctx.globalAlpha = stale ? 0.35 : 1;
+      ctx.strokeStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
       ctx.lineWidth = 2;
-      ctx.setLineDash([5, 5]);
       ctx.beginPath();
-      ctx.moveTo(kLeft.x, kLeft.y);
-      ctx.lineTo(kRight.x, kRight.y);
+      // At most ~2 points per pixel column
+      const stride = Math.max(1, Math.floor(history.length / (2 * width)));
+      for (let i = 0; i < history.length; i += stride) {
+        const pixel = dataToPixel(i * DT, history[i]);
+        if (i === 0) ctx.moveTo(pixel.x, pixel.y);
+        else ctx.lineTo(pixel.x, pixel.y);
+      }
+      const lastIndex = history.length - 1;
+      const lastPixel = dataToPixel(lastIndex * DT, history[lastIndex]);
+      ctx.lineTo(lastPixel.x, lastPixel.y);
       ctx.stroke();
-      ctx.setLineDash([]);
 
-      // Draw green initial position dot
-      const initialPixel = dataToPixel(0, uiParams.P0);
-      ctx.fillStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
-      ctx.beginPath();
-      ctx.arc(initialPixel.x, initialPixel.y, 5, 0, 2 * Math.PI);
-      ctx.fill();
-
-      // Draw population trajectory
-      if (history.length > 0) {
-        ctx.strokeStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
-        ctx.lineWidth = 2;
-
+      // Current position and the delayed value it responds to, while the
+      // solution is being computed (running or paused)
+      if (runStatus === "running" || runStatus === "paused") {
+        const currentTime = lastIndex * DT;
+        ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
         ctx.beginPath();
-        history.forEach(([t, P], index) => {
-          const pixel = dataToPixel(t, P);
-          if (index === 0) {
-            ctx.moveTo(pixel.x, pixel.y);
-          } else {
-            ctx.lineTo(pixel.x, pixel.y);
-          }
-        });
-        ctx.stroke();
+        ctx.arc(lastPixel.x, lastPixel.y, 4, 0, 2 * Math.PI);
+        ctx.fill();
 
-        // Draw current position (black dot at end of trajectory)
-        if (state.isRunning && history.length > 0) {
-          const lastPoint = history[history.length - 1];
-          const currentTime = lastPoint[0];
-          const pixel = dataToPixel(currentTime, lastPoint[1]);
-
-          ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
+        // Gray "ghost" dot at (t - tau, P(t - tau)) once t > tau
+        const { tau } = runParams;
+        if (currentTime > tau) {
+          const delayedP = delayedValue(history, DT, currentTime - tau, runParams.P0);
+          const ghostPixel = dataToPixel(currentTime - tau, delayedP);
+          ctx.fillStyle =
+            currentTheme === "dark"
+              ? "rgba(156, 163, 175, 0.8)"
+              : "rgba(107, 114, 128, 0.8)";
           ctx.beginPath();
-          ctx.arc(pixel.x, pixel.y, 4, 0, 2 * Math.PI);
+          ctx.arc(ghostPixel.x, ghostPixel.y, 4, 0, 2 * Math.PI);
           ctx.fill();
-
-          // Draw gray "ghost" dot at t-tau (only if t > tau)
-          const { tau, P0 } = state.params;
-          if (currentTime > tau) {
-            const delayedP = getPastValue(history, currentTime, tau, P0);
-            const ghostPixel = dataToPixel(currentTime - tau, delayedP);
-
-            ctx.fillStyle =
-              currentTheme === "dark"
-                ? "rgba(156, 163, 175, 0.7)"
-                : "rgba(107, 114, 128, 0.7)";
-            ctx.beginPath();
-            ctx.arc(ghostPixel.x, ghostPixel.y, 4, 0, 2 * Math.PI);
-            ctx.fill();
-          }
         }
       }
-    },
-    [currentTheme, uiParams.k, uiParams.P0, redrawTrigger, getPastValue],
-  );
+      ctx.globalAlpha = 1;
 
-  // Animation loop
-  const animationLoop = useCallback(() => {
-    const state = animationStateRef.current;
-    if (!state.isRunning) return;
-
-    const dt = 0.05;
-    const stepsPerFrame = 100;
-
-    // Run multiple integration steps per frame for performance
-    for (let i = 0; i < stepsPerFrame; i++) {
-      if (state.time >= 1000) {
-        state.isRunning = false;
-        setIsAnimating(false);
-        break;
+      if (stale) {
+        ctx.font = "13px Arial";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "top";
+        ctx.fillStyle = currentTheme === "dark" ? "#fbbf24" : "#b45309";
+        ctx.fillText(
+          "Parameters changed: press Solve to update the curve",
+          width - 8,
+          6,
+        );
       }
+    }
+  }, [currentTheme, uiParams, runStatus]);
 
-      const newP = rk4Step(
-        state.population,
-        state.time,
-        dt,
-        state.history,
-        state.params,
-      );
+  // Animation loop: integrate in proportion to real elapsed time
+  const loop = useAnimationLoop((dtSeconds) => {
+    const state = animationStateRef.current;
+    const params = state.runParams;
+    if (!params) return false;
+    const nMax = Math.round(T_MAX / DT);
 
-      state.time += dt;
-      state.population = newP;
-      state.history.push([state.time, state.population]);
+    state.stepAccumulator += dtSeconds * SIM_RATE;
+    let steps = 0;
+    while (state.stepAccumulator >= DT && state.history.length <= nMax && steps < 20000) {
+      const next = hutchinsonStep(state.history, DT, params);
+      state.history.push(next);
+      if (next > state.maxP) state.maxP = next;
+      state.stepAccumulator -= DT;
+      steps++;
     }
 
-    // Draw current state
-    if (canvasRef.current) {
-      const ctx = canvasRef.current.getContext("2d");
-      drawSimulation(canvasRef.current, ctx);
-    }
+    // Grow the y-axis if the population goes above it
+    setYAxis((prev) => {
+      if (state.maxP <= prev.top) return prev;
+      return yAxisFor(state.maxP);
+    });
 
-    if (state.isRunning) {
-      state.animationId = requestAnimationFrame(animationLoop);
+    if (state.history.length > nMax) {
+      setRunStatus("done");
+      drawSimulation();
+      return false;
     }
-  }, [rk4Step, drawSimulation]);
+    drawSimulation();
+    return true;
+  });
+  const { start: startLoop, stop: stopLoop } = loop;
 
-  // Start simulation
+  // Solve: always restart from t = 0 with the current parameters
   const startSimulation = useCallback(() => {
+    stopLoop();
     const state = animationStateRef.current;
+    state.runParams = { ...uiParams };
+    state.history = [uiParams.P0];
+    state.stepAccumulator = 0;
+    state.maxP = uiParams.P0;
+    setYAxis(yAxisFor(uiParams.P0));
+    setRunStatus("running");
+    startLoop();
+  }, [uiParams, startLoop, stopLoop]);
 
-    // Reset state
-    state.time = 0;
-    state.population = state.params.P0;
-    state.history = [[0, state.params.P0]];
-    state.isRunning = true;
-
-    setIsAnimating(true);
-
-    // Clear canvas and start animation
-    if (canvasRef.current) {
-      const ctx = canvasRef.current.getContext("2d");
-      drawSimulation(canvasRef.current, ctx);
+  // Stop pauses; pressing it again resumes the same run
+  const stopOrResume = useCallback(() => {
+    if (runStatus === "running") {
+      stopLoop();
+      setRunStatus("paused");
+    } else if (runStatus === "paused") {
+      setRunStatus("running");
+      startLoop();
     }
+  }, [runStatus, startLoop, stopLoop]);
 
-    state.animationId = requestAnimationFrame(animationLoop);
-  }, [animationLoop, drawSimulation]);
-
-  // Stop simulation
-  const stopSimulation = useCallback(() => {
-    const state = animationStateRef.current;
-    state.isRunning = false;
-    setIsAnimating(false);
-
-    if (state.animationId) {
-      cancelAnimationFrame(state.animationId);
-    }
-  }, []);
-
-  // Initialize canvas
+  // Redraw whenever parameters, theme, status or axis change
   useEffect(() => {
-    if (canvasRef.current && transformRef.current) {
-      const canvas = canvasRef.current;
-      canvas.width = transformRef.current.plotWidth;
-      canvas.height = transformRef.current.plotHeight;
-
-      const ctx = canvas.getContext("2d");
-      drawSimulation(canvas, ctx);
-    }
-  }, [drawSimulation]);
-
-  // Redraw when carrying capacity or initial population changes
-  useEffect(() => {
-    if (canvasRef.current && transformRef.current) {
-      const ctx = canvasRef.current.getContext("2d");
-      drawSimulation(canvasRef.current, ctx);
-    }
-  }, [uiParams.k, uiParams.P0, drawSimulation]);
-
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      const state = animationStateRef.current;
-      if (state.animationId) {
-        cancelAnimationFrame(state.animationId);
-      }
-    };
-  }, []);
+    drawSimulation();
+  }, [drawSimulation, yAxis]);
 
   return (
     <ToolContainer
@@ -301,11 +244,11 @@ const HutchinsonGrowthTool = () => {
         xLabel="Time (t)"
         yLabel="Population (P)"
         xTicks={[0, 200, 400, 600, 800, 1000]}
-        yTicks={[0, 50, 100, 150, 200, 250, 300]}
-        xRange={[0, 1000]}
-        yRange={[0, 300]}
+        yTicks={yAxis.ticks}
+        xRange={[0, T_MAX]}
+        yRange={[0, yAxis.top]}
         leftAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
-        tooltip="Population over time"
+        tooltip="Population over time (the P axis grows if the population goes above 300)"
         theme={theme}
       >
         {(transform) => {
@@ -315,8 +258,6 @@ const HutchinsonGrowthTool = () => {
               ref={canvasRef}
               className="absolute pointer-events-none"
               style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
@@ -328,10 +269,13 @@ const HutchinsonGrowthTool = () => {
         y={3}
         w={3}
         h={1}
-        value={(uiParams.k / 300) * 100}
-        onChange={(value) => updateParam("k", (value / 100) * 300)}
+        value={uiParams.k}
+        onChange={(value) => updateParam("k", Math.round(value))}
+        min={1}
+        max={300}
+        step={1}
         variant="unipolar"
-        label={`Carrying capacity: k = ${uiParams.k.toFixed(1)}`}
+        label={`Carrying capacity: k = ${uiParams.k.toFixed(0)}`}
         tooltip="Maximum sustainable population"
         theme={theme}
       />
@@ -342,7 +286,9 @@ const HutchinsonGrowthTool = () => {
         w={3}
         h={1}
         value={(uiParams.beta / 0.1) * 100}
-        onChange={(value) => updateParam("beta", (value / 100) * 0.1)}
+        onChange={(value) =>
+          updateParam("beta", Math.round(value) / 1000)
+        }
         variant="unipolar"
         label={`Birth rate: β = ${uiParams.beta.toFixed(3)}`}
         tooltip="Growth rate coefficient"
@@ -354,8 +300,11 @@ const HutchinsonGrowthTool = () => {
         y={3}
         w={3}
         h={1}
-        value={(uiParams.tau / 100) * 100}
-        onChange={(value) => updateParam("tau", (value / 100) * 100)}
+        value={uiParams.tau}
+        onChange={(value) => updateParam("tau", Math.round(value))}
+        min={0}
+        max={100}
+        step={1}
         variant="unipolar"
         label={`Time delay: τ = ${uiParams.tau.toFixed(1)}`}
         tooltip="Lag period for population feedback"
@@ -368,7 +317,7 @@ const HutchinsonGrowthTool = () => {
         w={3}
         h={1}
         value={(uiParams.P0 / 300) * 100}
-        onChange={(value) => updateParam("P0", (value / 100) * 300)}
+        onChange={(value) => updateParam("P0", Math.round(value) * 3)}
         variant="unipolar"
         label={`Initial population: P₀ = ${uiParams.P0.toFixed(1)}`}
         tooltip="Starting population at t=0"
@@ -405,7 +354,7 @@ const HutchinsonGrowthTool = () => {
         w={1}
         h={1}
         onPress={startSimulation}
-        variant={isAnimating ? "pressed" : "default"}
+        variant={runStatus === "running" ? "pressed" : "default"}
         theme={theme}
       >
         <div style={{ fontSize: "14px" }}>Solve</div>
@@ -416,10 +365,12 @@ const HutchinsonGrowthTool = () => {
         y={4}
         w={1}
         h={1}
-        onPress={stopSimulation}
+        onPress={stopOrResume}
         theme={theme}
       >
-        <div style={{ fontSize: "14px" }}>Stop</div>
+        <div style={{ fontSize: "14px" }}>
+          {runStatus === "paused" ? "Resume" : "Stop"}
+        </div>
       </GridButton>
     </ToolContainer>
   );

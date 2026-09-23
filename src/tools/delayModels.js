@@ -69,3 +69,39 @@ export function dominantFrequency(values, sampleRate = 1000) {
   if (normalizedPower <= 0.3) return null;
   return fMin + best * df;
 }
+
+/**
+ * Value of a uniformly sampled history (history[i] = P(i*dt)) at time s,
+ * by linear interpolation. Before t = 0 the history is the constant P0;
+ * past the last sample it is the last sample.
+ */
+export function delayedValue(history, dt, s, P0) {
+  if (s <= 0) return P0;
+  const last = history.length - 1;
+  const x = s / dt;
+  const i = Math.floor(x);
+  if (i >= last) return history[last];
+  const f = x - i;
+  return history[i] + f * (history[i + 1] - history[i]);
+}
+
+/**
+ * One RK4 step of Hutchinson's equation P' = beta P(t) (1 - P(t - tau)/k),
+ * with constant history P0 for t <= 0. history[i] = P(i*dt); returns the
+ * next value P((n+1)*dt). With tau = 0 this is ordinary logistic growth.
+ */
+export function hutchinsonStep(history, dt, { beta, k, tau, P0 }) {
+  const n = history.length - 1;
+  const t = n * dt;
+  const P = history[n];
+  const past = (s, stage) => (tau === 0 ? stage : delayedValue(history, dt, s, P0));
+  const f = (p, pd) => beta * p * (1 - pd / k);
+  const k1 = f(P, past(t - tau, P));
+  const p2 = P + (dt / 2) * k1;
+  const k2 = f(p2, past(t + dt / 2 - tau, p2));
+  const p3 = P + (dt / 2) * k2;
+  const k3 = f(p3, past(t + dt / 2 - tau, p3));
+  const p4 = P + dt * k3;
+  const k4 = f(p4, past(t + dt - tau, p4));
+  return P + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+}
