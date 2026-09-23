@@ -27,7 +27,7 @@ All eight parameters are input fields from 0 to 10 in steps of 0.1.
 
 **Insulin sensitivity of liver (k):** default 1.0. How sharply the liver's glucose release shuts off as insulin rises. Larger k gives a steeper switch.
 
-**Threshold parameter (c):** default 1.0. Together with k, it sets where the switch happens: liver production is half of its maximum α/2 when k·I = c, that is at I = c/k (in model units; on the graph that is 100·c/k pM). With α = 1, k = 2, c = 2 the liver term is α/(1 + e^(2I − 2)), which is half-maximal at I = 1.
+**Threshold parameter (c):** default 1.0. Together with k, it sets where the switch happens: liver production is half of its maximum α/2 when k·I = c, that is at I = c/k (in model units; on the graph that is 100·c/k pM).
 
 **G → I delay (τ):** slider from 0 to 60 minutes, default 0. The time it takes for a change in glucose to change insulin production.
 
