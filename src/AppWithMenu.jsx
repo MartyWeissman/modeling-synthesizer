@@ -1,7 +1,7 @@
 // src/AppWithMenu.jsx
-// Alternative App component with clean tool menu instead of cards
+// App shell: tool menu, theme selector, and the currently open tool
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { ThemeProvider } from "./components/ui/ThemeProvider";
 import { useTheme } from "./hooks/useTheme";
 import ToolMenu from "./components/ui/ToolMenu";
@@ -57,24 +57,55 @@ const ThemeSelector = () => {
   );
 };
 
+// Read URL parameters once, synchronously, so the first render already has
+// the right tool (no menu flash on direct links).
+const readUrlState = () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  return {
+    toolId: urlParams.get("tool"),
+    isDevMode: urlParams.get("dev") === "true",
+  };
+};
+
+const MENU_TITLE =
+  "Modeling Synthesizer - Interactive Mathematical Biology Simulations";
+
+// Shown while a tool's code is being downloaded (each tool is its own chunk).
+const ToolLoading = () => {
+  const { theme } = useTheme();
+  return (
+    <div className="text-center py-12" role="status" aria-live="polite">
+      <p className={`text-lg ${theme.text} opacity-75`}>Loading…</p>
+    </div>
+  );
+};
+
+// Catches a failed chunk download (e.g. offline, or a stale page after a new
+// deploy) so the student sees a message instead of a blank page.
+class ToolErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error) {
+    console.error("Tool failed to load:", error);
+  }
+
+  render() {
+    if (this.state.error) return this.props.fallback;
+    return this.props.children;
+  }
+}
+
 // Main App content
 const AppContent = () => {
-  const { theme, currentTheme, themes, setCurrentTheme } = useTheme();
-  const [currentTool, setCurrentTool] = useState(null);
-  const [isDevMode, setIsDevMode] = useState(false);
-
-  // Read URL parameters for tool selection, theme, and dev mode
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    setCurrentTool(urlParams.get("tool"));
-    setIsDevMode(urlParams.get("dev") === "true");
-
-    // Set theme from URL if provided
-    const urlTheme = urlParams.get("theme");
-    if (urlTheme && themes[urlTheme]) {
-      setCurrentTheme(urlTheme);
-    }
-  }, [themes, setCurrentTheme]);
+  const { theme, currentTheme } = useTheme();
+  const [{ toolId: currentTool, isDevMode }] = useState(readUrlState);
 
   // Handle tool selection by updating URL
   const handleToolSelect = (toolId) => {
@@ -93,13 +124,43 @@ const AppContent = () => {
   // Get tools from centralized metadata system
   const availableTools = getToolsByVisibility(isDevMode ? "dev" : "student");
 
-  // Get current tool component
-  const getCurrentToolComponent = () => {
-    const tool = getToolById(currentTool);
-    return tool ? tool.component : null;
-  };
+  // Development tools open only with ?dev=true (or on the local dev server).
+  const canOpenDevTools = isDevMode || import.meta.env.DEV;
+  const currentToolDef = currentTool
+    ? getToolById(currentTool, canOpenDevTools ? "dev" : "student")
+    : null;
+  const CurrentToolComponent = currentToolDef ? currentToolDef.component : null;
 
-  const CurrentToolComponent = getCurrentToolComponent();
+  // Browser tab title
+  useEffect(() => {
+    if (!currentTool) {
+      document.title = MENU_TITLE;
+    } else if (currentToolDef) {
+      document.title = `${currentToolDef.name} – Modeling Synthesizer`;
+    } else {
+      document.title = "Tool not found – Modeling Synthesizer";
+    }
+  }, [currentTool, currentToolDef]);
+
+  const secondaryButtonClass = `px-4 py-2 rounded-lg font-medium transition-all border ${
+    currentTheme === "unicorn"
+      ? "bg-pink-100 border-pink-300 text-pink-800 hover:bg-pink-200"
+      : currentTheme === "dark"
+        ? "bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600"
+        : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
+  } shadow-sm hover:shadow-md`;
+
+  const renderMessage = (heading, detail) => (
+    <div className="text-center py-12">
+      <p className={`text-lg ${theme.text} opacity-75 mb-2`}>{heading}</p>
+      {detail && (
+        <p className={`text-sm ${theme.text} opacity-60 mb-6`}>{detail}</p>
+      )}
+      <button onClick={handleBackToMenu} className={secondaryButtonClass}>
+        ← Back to Tools
+      </button>
+    </div>
+  );
 
   return (
     <div
@@ -120,13 +181,7 @@ const AppContent = () => {
             {currentTool && (
               <button
                 onClick={handleBackToMenu}
-                className={`px-4 py-2 rounded-lg font-medium transition-all border ${
-                  currentTheme === "unicorn"
-                    ? "bg-pink-100 border-pink-300 text-pink-800 hover:bg-pink-200"
-                    : currentTheme === "dark"
-                      ? "bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600"
-                      : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
-                } shadow-sm hover:shadow-md`}
+                className={secondaryButtonClass}
               >
                 ← Back to Tools
               </button>
@@ -144,12 +199,22 @@ const AppContent = () => {
           />
         ) : CurrentToolComponent ? (
           <div className="flex justify-center">
-            <CurrentToolComponent />
+            <ToolErrorBoundary
+              fallback={renderMessage(
+                "This tool couldn't be loaded.",
+                "Check your internet connection and reload the page.",
+              )}
+            >
+              <Suspense fallback={<ToolLoading />}>
+                <CurrentToolComponent />
+              </Suspense>
+            </ToolErrorBoundary>
           </div>
         ) : (
-          <div className="text-center py-12">
-            <p className={`text-lg ${theme.text} opacity-75`}>Tool not found</p>
-          </div>
+          renderMessage(
+            "Tool not found",
+            `There is no tool called “${currentTool}”. It may have been renamed; pick it from the list of tools.`,
+          )
         )}
 
         {/* Footer with license */}

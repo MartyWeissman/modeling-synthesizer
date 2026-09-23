@@ -6,6 +6,7 @@ import {
   generateTopicCategories,
   generateToolTypeCategories,
   generateLabCategories,
+  getToolLabs,
 } from "../../data/tools";
 
 const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
@@ -55,25 +56,34 @@ const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
       development: 5,
     };
 
+    // Within a type, sort by (first) lab, then by name. Tools with no lab
+    // come after the lab tools.
+    const labOrder = (tool) => {
+      const labs = getToolLabs(tool);
+      return labs.length > 0 ? Math.min(...labs.map((l) => labKeys.indexOf(l))) : 999;
+    };
+
     return filtered.sort((a, b) => {
       const aOrder = typeOrder[a.categories.toolType] || 999;
       const bOrder = typeOrder[b.categories.toolType] || 999;
-      return aOrder - bOrder;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      const labDiff = labOrder(a) - labOrder(b);
+      if (labDiff !== 0) return labDiff;
+      return a.name.localeCompare(b.name);
     });
   };
 
+  // All topic tags, the tool-type tag, and all lab tags for a tool
+  // (e.g. insulin-glucose is in both Lab 1 and Lab 4).
   const getTagsForTool = (toolId) => {
     const tags = [];
 
-    // Find topic tag
     for (const [topicKey, topicData] of Object.entries(topicCategories)) {
       if (topicData.tools.includes(toolId)) {
         tags.push({ type: "topic", key: topicKey, data: topicData });
-        break;
       }
     }
 
-    // Find tool type tag
     for (const [typeKey, typeData] of Object.entries(toolTypeCategories)) {
       if (typeData.tools.includes(toolId)) {
         tags.push({ type: "toolType", key: typeKey, data: typeData });
@@ -81,11 +91,9 @@ const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
       }
     }
 
-    // Find lab tag
     for (const [labKey, labData] of Object.entries(labCategories)) {
       if (labData.tools.includes(toolId)) {
         tags.push({ type: "lab", key: labKey, data: labData });
-        break;
       }
     }
 
@@ -271,10 +279,10 @@ const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
                       ? "bg-blue-900 border-blue-400 shadow-lg transform scale-105"
                       : "bg-blue-50 border-blue-300 shadow-lg transform scale-105"
                   : currentTheme === "unicorn"
-                    ? "bg-purple-25 border-purple-200 hover:border-pink-300 hover:shadow-md hover:transform hover:scale-102"
+                    ? "bg-purple-50/50 border-purple-200 hover:border-pink-300 hover:shadow-md hover:transform hover:scale-[1.02]"
                     : currentTheme === "dark"
-                      ? "bg-gray-800 border-gray-600 hover:border-gray-400 hover:shadow-md hover:transform hover:scale-102"
-                      : "bg-white border-gray-200 hover:border-gray-300 hover:shadow-md hover:transform hover:scale-102"
+                      ? "bg-gray-800 border-gray-600 hover:border-gray-400 hover:shadow-md hover:transform hover:scale-[1.02]"
+                      : "bg-white border-gray-200 hover:border-gray-300 hover:shadow-md hover:transform hover:scale-[1.02]"
               }`}
             >
               <div className="flex items-start justify-between mb-3">
@@ -294,9 +302,9 @@ const ToolMenu = ({ onToolSelect, availableTools, currentTool }) => {
               </p>
 
               <div className="flex flex-wrap gap-2">
-                {tags.map((tag, index) => (
+                {tags.map((tag) => (
                   <div
-                    key={index}
+                    key={`${tag.type}-${tag.key}`}
                     className={`text-xs px-2 py-1 rounded-full ${
                       tag.type === "lab"
                         ? currentTheme === "unicorn"

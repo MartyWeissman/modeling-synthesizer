@@ -20,29 +20,47 @@ These tools are designed for undergraduate courses in mathematical biology, dyna
 ## Available Tools
 
 ### Ecology & Population Dynamics
+- **Shark-Tuna Interactions** - Count predator-prey encounters in a random spatial layout
 - **Shark-Tuna Trajectories** - Phase space visualization of Lotka-Volterra predator-prey dynamics
-- **Holling-Tanner Model** - Advanced predator-prey with Type II functional response
-- **Logistic Growth Explorer** - Carrying capacity and S-curve population dynamics
-- **Generalized Lotka-Volterra** - Two-species competition and mutualism
-- **Discrete Logistic Explorer** - Period doubling, bifurcations, and chaos
-- **Hutchinson Growth** - Time-delayed population dynamics
+- **Holling-Tanner Predator-Prey Model** - Predator-prey dynamics with a Type II functional response
+- **Logistic Growth Explorer** - Carrying capacity and S-curve population dynamics, with data fitting
+- **Self-Interaction Explorer** - Random encounters between organisms, the crowding effect behind logistic growth
+- **Generalized Lotka-Volterra Model** - Two-species competition, predation, and mutualism
+- **Discrete Logistic Model Explorer** - Period doubling, bifurcations, and chaos
+- **Hutchinson Population Growth Simulator** - Time-delayed population dynamics
 
 ### Physiology & Pharmacokinetics
 - **Insulin-Glucose Regulation** - Homeostasis and feedback control with meal challenges
+- **Minimal Insulin-Glucose Simulator** - A first look at the insulin-glucose model
 - **Caffeine Metabolism** - Exponential decay with multiple daily doses
-- **Gentamicin Dosage** - Therapeutic ranges and toxicity thresholds
+- **Gentamicin Dosage Simulator** - Therapeutic ranges and toxicity thresholds
 - **Muscle Tremor Simulator** - Delay differential equations in neural control
-- **FitzHugh-Nagumo Neuron** - Action potential dynamics and excitability
+- **FitzHugh-Nagumo Neuron Model** - Action potential dynamics and excitability
+- **Ion Channel Simulator** - Stochastic opening and closing of a single ion channel
 
 ### Biochemistry & Biophysics
-- **Higgins-Sel'kov Glycolysis** - Metabolic oscillations with nullclines and vector fields
-- **Brownian Motion Simulator** - Random particle diffusion with Einstein-Stokes equation
+- **Higgins-Sel'kov Glycolysis Model** - Metabolic oscillations with nullclines and vector fields
+- **Brownian Motion Simulator** - Random particle diffusion with the Stokes–Einstein equation
+- **Atmospheric Molecule Simulator** - Random thermal motion with gravity, and the resulting density profile
+- **Simple Harmonic Oscillator** - Position-momentum phase space and periodic motion
+
+### Randomness & Evolution
+- **Rapid Coin Flipper** - Probability, random walks, and statistics
+- **Tree Ring Simulator** - Random annual growth and the spread of total growth
+- **Growth & Collapse Simulator** - A Markov process that grows step by step or collapses to zero
+- **Yule Process Simulator** - Stochastic birth and death of cells
+- **Genetic Drift Simulator** - Random allele-frequency changes, fixation, and loss
+
+### Matrix & Markov Models
+- **Two Compartment Markov Model** - Stochastic transitions between two compartments
+- **Three-Compartment Matrix Model** - Discrete-time dynamics of three compartments via matrix multiplication
+- **2D Matrix Visualizer** - A 2×2 matrix as a linear map of the plane, with eigenvectors
+- **Leslie Matrix Population Model** - Age-structured population dynamics
 
 ### Mathematical Tools
 - **Dynamical Systems Calculator** - Custom differential equations with vector fields
 - **1D Dynamical System Calculator** - Phase line analysis and stability
-- **Linear Regression with Log Scaling** - Data visualization and fitting
-- **Rapid Coin Flipper** - Probability, random walks, and statistics
+- **Linear Regression with Log Scaling** - Data visualization and fitting on linear and log scales
 
 ### Study Aides
 - **Discrete Modeling Practice** - Randomized practice problems for difference equations
@@ -54,7 +72,7 @@ These tools are designed for undergraduate courses in mathematical biology, dyna
 - **Phase portraits** - Vector fields, nullclines, and trajectory plotting
 - **Time series plots** - Watch variables evolve over time
 - **No installation required** - Runs entirely in your web browser
-- **NOT YET Mobile friendly** - Meant for desktops and laptops.  May work on tablets.  Not recommended for phones and other low-resolution devices.
+- **Not yet mobile-friendly** - Meant for desktops and laptops. May work on tablets. Not recommended for phones and other small screens.
 - **Dark mode** - Easy on the eyes for late-night studying
 - **Help system** - Built-in documentation for each tool
 
@@ -79,7 +97,7 @@ Interested in contributing or running the project locally? See [CONTRIBUTING.md]
 
 ## License
 
-This project is open source and free for educational use.
+Released under the [MIT License](LICENSE). You are free to use, modify, and share it, including in your own courses.
 
 ## Author
 

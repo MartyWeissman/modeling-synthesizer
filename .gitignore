@@ -22,3 +22,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Claude Code local state and worktrees
+.claude/worktrees/
+.claude/settings.local.json
+
+# Scratch files from local sync and screenshot checks
+.sync.bundle
+shots-*/
+
+# Generated at build time by scripts/generate-sitemap.js (npm run build)
+public/sitemap.xml

@@ -1,43 +1,50 @@
 // src/data/tools.js
 // Centralized tool metadata for the Modeling Synthesizer
+//
+// Each tool component is loaded lazily (its own JS chunk), so the menu page
+// only downloads the registry, and opening a tool downloads just that tool.
+// Keep this file free of JSX and Vite-only features (import.meta.env): the
+// build-time sitemap script (scripts/generate-sitemap.js) imports it in Node.
 
-import InsulinGlucoseTool from "../tools/InsulinGlucoseTool";
-import MinimalInsulinGlucoseTool from "../tools/MinimalInsulinGlucoseTool";
-import CaffeineMetabolismTool from "../tools/CaffeineMetabolismTool";
-import GentamicinDosageTool from "../tools/GentamicinDosageTool";
-import GlycolysisTool from "../tools/GlycolysisTool";
-import HollingTannerTool from "../tools/HollingTannerTool";
-import SharkTunaInteractionTool from "../tools/SharkTunaInteractionTool";
-import SharkTunaTrajectoryTool from "../tools/SharkTunaTrajectoryTool";
-import DynamicalSystemsCalculator from "../tools/DynamicalSystemsCalculator";
-import ComponentTestTool from "../tools/ComponentTestTool";
-import GridLabelTest from "../tools/GridLabelTest";
-import VisualToolBuilder from "../tools/VisualToolBuilder";
-import LinearRegressionLogScalingTool from "../tools/LinearRegressionLogScalingTool";
-import DiscreteModelingPracticeTool from "../tools/DiscreteModelingPracticeTool";
-import TrajectoryTimeSeriesPracticeTool from "../tools/TrajectoryTimeSeriesPracticeTool";
-import SelfInteractionSimulatorTool from "../tools/SelfInteractionSimulatorTool";
-import LogisticGrowthExplorerTool from "../tools/LogisticGrowthExplorerTool";
-import GeneralizedLotkaVolterraTool from "../tools/GeneralizedLotkaVolterraTool";
-import OneDimensionalCalculator from "../tools/OneDimensionalCalculator";
-import SimpleHarmonicOscillatorTool from "../tools/SimpleHarmonicOscillatorTool";
-import MuscleTremorSimulatorTool from "../tools/MuscleTremorSimulatorTool";
-import FitzHughNagumoTool from "../tools/FitzHughNagumoTool";
-import DiscreteLogisticExplorerTool from "../tools/DiscreteLogisticExplorerTool";
-import HutchinsonGrowthTool from "../tools/HutchinsonGrowthTool";
-import RapidCoinFlipperTool from "../tools/RapidCoinFlipperTool";
-import TreeRingSimulatorTool from "../tools/TreeRingSimulatorTool";
-import GrowthCollapseSimulatorTool from "../tools/GrowthCollapseSimulatorTool";
-import YuleProcessSimulatorTool from "../tools/YuleProcessSimulatorTool";
-import BrownianMotionSimulator from "../tools/BrownianMotionSimulator";
-import GeneticDriftSimulator from "../tools/GeneticDriftSimulator";
-import AtmosphericMoleculeSimulator from "../tools/AtmosphericMoleculeSimulator";
-import IonChannelSimulatorTool from "../tools/IonChannelSimulatorTool";
-import TwoCompartmentMarkovTool from "../tools/TwoCompartmentMarkovTool";
-import MatrixVectorCalculatorTool from "../tools/MatrixVectorCalculatorTool";
-import ThreeCompartmentMatrixTool from "../tools/ThreeCompartmentMatrixTool";
-import TwoDimensionalMatrixVisualizerTool from "../tools/TwoDimensionalMatrixVisualizerTool";
-import LeslieMatrixTool from "../tools/LeslieMatrixTool";
+import { lazy } from "react";
+
+const InsulinGlucoseTool = lazy(() => import("../tools/InsulinGlucoseTool.jsx"));
+const MinimalInsulinGlucoseTool = lazy(() => import("../tools/MinimalInsulinGlucoseTool.jsx"));
+const CaffeineMetabolismTool = lazy(() => import("../tools/CaffeineMetabolismTool.jsx"));
+const GentamicinDosageTool = lazy(() => import("../tools/GentamicinDosageTool.jsx"));
+const GlycolysisTool = lazy(() => import("../tools/GlycolysisTool.jsx"));
+const HollingTannerTool = lazy(() => import("../tools/HollingTannerTool.jsx"));
+const SharkTunaInteractionTool = lazy(() => import("../tools/SharkTunaInteractionTool.jsx"));
+const SharkTunaTrajectoryTool = lazy(() => import("../tools/SharkTunaTrajectoryTool.jsx"));
+const DynamicalSystemsCalculator = lazy(() => import("../tools/DynamicalSystemsCalculator.jsx"));
+const ComponentTestTool = lazy(() => import("../tools/ComponentTestTool.jsx"));
+const GridLabelTest = lazy(() => import("../tools/GridLabelTest.jsx"));
+const VisualToolBuilder = lazy(() => import("../tools/VisualToolBuilder.jsx"));
+const LinearRegressionLogScalingTool = lazy(() => import("../tools/LinearRegressionLogScalingTool.jsx"));
+const DiscreteModelingPracticeTool = lazy(() => import("../tools/DiscreteModelingPracticeTool.jsx"));
+const TrajectoryTimeSeriesPracticeTool = lazy(() => import("../tools/TrajectoryTimeSeriesPracticeTool.jsx"));
+const SelfInteractionSimulatorTool = lazy(() => import("../tools/SelfInteractionSimulatorTool.jsx"));
+const LogisticGrowthExplorerTool = lazy(() => import("../tools/LogisticGrowthExplorerTool.jsx"));
+const GeneralizedLotkaVolterraTool = lazy(() => import("../tools/GeneralizedLotkaVolterraTool.jsx"));
+const OneDimensionalCalculator = lazy(() => import("../tools/OneDimensionalCalculator.jsx"));
+const SimpleHarmonicOscillatorTool = lazy(() => import("../tools/SimpleHarmonicOscillatorTool.jsx"));
+const MuscleTremorSimulatorTool = lazy(() => import("../tools/MuscleTremorSimulatorTool.jsx"));
+const FitzHughNagumoTool = lazy(() => import("../tools/FitzHughNagumoTool.jsx"));
+const DiscreteLogisticExplorerTool = lazy(() => import("../tools/DiscreteLogisticExplorerTool.jsx"));
+const HutchinsonGrowthTool = lazy(() => import("../tools/HutchinsonGrowthTool.jsx"));
+const RapidCoinFlipperTool = lazy(() => import("../tools/RapidCoinFlipperTool.jsx"));
+const TreeRingSimulatorTool = lazy(() => import("../tools/TreeRingSimulatorTool.jsx"));
+const GrowthCollapseSimulatorTool = lazy(() => import("../tools/GrowthCollapseSimulatorTool.jsx"));
+const YuleProcessSimulatorTool = lazy(() => import("../tools/YuleProcessSimulatorTool.jsx"));
+const BrownianMotionSimulator = lazy(() => import("../tools/BrownianMotionSimulator.jsx"));
+const GeneticDriftSimulator = lazy(() => import("../tools/GeneticDriftSimulator.jsx"));
+const AtmosphericMoleculeSimulator = lazy(() => import("../tools/AtmosphericMoleculeSimulator.jsx"));
+const IonChannelSimulatorTool = lazy(() => import("../tools/IonChannelSimulatorTool.jsx"));
+const TwoCompartmentMarkovTool = lazy(() => import("../tools/TwoCompartmentMarkovTool.jsx"));
+const MatrixVectorCalculatorTool = lazy(() => import("../tools/MatrixVectorCalculatorTool.jsx"));
+const ThreeCompartmentMatrixTool = lazy(() => import("../tools/ThreeCompartmentMatrixTool.jsx"));
+const TwoDimensionalMatrixVisualizerTool = lazy(() => import("../tools/TwoDimensionalMatrixVisualizerTool.jsx"));
+const LeslieMatrixTool = lazy(() => import("../tools/LeslieMatrixTool.jsx"));
 
 /**
  * Complete tool definitions with all metadata
@@ -125,7 +132,7 @@ export const toolDefinitions = {
   "shark-tuna-interaction": {
     name: "Shark-Tuna Interactions",
     description:
-      "Spatial predator-prey simulation showing real-time predation events in an ocean ecosystem.",
+      "Spatial predator-prey experiment: place sharks and tuna at random in a patch of ocean and count the encounters (interactions) between them.",
     component: SharkTunaInteractionTool,
     categories: {
       topics: ["ecology"],
@@ -242,7 +249,7 @@ export const toolDefinitions = {
       "Particle collision simulator showing random motion and interactions in a circular space. Track collision frequency over time.",
     component: SelfInteractionSimulatorTool,
     categories: {
-      topics: [],
+      topics: ["ecology"],
       toolType: "explorer",
       lab: "lab3",
     },
@@ -291,7 +298,7 @@ export const toolDefinitions = {
   "simple-harmonic-oscillator": {
     name: "Simple Harmonic Oscillator",
     description:
-      "Explore classical harmonic motion with position and momentum phase space visualization. Observe circular trajectories and perfect periodic oscillations.",
+      "Explore classical harmonic motion with position and momentum phase space visualization. Observe closed trajectories and perfectly periodic oscillations.",
     component: SimpleHarmonicOscillatorTool,
     categories: {
       topics: ["physical"],
@@ -369,7 +376,7 @@ export const toolDefinitions = {
   "tree-ring-simulator": {
     name: "Tree Ring Simulator",
     description:
-      "Simulate annual tree ring growth with random variation. Visualize growth patterns and compare total growth with expected values using z-scores.",
+      "Simulate annual tree ring growth with random variation. Visualize growth patterns and compare total growth with expected values.",
     component: TreeRingSimulatorTool,
     categories: {
       topics: ["ecology"],
@@ -395,7 +402,7 @@ export const toolDefinitions = {
   "yule-process-simulator": {
     name: "Yule Process Simulator",
     description:
-      "Simulate stochastic birth-death branching processes. Watch multiple population trajectories with adjustable division and death probabilities.",
+      "Simulate a stochastic birth–death process (a Yule process with deaths): in each time interval every cell may die or divide, with adjustable probabilities. Watch many population trajectories at once.",
     component: YuleProcessSimulatorTool,
     categories: {
       topics: ["ecology"],
@@ -408,7 +415,7 @@ export const toolDefinitions = {
   "brownian-motion": {
     name: "Brownian Motion Simulator",
     description:
-      "Visualize random molecular motion with adjustable particle radius, fluid viscosity, and temperature. Track displacement over time using the Einstein-Stokes diffusion equation.",
+      "Visualize random molecular motion with adjustable particle radius, fluid viscosity, and temperature. Track displacement over time using the Stokes–Einstein diffusion equation.",
     component: BrownianMotionSimulator,
     categories: {
       topics: ["molecular", "physical"],
@@ -499,7 +506,7 @@ export const toolDefinitions = {
   "2d-matrix-visualizer": {
     name: "2D Matrix Visualizer",
     description:
-      "Visualize how a 2×2 matrix acts as a linear map on the plane. Choose a shape, watch it transform in real time, iterate M repeatedly, and explore eigenvectors and matrix properties.",
+      "Visualize how a 2×2 matrix acts as a linear map on the plane. Choose a shape, apply M to it step by step, and explore eigenvectors and matrix properties.",
     component: TwoDimensionalMatrixVisualizerTool,
     categories: {
       topics: ["physical"],
@@ -602,6 +609,12 @@ export const generateToolTypeCategories = () => {
   return categories;
 };
 
+/**
+ * Lab keys for a tool. Tools use either `labs: [...]` or a single `lab`.
+ */
+export const getToolLabs = (tool) =>
+  tool.categories.labs || (tool.categories.lab ? [tool.categories.lab] : []);
+
 export const generateLabCategories = () => {
   const categories = {};
 
@@ -615,11 +628,7 @@ export const generateLabCategories = () => {
 
   // Populate tools into categories
   Object.entries(toolDefinitions).forEach(([toolId, tool]) => {
-    // Handle both single 'lab' and multiple 'labs' properties
-    const labs =
-      tool.categories.labs ||
-      (tool.categories.lab ? [tool.categories.lab] : []);
-    labs.forEach((lab) => {
+    getToolLabs(tool).forEach((lab) => {
       if (categories[lab]) {
         categories[lab].tools.push(toolId);
       }
@@ -633,17 +642,32 @@ export const generateLabCategories = () => {
  * Utility functions for tool filtering and access
  */
 
+/** True if a tool is visible to students (not a development tool). */
+export const isStudentTool = (tool) =>
+  tool.visibility === "student" || tool.visibility === "both";
+
+/**
+ * Tools to list in the menu. "dev" lists every tool; anything else lists
+ * only student tools.
+ */
 export const getToolsByVisibility = (visibility) => {
   return Object.entries(toolDefinitions)
-    .filter(([, tool]) => {
-      if (visibility === "dev") return true; // Dev mode shows all
-      return tool.visibility === "student" || tool.visibility === "both";
-    })
+    .filter(([, tool]) => visibility === "dev" || isStudentTool(tool))
     .map(([id, tool]) => ({ id, ...tool }));
 };
 
-export const getToolById = (id) => {
-  return toolDefinitions[id] || null;
+/**
+ * Look up a tool by id. With visibility "student" (the default), development
+ * tools are not returned, so ?tool=component-test shows the not-found page
+ * unless the caller passes "dev" (dev mode).
+ */
+export const getToolById = (id, visibility = "student") => {
+  if (!id || !Object.prototype.hasOwnProperty.call(toolDefinitions, id)) {
+    return null;
+  }
+  const tool = toolDefinitions[id];
+  if (visibility !== "dev" && !isStudentTool(tool)) return null;
+  return tool;
 };
 
 export const getAllTools = () => {
@@ -682,7 +706,7 @@ export const getToolsByCategory = (
       case "toolType":
         return tool.categories.toolType === categoryValue;
       case "lab":
-        return tool.categories.lab === categoryValue;
+        return getToolLabs(tool).includes(categoryValue);
       default:
         return false;
     }

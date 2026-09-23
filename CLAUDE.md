@@ -20,7 +20,7 @@ This is a React-based modeling synthesizer for life sciences education, using a 
 
 ## Tool Architecture Types
 
-The Modeling Synthesizer supports three distinct architectural patterns, each suited to different types of biological simulations:
+The Modeling Synthesizer supports four distinct architectural patterns, each suited to different types of biological simulations:
 
 ### Pattern A: Canvas-Based Animation (SharkTunaTrajectoryTool)
 **Best for**: Phase portraits, vector fields, real-time trajectory simulations
@@ -670,13 +670,22 @@ const NewTool = () => {
 export default NewTool;
 ```
 
+## Shared helpers
+
+Use these instead of re-implementing them in a tool (unit tests in `tests/`, run with `npm test`):
+
+- `src/utils/ticks.js`: `niceTicks(min, max, count)`, `linearTicks(min, max, step)` (index-based, no float drift, endpoints kept), `niceStep`, `formatTick(value, step)`, `uniqueTicks`, `ticksInRange`, `cleanNumber`.
+- `src/utils/canvas.js`: `setupCanvas(canvas, {width, height}?)` returns `{ctx, width, height, dpr}`; it sizes the backing store for `devicePixelRatio` (sharp on Retina) and scales the context, so keep drawing in CSS pixels (use the returned `width`/`height`, never `canvas.width`/`canvas.height`). Also `clearCanvas(canvas)`, `canvasCssSize(canvas)`.
+- `src/utils/stability.js`: `eig2x2(M)`, `classifyEquilibrium2D(J)` (node, saddle, spiral, center, degenerate node, star; stable or unstable), `numericJacobian2D(f, x, y)`.
+- `src/hooks/useAnimationLoop.js`: `const loop = useAnimationLoop((dtSeconds, now) => { ...; return false to stop })`, then `loop.start()`, `loop.stop()`, `loop.isRunning()`. Never double-starts, always calls the latest callback, passes real elapsed time, cleans up on unmount.
+
 ## Porting Process
 
 ### Step 1: Analysis & Pattern Selection
 1. **Extract Parameters**: Identify all sliders, inputs, and controls
 2. **Map Interactions**: Note button behaviors and simulation triggers  
 3. **Identify Outputs**: Locate graphs, displays, and visual elements
-4. **Select Architecture Pattern**: Use decision matrix above to choose Pattern A, B, or C
+4. **Select Architecture Pattern**: Use the guidelines above to choose Pattern A, B, C, or D
 5. **Determine Grid Size**: Plan layout (typical: 10x5 to 12x6)
 
 ### Step 2: Component Selection
@@ -1184,7 +1193,10 @@ Add your tool to the `toolDefinitions` object in `src/data/tools.js`:
 
 ```jsx
 // src/data/tools.js
-import NewToolComponent from "../tools/NewToolComponent";
+// Tools are loaded lazily, so each one is its own JS chunk and the menu
+// page stays small. Don't add JSX or import.meta.env to this file: the
+// build-time sitemap script (scripts/generate-sitemap.js) imports it in Node.
+const NewToolComponent = lazy(() => import("../tools/NewToolComponent.jsx"));
 
 export const toolDefinitions = {
   // ... existing tools
@@ -1196,9 +1208,9 @@ export const toolDefinitions = {
     categories: {
       topics: ["physiology"],           // Can be multiple: ["ecology", "evolution"] 
       toolType: "simulation",           // Exactly one
-      lab: "lab3"                       // Exactly one
+      lab: "lab3"                       // One lab, or labs: ["lab1", "lab4"], or lab: null
     },
-    visibility: "student"               // "student", "dev", or "both"
+    visibility: "student"               // "student", "dev" (only with ?dev=true), or "both"
   }
 };
 ```
@@ -1235,17 +1247,17 @@ Tools can belong to **multiple topic categories** for cross-disciplinary content
 - **study**: Reference materials, guides, educational helpers
 - **development**: Testing tools, component demos, debug utilities
 
-**Lab Assignment** (choose exactly one):
+**Lab Assignment** (`lab: "labN"` for one lab, `labs: [...]` for several, `lab: null` for none):
 - **lab1**: Flow - Dynamic systems, trajectories, time evolution
 - **lab2**: Growth - Population changes, exponential processes
 - **lab3**: Equilibrium - Steady states, homeostasis, balance
 - **lab4**: Oscillation - Periodic behavior, cycles, rhythms
 - **lab5**: Randomness - Probability, stochastic processes, variation
-- **lab6**: Order - Pattern formation, organization, structure
+- **lab6**: Order - Linear/matrix models, Markov chains, structure
 
 ### Automatic Category Generation
 
-The menu system automatically generates categories from your tool definitions - no manual updating required in multiple files!
+The menu system automatically generates categories from your tool definitions - no manual updating required in multiple files! The sitemap (`public/sitemap.xml`) is also generated from the registry on every `npm run build`.
 
 ### Benefits of Centralized System
 
