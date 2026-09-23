@@ -16,6 +16,12 @@ const GridComponent = ({
   onMouseDown,
   onMouseUp,
   onMouseLeave,
+  onKeyDown,
+  onKeyUp,
+  role,
+  tabIndex,
+  ariaPressed,
+  ariaLabel,
   style = {},
   theme
 }) => {
@@ -37,6 +43,12 @@ const GridComponent = ({
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
       onMouseLeave={onMouseLeave}
+      onKeyDown={onKeyDown}
+      onKeyUp={onKeyUp}
+      role={role}
+      tabIndex={tabIndex}
+      aria-pressed={ariaPressed}
+      aria-label={ariaLabel}
     >
       {children}
     </div>

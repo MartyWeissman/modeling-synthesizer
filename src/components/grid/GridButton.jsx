@@ -3,11 +3,14 @@
 import React, { useState } from "react";
 import GridComponent from "./GridComponent";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
+import { useThemeMode, noiseBackgroundSize } from "./themeMode";
 
 const GridButton = React.memo(
   ({
     x,
     y,
+    w = 1, // Width in grid cells
+    h = 1, // Height in grid cells
     children,
 
     // Button behavior
@@ -22,13 +25,13 @@ const GridButton = React.memo(
 
     // Standard props
     tooltip,
+    ariaLabel, // Optional accessible name (defaults to the visible text)
     theme,
   }) => {
     const [momentaryPressed, setMomentaryPressed] = useState(false);
 
     // Determine theme and texture
-    const isDarkMode = theme.component.includes("gray-700");
-    const isUnicornMode = theme.text.includes("purple-800");
+    const { isDarkMode, isUnicornMode } = useThemeMode(theme);
     const currentTexture = isDarkMode
       ? DARK_NOISE_TEXTURE
       : LIGHT_NOISE_TEXTURE;
@@ -44,7 +47,7 @@ const GridButton = React.memo(
       onPress?.(); // Always call onPress if provided
     };
 
-    // Handle mouse events (only for momentary buttons)
+    // Handle pointer events (only for momentary buttons)
     const handleMouseDown = () => {
       if (type === "momentary") {
         setMomentaryPressed(true);
@@ -54,6 +57,22 @@ const GridButton = React.memo(
     const handleMouseUp = () => {
       if (type === "momentary") {
         setMomentaryPressed(false);
+      }
+    };
+
+    // Keyboard: Enter or Space activates the button (like a native <button>).
+    const handleKeyDown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        if (e.repeat) return;
+        if (type === "momentary") setMomentaryPressed(true);
+        handleClick();
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        if (type === "momentary") setMomentaryPressed(false);
       }
     };
 
@@ -108,21 +127,27 @@ const GridButton = React.memo(
       <GridComponent
         x={x}
         y={y}
-        w={1}
-        h={1}
+        w={w}
+        h={h}
         title={tooltip}
         theme={theme}
-        className="p-1.5 cursor-pointer select-none"
+        className="p-1.5 cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp} // Release if mouse leaves
         onClick={handleClick}
+        role="button"
+        tabIndex={0}
+        ariaPressed={type === "toggle" ? !!active : undefined}
+        ariaLabel={ariaLabel}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
         style={{
           // Outer frame with texture
           background: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.99) 0%, rgba(251,207,232,0.15) 50%, rgba(196,181,253,0.15) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
-          backgroundSize: "cover, 64px 64px",
+          backgroundSize: noiseBackgroundSize(isUnicornMode),
           boxShadow: isUnicornMode
             ? `
               inset 0 1px 0 0 rgba(255,255,255,0.3),
@@ -155,7 +180,10 @@ const GridButton = React.memo(
                 : isUnicornMode
                   ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
                   : `url(${currentTexture})`,
-            backgroundSize: "cover, 64px 64px",
+            // Every branch above has a gradient layer except the plain texture
+            backgroundSize: noiseBackgroundSize(
+              !!bgColor || isPressed || isUnicornMode,
+            ),
             backgroundBlendMode: isPressed ? "multiply, normal" : "normal",
             boxShadow: isPressed
               ? `
