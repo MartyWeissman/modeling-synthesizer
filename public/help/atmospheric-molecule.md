@@ -2,48 +2,48 @@
 
 ## Overview
 
-This tool simulates gas molecules undergoing random thermal motion in a gravitational field. Each timestep, particles move according to a random walk with a gravitational bias pulling them downward and thermal energy causing random displacement scaled by temperature. Particles bounce elastically off the ground. The simulation demonstrates how temperature and gravity interact to create an exponential atmospheric density profile.  Realistic units of height are not provided. 
+This tool follows 200 gas molecules in a gravitational field. Each time step, every molecule's height changes by a small random amount: gravity adds a steady downward pull, and temperature sets the size of the random thermal jiggle. Molecules bounce off the ground, and off a ceiling at the top of the window (the molecules are in a closed box of height 100). Over time the molecules settle into an equilibrium where their density falls off exponentially with height, a simple version of the barometric formula for the atmosphere. Heights are in arbitrary units (0 at the ground, 100 at the ceiling).
 
 ## Parameters
 
-**Gravity:** Slider adjusts between -50 and -1 m/s², default -10 m/s². Controls the downward pull on molecules. The gravitational contribution to each step is `gravity / 200`. Stronger gravity (more negative) compresses molecules closer to the ground.
+**Gravity:** Slider from −50 to −1 m/s², default −10 m/s². The downward pull on the molecules; each step drifts down by |gravity| / 200. More negative values mean stronger gravity.
 
-**Temperature:** Slider adjusts between 100K and 500K, default 300K (~80°F). Controls the intensity of random thermal motion. The thermal contribution scales as `√(temperature / 300)` times a normally-distributed random value. Higher temperatures cause molecules to spread higher into the atmosphere.
+**Temperature:** Slider from 100 K to 500 K, default 300 K (about 80°F). The size of the random thermal motion: each step adds a normally distributed random amount with standard deviation √(temperature / 300).
 
 ## Components
 
-**Atmosphere Window:** A 6x5 display showing 200 red/orange particles moving against a gradient sky background with faint clouds. The sky gradient transitions from deeper color at the top to lighter near the horizon. A green ground strip appears at the bottom. Particles undergo continuous random motion affected by gravity and temperature, bouncing elastically when they reach the ground.
+**Atmosphere Window:** The 200 molecules (red dots) against a sky background, with the ground at the bottom. The top of the window is the ceiling (height 100).
 
-**Density Histogram:** A 2x5 display showing the distribution of particle heights across 16 bins. Horizontal bars extend rightward proportional to the fraction of particles in each height range, scaled so that all 200 particles in one bin would equal full width. An amber/orange line overlays the histogram showing the theoretical expected distribution based on current gravity and temperature settings. 
+**Density Window:** A histogram of the molecules' heights in 16 bins, lined up with the heights in the Atmosphere window (the height scale 0–100 is marked on the left). Each bar's length is the fraction of the 200 molecules in that height range. The amber line shows the theoretical equilibrium distribution for the current gravity and temperature. While the simulation runs, the histogram updates 5 times per second.
 
-**Simulate/Stop Button:** Toggles the simulation on and off. Shows "Simulate" when paused, "Stop" when running.
+**Simulate/Stop Button:** Starts and stops the simulation. The simulation takes 60 steps per second.
 
-**Reset Button:** Stops the simulation and resets all particles to near the ground (height ~7.5 with small random offset).
+**Reset Button:** Stops the simulation and puts all molecules back near the ground (height about 7.5).
 
-**Statistics Display:** Shows real-time statistics:
-- Particles: Total count (200)
-- Mean height: Average height of all particles
-- Std dev: Standard deviation of particle heights  
-- Running status: "Running..." or "Paused"
+**Statistics Display:**
+- Particles: 200
+- Mean height and Std dev (standard deviation) of the molecules' current heights
+- Theory: the scale height H and the theoretical mean height at equilibrium
+- Running... or Paused
+
+## The Theory
+
+For a random walk that drifts down by μ per step with random steps of variance σ², bouncing off the ground, the equilibrium density of molecules is proportional to e^(−h/H), where the scale height is
+
+H = σ² / (2|μ|) = temperature / (3 × |gravity|).
+
+At the defaults, H = 300 / 30 = 10. The density drops by a factor of e (about 2.7) for each H units of height. Higher temperature or weaker gravity gives a larger H: a taller, thinner atmosphere. When H is small compared with the ceiling (100), the mean height at equilibrium is about H; when H is large, the ceiling matters and the molecules spread almost evenly through the box.
 
 ## What to Observe
 
-- Click **Simulate** and observe particles spreading upward from their initial positions near the ground, eventually reaching an equilibrium distribution.
+- Click **Simulate** and watch the molecules spread upward from near the ground and settle into an equilibrium. The histogram bars approach the amber theory line, with random fluctuations because there are only 200 molecules.
 
-- Watch the **histogram bars** converge toward the **amber expected distribution line** as the simulation runs—this demonstrates the system reaching its theoretical steady state.
+- Raise the **Temperature** to 500 K: the molecules spread higher and the theory line becomes flatter. Lower it to 100 K: the molecules crowd near the ground.
 
-- Increase **Temperature** to 500K and observe particles spreading more uniformly throughout the atmosphere as thermal energy overcomes gravity. The expected distribution line will flatten.
+- Make gravity **stronger** (toward −50 m/s²): the atmosphere is compressed near the ground.
 
-- Decrease **Temperature** to 100K and observe particles clustering more tightly near the ground. The expected distribution line will become steeper.
+- Make gravity **weaker** (toward −1 m/s²): the molecules spread much higher, with a gradual falloff in density. With very weak gravity they fill most of the box.
 
-- Increase **Gravity** toward -50 m/s² and observe a more compressed atmosphere with particles concentrated near the ground.
+- Compare the **Mean height** with the theoretical mean after the simulation has run for a while. Taking longer to settle is normal when H is large.
 
-- Decrease **Gravity** toward -1 m/s² and observe particles spreading much higher, with a more gradual density falloff.
-
-- Watch the **Mean height** and **Std dev** statistics change as you adjust parameters—higher temperature or weaker gravity leads to higher mean height and larger standard deviation.
-
-- Click **Reset** to restart with particles near the ground, then observe how quickly equilibrium is reached under different parameter settings.
-
-## References
-
-[To be added]
+- Click **Reset** to start again near the ground, and see how long equilibrium takes to reach for different settings.

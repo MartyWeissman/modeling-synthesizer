@@ -7,52 +7,92 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { setupCanvas } from "../utils/canvas";
+import { randomNormal } from "../utils/random";
 
-// Box-Muller transform for Gaussian random numbers
-function gaussianRandom(mean, stdev) {
-  const u = 1 - Math.random();
-  const v = Math.random();
-  const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-  return z * stdev + mean;
+const SIMULATION_STEPS = 350; // 1 ms per step
+
+// Layout constants for the custom patch clamp display (CSS pixels)
+const LAYOUT = {
+  plotLeft: 40,
+  plotRight: 95, // space for right y-axis + label
+  plotBottom: 45, // gap between plot and time axis + label
+};
+
+// Open channel: 2 pA of inward current, which by convention is negative and
+// is drawn downward (as in the lab manual's patch-clamp figure).
+const OPEN_CURRENT = -2;
+const NOISE_SD = 0.2;
+
+/**
+ * Simulate the two-state channel for `steps` ms. The state recorded for each
+ * millisecond is the state that produced that millisecond's current, and the
+ * transition (if any) happens at the end of the millisecond. Starts closed.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function simulateChannel(pOpenToClosed, pClosedToOpen, steps, rng = Math.random) {
+  let state = 0; // 0 = closed, 1 = open
+  const states = [];
+  const trace = [];
+  for (let t = 0; t < steps; t++) {
+    const mean = state === 1 ? OPEN_CURRENT : 0;
+    trace.push({ time: t, current: randomNormal(mean, NOISE_SD, rng) });
+    states.push(state);
+    if (state === 0) {
+      if (rng() < pClosedToOpen) state = 1;
+    } else if (rng() < pOpenToClosed) {
+      state = 0;
+    }
+  }
+  return { states, trace };
 }
 
-const SIMULATION_STEPS = 350;
-
-function computeStatistics(stateHistory) {
-  let timeOpen = 0;
-  let timeClosed = 0;
-  let openBlocks = [];
-  let currentBlockLength = 0;
-  let previousState = null;
-
+/** Time open/closed (ms), mean length of open and closed episodes, fraction open. */
+// eslint-disable-next-line react-refresh/only-export-components
+export function computeStatistics(stateHistory) {
+  const blocks = { 0: [], 1: [] };
+  let runState = null;
+  let runLength = 0;
   stateHistory.forEach((state) => {
-    if (state === 1) {
-      timeOpen++;
-      if (previousState === 1) {
-        currentBlockLength++;
-      } else {
-        currentBlockLength = 1;
-      }
+    if (state === runState) {
+      runLength++;
     } else {
-      timeClosed++;
-      if (previousState === 1 && currentBlockLength > 0) {
-        openBlocks.push(currentBlockLength);
-        currentBlockLength = 0;
-      }
+      if (runState !== null) blocks[runState].push(runLength);
+      runState = state;
+      runLength = 1;
     }
-    previousState = state;
   });
+  if (runState !== null) blocks[runState].push(runLength);
 
-  if (currentBlockLength > 0) {
-    openBlocks.push(currentBlockLength);
-  }
+  const mean = (arr) =>
+    arr.length > 0 ? arr.reduce((x, y) => x + y, 0) / arr.length : 0;
+  const timeOpen = stateHistory.filter((st) => st === 1).length;
+  const timeClosed = stateHistory.length - timeOpen;
+  return {
+    timeOpen,
+    timeClosed,
+    avgOpenTime: mean(blocks[1]),
+    avgClosedTime: mean(blocks[0]),
+    fractionOpen: stateHistory.length > 0 ? timeOpen / stateHistory.length : 0,
+  };
+}
 
-  const avgOpenTime =
-    openBlocks.length > 0
-      ? openBlocks.reduce((a, b) => a + b, 0) / openBlocks.length
-      : 0;
+/** Long-run fraction of time open: P(C→O) / (P(C→O) + P(O→C)). */
+// eslint-disable-next-line react-refresh/only-export-components
+export function theoreticalOpenFraction(pOpenToClosed, pClosedToOpen) {
+  const total = pOpenToClosed + pClosedToOpen;
+  return total > 0 ? pClosedToOpen / total : null;
+}
 
-  return { timeOpen, timeClosed, avgOpenTime };
+/** Plot geometry for a canvas of the given CSS size. */
+function plotGeometry(w, h) {
+  const { plotLeft, plotRight, plotBottom } = LAYOUT;
+  const plotW = w - plotLeft - plotRight;
+  // Square grid: pixels per 10 ms = pixels per 0.5 pA
+  // plotW / 35 = plotH / 4  =>  plotH = 4 * plotW / 35
+  const plotH = Math.round((4 * plotW) / 35);
+  const plotTop = Math.max(10, Math.round((h - plotBottom - plotH) / 2)) + 12;
+  return { plotLeft, plotW, plotH, plotTop };
 }
 
 const IonChannelSimulatorTool = () => {
@@ -67,31 +107,14 @@ const IonChannelSimulatorTool = () => {
   // Results
   const [stats, setStats] = useState(null);
   const [hasSimulated, setHasSimulated] = useState(false);
+  const [showTheory, setShowTheory] = useState(false);
 
   // Store trace data for redrawing on theme change
   const traceDataRef = useRef(null);
 
-  // Layout constants for the custom patch clamp display
-  // These define the drawing regions within the canvas
-  const layout = {
-    plotLeft: 40,
-    plotRight: 95, // space for right y-axis + label
-    plotBottom: 45, // gap between plot and time axis + label
-  };
-
   const drawAxesAndGrid = useCallback(
-    (canvas, ctx) => {
-      const w = canvas.width;
-      const h = canvas.height;
-      const { plotLeft, plotRight, plotBottom } = layout;
-
-      const plotW = w - plotLeft - plotRight;
-      // Square grid: pixels per 10ms = pixels per 0.5pA
-      // pixPer10ms = plotW / 35, pixPer05pA = plotH / 4
-      // plotW / 35 = plotH / 4  =>  plotH = 4 * plotW / 35
-      const plotH = Math.round((4 * plotW) / 35);
-      const plotTop =
-        Math.max(10, Math.round((h - plotBottom - plotH) / 2)) + 12;
+    (ctx, w, h) => {
+      const { plotLeft, plotW, plotH, plotTop } = plotGeometry(w, h);
 
       const isDark = currentTheme === "dark";
       const axisColor = isDark ? "#ffffff" : "#000000";
@@ -102,11 +125,11 @@ const IonChannelSimulatorTool = () => {
       ctx.fillStyle = isDark ? "#111827" : "#ffffff";
       ctx.fillRect(0, 0, w, h);
 
-      // Grid lines (horizontal at 0, 0.5, 1.0, 1.5, 2.0 pA)
+      // Grid lines (horizontal at 0, -0.5, -1, -1.5, -2 pA; 0 at top)
       ctx.strokeStyle = gridColor;
       ctx.lineWidth = 0.5;
-      for (let pA = 0; pA <= 2; pA += 0.5) {
-        const y = plotTop + (pA / 2) * plotH; // 0 at top, 2 at bottom
+      for (let k = 0; k <= 4; k++) {
+        const y = plotTop + (k / 4) * plotH;
         ctx.beginPath();
         ctx.moveTo(plotLeft, y);
         ctx.lineTo(plotLeft + plotW, y);
@@ -130,13 +153,14 @@ const IonChannelSimulatorTool = () => {
       ctx.lineTo(plotLeft + plotW + 8, plotTop + plotH);
       ctx.stroke();
 
-      // Right Y-axis ticks and labels (0, 0.5, 1, 1.5, 2)
+      // Right Y-axis ticks and labels (0, -0.5, -1, -1.5, -2): inward
+      // current is negative and plotted downward
       ctx.fillStyle = textColor;
       ctx.font = "11px monospace";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      for (let pA = 0; pA <= 2; pA += 0.5) {
-        const y = plotTop + (pA / 2) * plotH;
+      for (let k = 0; k <= 4; k++) {
+        const y = plotTop + (k / 4) * plotH;
         // Tick mark
         ctx.beginPath();
         ctx.moveTo(plotLeft + plotW + 4, y);
@@ -144,11 +168,12 @@ const IonChannelSimulatorTool = () => {
         ctx.stroke();
         // Label
         ctx.fillText(
-          pA % 1 === 0 ? pA.toString() : pA.toFixed(1),
+          k === 0 ? "0" : `\u2212${(k * 0.5).toFixed(k % 2 === 0 ? 0 : 1)}`,
           plotLeft + plotW + 15,
           y,
         );
       }
+
 
       // Right Y-axis label "Current (pA)" rotated
       ctx.save();
@@ -207,15 +232,8 @@ const IonChannelSimulatorTool = () => {
   );
 
   const drawTrace = useCallback(
-    (canvas, ctx, traceData) => {
-      const w = canvas.width;
-      const h = canvas.height;
-      const { plotLeft, plotRight, plotBottom } = layout;
-
-      const plotW = w - plotLeft - plotRight;
-      const plotH = Math.round((4 * plotW) / 35);
-      const plotTop =
-        Math.max(10, Math.round((h - plotBottom - plotH) / 2)) + 12;
+    (ctx, w, h, traceData) => {
+      const { plotLeft, plotW, plotH, plotTop } = plotGeometry(w, h);
 
       const isDark = currentTheme === "dark";
       ctx.strokeStyle = isDark ? "#5b9ef5" : "#0055cc";
@@ -224,8 +242,8 @@ const IonChannelSimulatorTool = () => {
 
       traceData.forEach((point, index) => {
         const x = plotLeft + (point.time / SIMULATION_STEPS) * plotW;
-        // Inverted: 0 pA at top, 2 pA at bottom (matching grid lines)
-        const y = plotTop + (point.current / 2) * plotH;
+        // 0 pA at the top, -2 pA (open) at the bottom
+        const y = plotTop + (point.current / OPEN_CURRENT) * plotH;
 
         if (index === 0) {
           ctx.moveTo(x, y);
@@ -241,62 +259,37 @@ const IonChannelSimulatorTool = () => {
 
   const drawAll = useCallback(
     (traceData) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const rect = canvas.parentElement.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-
-      const ctx = canvas.getContext("2d");
-      drawAxesAndGrid(canvas, ctx);
-
+      const setup = setupCanvas(canvasRef.current);
+      if (!setup) return;
+      const { ctx, width, height } = setup;
+      drawAxesAndGrid(ctx, width, height);
       if (traceData && traceData.length > 0) {
-        drawTrace(canvas, ctx, traceData);
+        drawTrace(ctx, width, height, traceData);
       }
     },
     [drawAxesAndGrid, drawTrace],
   );
 
-  // Redraw on theme change
+  // Draw on mount and redraw on theme change
   useEffect(() => {
     drawAll(traceDataRef.current);
   }, [drawAll]);
 
-  // Initialize canvas
-  useEffect(() => {
-    drawAll(null);
-  }, []);
-
   // Run simulation
   const simulate = useCallback(() => {
-    let currentState = 0; // Start closed
-    const stateHistory = [];
-    const traceData = [];
-
-    for (let step = 0; step < SIMULATION_STEPS; step++) {
-      let current;
-      if (currentState === 0) {
-        current = gaussianRandom(0, 0.2);
-        if (Math.random() < probClosedToOpen) {
-          currentState = 1;
-        }
-      } else {
-        current = gaussianRandom(2, 0.2);
-        if (Math.random() < probOpenToClosed) {
-          currentState = 0;
-        }
-      }
-
-      stateHistory.push(currentState);
-      traceData.push({ time: step, current });
-    }
-
-    const newStats = computeStatistics(stateHistory);
-    setStats(newStats);
+    const { states, trace } = simulateChannel(
+      probOpenToClosed,
+      probClosedToOpen,
+      SIMULATION_STEPS,
+    );
+    setStats({
+      ...computeStatistics(states),
+      pOC: probOpenToClosed,
+      pCO: probClosedToOpen,
+    });
     setHasSimulated(true);
-    traceDataRef.current = traceData;
-    drawAll(traceData);
+    traceDataRef.current = trace;
+    drawAll(trace);
   }, [probOpenToClosed, probClosedToOpen, drawAll]);
 
   // Reset
@@ -306,6 +299,10 @@ const IonChannelSimulatorTool = () => {
     traceDataRef.current = null;
     drawAll(null);
   }, [drawAll]);
+
+  const paramsChanged =
+    stats && (stats.pOC !== probOpenToClosed || stats.pCO !== probClosedToOpen);
+  const theoryOpen = stats ? theoreticalOpenFraction(stats.pOC, stats.pCO) : null;
 
   return (
     <ToolContainer
@@ -411,27 +408,72 @@ const IonChannelSimulatorTool = () => {
           <div
             style={{ fontSize: "0.85em", opacity: 0.8, marginBottom: "6px" }}
           >
-            Closed: 0 pA | Open: 2 pA | Noise σ = 0.2 pA
+            Closed: 0 pA | Open: 2 pA inward (plotted down as −2 pA) |
+            Noise σ = 0.2 pA
           </div>
           {hasSimulated && stats ? (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
-                gap: "8px",
-                fontSize: "0.85em",
-              }}
-            >
-              <div>
-                <strong>Time open:</strong> {stats.timeOpen} ms
+            <>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gap: "4px 8px",
+                  fontSize: "0.85em",
+                }}
+              >
+                <div>
+                  <strong>Time open:</strong> {stats.timeOpen} ms
+                </div>
+                <div>
+                  <strong>Time closed:</strong> {stats.timeClosed} ms
+                </div>
+                <div>
+                  <strong>Fraction open:</strong>{" "}
+                  {(stats.fractionOpen * 100).toFixed(1)}%
+                </div>
+                <div>
+                  <strong>Avg open:</strong> {stats.avgOpenTime.toFixed(2)} ms
+                </div>
+                <div>
+                  <strong>Avg closed:</strong> {stats.avgClosedTime.toFixed(2)}{" "}
+                  ms
+                </div>
+                <div>
+                  {showTheory ? (
+                    <span>
+                      <strong>Theory P(open):</strong>{" "}
+                      {theoryOpen === null
+                        ? "—"
+                        : `${(theoryOpen * 100).toFixed(1)}%`}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowTheory(true)}
+                      style={{
+                        font: "inherit",
+                        textDecoration: "underline",
+                        background: "none",
+                        border: "none",
+                        padding: 0,
+                        color: "inherit",
+                        cursor: "pointer",
+                        opacity: 0.8,
+                      }}
+                      title="Show the long-run fraction of time open, P(C→O) / (P(C→O) + P(O→C))"
+                    >
+                      Show theory
+                    </button>
+                  )}
+                </div>
               </div>
-              <div>
-                <strong>Time closed:</strong> {stats.timeClosed} ms
-              </div>
-              <div>
-                <strong>Avg open:</strong> {stats.avgOpenTime.toFixed(2)} ms
-              </div>
-            </div>
+              {paramsChanged && (
+                <div style={{ fontSize: "0.75em", opacity: 0.7, marginTop: "4px" }}>
+                  Results are for P(O→C) = {stats.pOC.toFixed(2)}, P(C→O) ={" "}
+                  {stats.pCO.toFixed(2)}. Click Simulate for the new values.
+                </div>
+              )}
+            </>
           ) : (
             <div style={{ fontSize: "0.85em", opacity: 0.6 }}>
               Click Simulate to run

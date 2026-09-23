@@ -11,9 +11,82 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
 
 const NUM_GENERATIONS = 300;
 const ANIMATION_DURATION_MS = 5000; // 5 seconds for full simulation
+
+/**
+ * Round x to an integer at random, up with probability equal to its
+ * fractional part, so the expected value is exactly x.
+ */
+function stochasticRound(x, rng) {
+  const lo = Math.floor(x);
+  return lo + (rng() < x - lo ? 1 : 0);
+}
+
+/**
+ * Number of type-A individuals among `n` drawn without replacement from a
+ * pool of `poolA` type-A and `poolB` type-B individuals (hypergeometric).
+ */
+function drawWithoutReplacement(poolA, poolB, n, rng) {
+  let a = poolA;
+  let total = poolA + poolB;
+  let countA = 0;
+  for (let i = 0; i < n && total > 0; i++) {
+    if (rng() * total < a) {
+      countA++;
+      a--;
+    }
+    total--;
+  }
+  return countA;
+}
+
+/**
+ * One generation of the model: every individual has (1 + births) offspring
+ * (a breeding pool of N(1 + births)), then N survivors are drawn at random
+ * without replacement from the pool.
+ *
+ * When N(1 + births) is not a whole number, the pool size is rounded at
+ * random, and the type-A share of the pool is rounded at random around its
+ * exact value, so the expected frequency of A among survivors is exactly the
+ * current frequency (no hidden selection from rounding). For whole-number
+ * births (e.g. the default 1) no rounding happens at all.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function driftGeneration(countA, N, births, rng = Math.random) {
+  const poolSize = stochasticRound(N * (1 + births), rng);
+  const poolA = stochasticRound((poolSize * countA) / N, rng);
+  return drawWithoutReplacement(poolA, poolSize - poolA, N, rng);
+}
+
+/**
+ * Run the full simulation. Returns { data, fixationGeneration } where data has
+ * one entry per generation 0..generations, and fixationGeneration is the first
+ * generation at which one type is lost (null if neither is lost).
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function simulateDrift({
+  N,
+  births,
+  percentA,
+  generations = NUM_GENERATIONS,
+  rng = Math.random,
+}) {
+  let typeA = Math.round(N * (percentA / 100));
+  const data = [{ generation: 0, typeA, typeB: N - typeA }];
+  let fixationGeneration = typeA === 0 || typeA === N ? 0 : null;
+  for (let gen = 1; gen <= generations; gen++) {
+    if (fixationGeneration === null) {
+      typeA = driftGeneration(typeA, N, births, rng);
+      if (typeA === 0 || typeA === N) fixationGeneration = gen;
+    }
+    data.push({ generation: gen, typeA, typeB: N - typeA });
+  }
+  return { data, fixationGeneration };
+}
 
 const GeneticDriftSimulator = () => {
   const { theme, currentTheme } = useTheme();
@@ -21,7 +94,7 @@ const GeneticDriftSimulator = () => {
   // Canvas ref for the stacked bar chart
   const canvasRef = useRef(null);
   const transformRef = useRef(null);
-  const animationRef = useRef(null);
+  const animRef = useRef({ startTime: 0 });
 
   // Parameters
   const [populationSize, setPopulationSize] = useState(100);
@@ -30,10 +103,15 @@ const GeneticDriftSimulator = () => {
   const [typeBName, setTypeBName] = useState("Type B");
   const [percentageA, setPercentageA] = useState(70);
 
-  // Simulation state
+  // Simulation state. `run` holds the data together with the parameters that
+  // produced it, so later edits to N don't rescale an old run.
   const [isSimulating, setIsSimulating] = useState(false);
-  const [simulationData, setSimulationData] = useState(null);
+  const [run, setRun] = useState(null); // { data, fixationGeneration, N, births }
   const [currentGeneration, setCurrentGeneration] = useState(0);
+  const simulationData = run ? run.data : null;
+
+  // The y-axis follows the displayed run's N (or the current N before any run)
+  const displayN = run ? run.N : populationSize;
 
   // Derived percentage
   const percentageB = 100 - percentageA;
@@ -61,113 +139,47 @@ const GeneticDriftSimulator = () => {
     return "#C4823A"; // Medium amber/ochre
   }, [currentTheme]);
 
-  // Run the genetic drift simulation (generate all data at once)
-  const runSimulation = useCallback(() => {
-    const data = [];
-
-    // Initial counts based on percentage
-    let typeACount = Math.round(populationSize * (percentageA / 100));
-    let typeBCount = populationSize - typeACount;
-
-    // Store generation 0
-    data.push({
-      generation: 0,
-      typeA: typeACount,
-      typeB: typeBCount,
-      freqA: typeACount / populationSize,
-    });
-
-    // Simulate each generation
-    for (let gen = 1; gen <= NUM_GENERATIONS; gen++) {
-      // Expand population by per capita births
-      const newTypeACount = Math.round(typeACount * (1 + perCapitaBirths));
-      const newTypeBCount = Math.round(typeBCount * (1 + perCapitaBirths));
-
-      // Create breeding pool
-      const poolSize = newTypeACount + newTypeBCount;
-      const pool = [];
-      for (let i = 0; i < newTypeACount; i++) pool.push("A");
-      for (let i = 0; i < newTypeBCount; i++) pool.push("B");
-
-      // Fisher-Yates shuffle
-      for (let i = pool.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [pool[i], pool[j]] = [pool[j], pool[i]];
-      }
-
-      // Select survivors (first N from shuffled pool)
-      const survivors = pool.slice(0, populationSize);
-      typeACount = survivors.filter((type) => type === "A").length;
-      typeBCount = survivors.filter((type) => type === "B").length;
-
-      data.push({
-        generation: gen,
-        typeA: typeACount,
-        typeB: typeBCount,
-        freqA: typeACount / populationSize,
-      });
-
-      // Check for fixation (one type completely lost)
-      if (typeACount === 0 || typeBCount === 0) {
-        // Fill remaining generations with fixed state
-        for (
-          let remaining = gen + 1;
-          remaining <= NUM_GENERATIONS;
-          remaining++
-        ) {
-          data.push({
-            generation: remaining,
-            typeA: typeACount,
-            typeB: typeBCount,
-            freqA: typeACount / populationSize,
-          });
-        }
-        break;
-      }
-    }
-
-    return data;
-  }, [populationSize, perCapitaBirths, percentageA]);
-
   // Draw the stacked bar chart
   const drawStackedBars = useCallback(
-    (data, upToGeneration) => {
+    (runToDraw, upToGeneration) => {
       const canvas = canvasRef.current;
       const transform = transformRef.current;
-      if (!canvas || !transform || !data) return;
+      if (!canvas || !transform) return;
 
-      const ctx = canvas.getContext("2d");
-      const { plotWidth, plotHeight, dataToPixel } = transform;
+      const setup = setupCanvas(canvas, {
+        width: transform.plotWidth,
+        height: transform.plotHeight,
+      });
+      if (!setup) return;
+      const { ctx, width: plotWidth, height: plotHeight } = setup;
+      ctx.clearRect(0, 0, plotWidth, plotHeight);
+      if (!runToDraw) return;
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+      const { data, N } = runToDraw;
       const typeAColor = getTypeAColor();
       const typeBColor = getTypeBColor();
 
-      // Bar width calculation - each bar represents one generation
-      const barWidth = plotWidth / NUM_GENERATIONS;
+      // One bar per generation 0..300 (301 bars), all inside the plot
+      const barWidth = plotWidth / data.length;
 
       // Draw bars up to the current generation
       const gensToDraw = Math.min(upToGeneration, data.length);
 
       for (let i = 0; i < gensToDraw; i++) {
         const point = data[i];
-        const x = (i / NUM_GENERATIONS) * plotWidth;
+        const x = i * barWidth;
+        // Overlap neighbours slightly to avoid hairline gaps, but stay on-canvas
+        const w = Math.min(barWidth + 0.5, plotWidth - x);
 
         // Type A (bottom portion)
-        const heightA = (point.typeA / populationSize) * plotHeight;
+        const heightA = (point.typeA / N) * plotHeight;
         ctx.fillStyle = typeAColor;
-        ctx.fillRect(x, plotHeight - heightA, barWidth + 0.5, heightA);
+        ctx.fillRect(x, plotHeight - heightA, w, heightA);
 
         // Type B (top portion)
-        const heightB = (point.typeB / populationSize) * plotHeight;
+        const heightB = (point.typeB / N) * plotHeight;
         ctx.fillStyle = typeBColor;
-        ctx.fillRect(
-          x,
-          plotHeight - heightA - heightB,
-          barWidth + 0.5,
-          heightB,
-        );
+        ctx.fillRect(x, plotHeight - heightA - heightB, w, heightB);
       }
 
       // Draw initial and final population labels if animation is complete
@@ -177,137 +189,103 @@ const GeneticDriftSimulator = () => {
 
         ctx.font = "bold 12px sans-serif";
         ctx.textBaseline = "middle";
+        // White text with a dark halo stays readable on both bar colors
+        ctx.fillStyle = "#ffffff";
+        ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+        ctx.shadowBlur = 2;
 
-        // Initial counts (left side)
-        const leftX = 5;
-        const initialAHeight =
-          (initialData.typeA / populationSize) * plotHeight;
-        const initialBHeight =
-          (initialData.typeB / populationSize) * plotHeight;
+        const labelPair = (d, x) => {
+          const hA = (d.typeA / N) * plotHeight;
+          const hB = (d.typeB / N) * plotHeight;
+          if (hA > 20) ctx.fillText(String(d.typeA), x, plotHeight - hA / 2);
+          if (hB > 20) {
+            ctx.fillText(String(d.typeB), x, plotHeight - hA - hB / 2);
+          }
+        };
 
-        // Type A label (in the A section)
-        ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#ffffff";
         ctx.textAlign = "left";
-        if (initialAHeight > 20) {
-          ctx.fillText(
-            initialData.typeA.toString(),
-            leftX,
-            plotHeight - initialAHeight / 2,
-          );
-        }
-
-        // Type B label (in the B section)
-        if (initialBHeight > 20) {
-          ctx.fillText(
-            initialData.typeB.toString(),
-            leftX,
-            plotHeight - initialAHeight - initialBHeight / 2,
-          );
-        }
-
-        // Final counts (right side)
-        const rightX = plotWidth - 5;
-        const finalAHeight = (finalData.typeA / populationSize) * plotHeight;
-        const finalBHeight = (finalData.typeB / populationSize) * plotHeight;
-
+        labelPair(initialData, 5);
         ctx.textAlign = "right";
-        if (finalAHeight > 20) {
-          ctx.fillText(
-            finalData.typeA.toString(),
-            rightX,
-            plotHeight - finalAHeight / 2,
-          );
-        }
+        labelPair(finalData, plotWidth - 5);
 
-        if (finalBHeight > 20) {
-          ctx.fillText(
-            finalData.typeB.toString(),
-            rightX,
-            plotHeight - finalAHeight - finalBHeight / 2,
-          );
-        }
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
       }
     },
-    [populationSize, getTypeAColor, getTypeBColor, currentTheme],
+    [getTypeAColor, getTypeBColor],
   );
+
+  // Animation: reveal generations over ANIMATION_DURATION_MS of real time
+  const loop = useAnimationLoop((_dt, now) => {
+    const anim = animRef.current;
+    if (!anim.run) return false;
+    if (anim.startTime === null) anim.startTime = now;
+    const progress = Math.min((now - anim.startTime) / ANIMATION_DURATION_MS, 1);
+    const totalGenerations = anim.run.data.length;
+    const gensToShow = Math.ceil(progress * totalGenerations);
+    setCurrentGeneration(gensToShow);
+    drawStackedBars(anim.run, gensToShow);
+    if (progress >= 1) {
+      setIsSimulating(false);
+      return false;
+    }
+    return true;
+  });
 
   // Start simulation with animation
   const startSimulation = useCallback(() => {
-    // Cancel any existing animation
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-    }
+    loop.stop();
 
-    setIsSimulating(true);
+    // Generate all simulation data, and remember the parameters used
+    const result = simulateDrift({
+      N: populationSize,
+      births: perCapitaBirths,
+      percentA: percentageA,
+    });
+    const newRun = { ...result, N: populationSize, births: perCapitaBirths };
+
+    animRef.current = { run: newRun, startTime: null };
+    setRun(newRun);
     setCurrentGeneration(0);
+    setIsSimulating(true);
+    loop.start();
+  }, [loop, populationSize, perCapitaBirths, percentageA]);
 
-    // Generate all simulation data
-    const data = runSimulation();
-    setSimulationData(data);
-
-    // Animate the drawing
-    const startTime = performance.now();
-    const totalGenerations = data.length;
-
-    const animate = (currentTime) => {
-      const elapsed = currentTime - startTime;
-      const progress = Math.min(elapsed / ANIMATION_DURATION_MS, 1);
-
-      // Calculate how many generations to show
-      const gensToShow = Math.ceil(progress * totalGenerations);
-      setCurrentGeneration(gensToShow);
-
-      // Draw the chart
-      drawStackedBars(data, gensToShow);
-
-      if (progress < 1) {
-        animationRef.current = requestAnimationFrame(animate);
-      } else {
-        setIsSimulating(false);
-        animationRef.current = null;
-      }
-    };
-
-    animationRef.current = requestAnimationFrame(animate);
-  }, [runSimulation, drawStackedBars]);
-
-  // Cleanup animation on unmount
+  // Redraw a finished run when the theme or layout changes
   useEffect(() => {
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, []);
-
-  // Redraw when theme changes (if we have data)
-  useEffect(() => {
-    if (simulationData && !isSimulating) {
-      drawStackedBars(simulationData, simulationData.length);
+    if (!isSimulating) {
+      drawStackedBars(run, run ? run.data.length : 0);
     }
-  }, [currentTheme, simulationData, isSimulating, drawStackedBars]);
+  }, [currentTheme, run, isSimulating, drawStackedBars]);
 
-  // Get final statistics
-  const getFinalStats = useCallback(() => {
+  // Final statistics for the displayed run
+  const stats = (() => {
     if (!simulationData || simulationData.length === 0) return null;
-
     const finalData = simulationData[simulationData.length - 1];
     const initialData = simulationData[0];
-
     return {
       initialA: initialData.typeA,
       initialB: initialData.typeB,
       finalA: finalData.typeA,
       finalB: finalData.typeB,
-      finalFreqA: (finalData.freqA * 100).toFixed(1),
-      finalFreqB: ((1 - finalData.freqA) * 100).toFixed(1),
       fixation: finalData.typeA === 0 || finalData.typeB === 0,
       fixedType:
         finalData.typeA === 0 ? "B" : finalData.typeB === 0 ? "A" : null,
     };
-  }, [simulationData]);
+  })();
 
-  const stats = getFinalStats();
+  // Status line for the legend box
+  const statusText = (() => {
+    if (isSimulating) {
+      const gen = Math.max(0, Math.min(currentGeneration - 1, NUM_GENERATIONS));
+      return `Generation ${gen}/${NUM_GENERATIONS}`;
+    }
+    if (!run) return "Click Simulate to start";
+    if (run.fixationGeneration !== null) {
+      return `Fixed at generation ${run.fixationGeneration}`;
+    }
+    return `No fixation in ${NUM_GENERATIONS} generations`;
+  })();
 
   return (
     <ToolContainer
@@ -324,9 +302,9 @@ const GeneticDriftSimulator = () => {
         xLabel="Generations"
         yLabel="Population"
         xRange={[0, NUM_GENERATIONS]}
-        yRange={[0, populationSize]}
+        yRange={[0, displayN]}
         xTicks={[0, 100, 200, 300]}
-        yTicks={[0, Math.round(populationSize / 2), populationSize]}
+        yTicks={[0, Math.round(displayN / 2), displayN]}
         theme={theme}
         tooltip="Stacked bar chart showing allele frequencies over generations"
       >
@@ -337,8 +315,6 @@ const GeneticDriftSimulator = () => {
               ref={canvasRef}
               className="absolute"
               style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
@@ -496,11 +472,7 @@ const GeneticDriftSimulator = () => {
 
           {/* Status */}
           <div style={{ opacity: 0.7 }}>
-            {isSimulating
-              ? `Generation ${Math.min(currentGeneration, NUM_GENERATIONS)}/${NUM_GENERATIONS}`
-              : simulationData
-                ? `Complete (${NUM_GENERATIONS} generations)`
-                : "Click Simulate to start"}
+            {statusText}
           </div>
         </div>
       </GridDisplay>
