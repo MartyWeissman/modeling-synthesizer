@@ -211,7 +211,7 @@ const GridSlider = ({
       theme={theme}
       className="p-2 select-none"
       style={{
-        background: isUnicornMode
+        backgroundImage: isUnicornMode
           ? `linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(251,207,232,0.2) 50%, rgba(196,181,253,0.2) 100%), url(${currentTexture})`
           : `url(${currentTexture})`,
         backgroundSize: noiseBackgroundSize(isUnicornMode),
@@ -245,7 +245,7 @@ const GridSlider = ({
         <div
           className="absolute w-6 h-full rounded-full pointer-events-none"
           style={{
-            background: `
+            backgroundImage: `
               linear-gradient(to bottom,
                 rgba(0,0,0,0.3) 0%,
                 rgba(0,0,0,0.1) 50%,
@@ -271,7 +271,7 @@ const GridSlider = ({
             // Knob top = knob center position - knob radius
             top: `${-2 + (1 - sliderPosition / 100) * 260}px`,
             left: "50%",
-            background: getKnobColor(),
+            backgroundImage: getKnobColor(),
             backgroundSize: "cover, 32px 32px",
             backgroundBlendMode:
               (variant === "bipolar" && value !== 0) ||

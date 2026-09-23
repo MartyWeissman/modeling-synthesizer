@@ -169,7 +169,7 @@ const GridDisplay = React.memo(
         className=""
         style={{
           // Fixed outer frame with texture - this never changes size
-          background: isUnicornMode
+          backgroundImage: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
           backgroundSize: noiseBackgroundSize(isUnicornMode),

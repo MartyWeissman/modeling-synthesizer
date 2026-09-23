@@ -271,7 +271,7 @@ const GridInput = ({
         theme={theme}
         className="p-1 select-none"
         style={{
-          background: isUnicornMode
+          backgroundImage: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
           backgroundSize: noiseBackgroundSize(isUnicornMode),
@@ -298,7 +298,7 @@ const GridInput = ({
         <div
           className="w-full h-full rounded-sm flex flex-col justify-between items-center relative"
           style={{
-            background: isUnicornMode
+            backgroundImage: isUnicornMode
               ? `linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(251,207,232,0.2) 100%), url(${currentTexture})`
               : `url(${currentTexture})`,
             backgroundSize: noiseBackgroundSize(isUnicornMode),

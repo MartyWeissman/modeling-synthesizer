@@ -12,9 +12,10 @@ const GridSound = ({
   w = 1,
   h = 1,
   theme,
-  onVolumeChange,
+  // Volume props are accepted for API compatibility; the control is on/off only.
+  onVolumeChange: _onVolumeChange,
   onEnabledChange,
-  initialVolume = 0.5,
+  initialVolume: _initialVolume = 0.5,
   initialEnabled = false,
   title = "Sound controls",
 }) => {
@@ -44,7 +45,7 @@ const GridSound = ({
       className="p-1 select-none"
       style={{
         // Outer frame with texture (matching GridButton)
-        background: isUnicornMode
+        backgroundImage: isUnicornMode
           ? `linear-gradient(135deg, rgba(255,255,255,0.99) 0%, rgba(251,207,232,0.15) 50%, rgba(196,181,253,0.15) 100%), url(${currentTexture})`
           : `url(${currentTexture})`,
         backgroundSize: noiseBackgroundSize(isUnicornMode),
@@ -71,7 +72,7 @@ const GridSound = ({
       <div
         className="w-full h-full flex flex-col items-center justify-center"
         style={{
-          background: isUnicornMode
+          backgroundImage: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
           backgroundSize: noiseBackgroundSize(isUnicornMode),
@@ -85,7 +86,7 @@ const GridSound = ({
             maxWidth: "70px",
             maxHeight: "70px",
             borderRadius: "50%",
-            background: isUnicornMode
+            backgroundImage: isUnicornMode
               ? `radial-gradient(circle at 30% 30%, rgba(251,207,232,0.4), rgba(147,51,234,0.3)), url(${currentTexture})`
               : `radial-gradient(circle at 30% 30%, ${isDarkMode ? "rgba(55,65,81,0.6)" : "rgba(209,213,219,0.6)"}, ${isDarkMode ? "rgba(17,24,39,0.9)" : "rgba(107,114,128,0.7)"}), url(${currentTexture})`,
             backgroundSize: "cover, 64px 64px",
@@ -157,7 +158,7 @@ const GridSound = ({
               : isDarkMode
                 ? "1px solid rgba(75,85,99,0.5)"
                 : "1px solid rgba(156,163,175,0.5)",
-            background: isEnabled
+            backgroundImage: isEnabled
               ? // Green glow when ON
                 isUnicornMode
                 ? `linear-gradient(135deg, rgba(134,239,172,0.9) 0%, rgba(34,197,94,0.8) 100%), url(${currentTexture})`

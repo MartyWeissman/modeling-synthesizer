@@ -2,13 +2,12 @@
 
 import React from "react";
 import { componentTypes } from "./componentRegistry.jsx";
-import { generateCode } from "./utils";
 
 const PropertiesPanel = ({
   theme,
   selectedComponent,
-  placedComponents,
-  toolName,
+  placedComponents: _placedComponents,
+  toolName: _toolName,
   onRemoveComponent,
   onResizeComponent,
   onUpdateComponentProps,

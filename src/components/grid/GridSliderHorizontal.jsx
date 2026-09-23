@@ -307,7 +307,7 @@ const GridSliderHorizontal = React.memo(
         theme={theme}
         className="p-2 select-none"
         style={{
-          background: isUnicornMode
+          backgroundImage: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(251,207,232,0.2) 50%, rgba(196,181,253,0.2) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
           backgroundSize: noiseBackgroundSize(isUnicornMode),
@@ -380,7 +380,7 @@ const GridSliderHorizontal = React.memo(
                   width: `${trackWidth}px`,
                   top: "50%",
                   transform: "translateY(-50%)",
-                  background: `
+                  backgroundImage: `
                   linear-gradient(to right,
                     rgba(0,0,0,0.3) 0%,
                     rgba(0,0,0,0.1) 50%,
@@ -405,7 +405,7 @@ const GridSliderHorizontal = React.memo(
                 style={{
                   left: `${TRACK_LEFT + (sliderPosition / 100) * (trackWidth - KNOB_SIZE)}px`, // Knob spans the track ends
                   top: "50%",
-                  background: getKnobColor(),
+                  backgroundImage: getKnobColor(),
                   backgroundSize: "cover, 32px 32px",
                   backgroundBlendMode:
                     (variant === "bipolar" && scaled !== 0) ||

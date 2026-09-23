@@ -144,7 +144,7 @@ const GridButton = React.memo(
         onKeyUp={handleKeyUp}
         style={{
           // Outer frame with texture
-          background: isUnicornMode
+          backgroundImage: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.99) 0%, rgba(251,207,232,0.15) 50%, rgba(196,181,253,0.15) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
           backgroundSize: noiseBackgroundSize(isUnicornMode),
@@ -171,7 +171,7 @@ const GridButton = React.memo(
         <div
           className={`w-full h-full rounded-full flex items-center justify-center transition-all duration-150 ${isUnicornMode ? variantStyles.textClass : theme.text}`}
           style={{
-            background: bgColor
+            backgroundImage: bgColor
               ? isPressed
                 ? `linear-gradient(135deg, ${bgColor}cc 0%, ${bgColor}b3 100%), url(${currentTexture})`
                 : `linear-gradient(135deg, ${bgColor}55 0%, ${bgColor}44 100%), url(${currentTexture})`
