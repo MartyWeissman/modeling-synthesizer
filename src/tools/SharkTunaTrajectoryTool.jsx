@@ -17,11 +17,45 @@ import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 import { localPointer } from "../components/grid/pointer";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
+import { linearTicks } from "../utils/ticks";
+import {
+  lotkaVolterraRHS,
+  lotkaVolterraRate,
+  lotkaVolterraEquilibria,
+  advanceState,
+  equilibriumColors,
+} from "./predatorPreyModels";
+
+// Display window
+const SMIN = 0;
+const SMAX = 50;
+const TMIN = 0;
+const TMAX = 50;
+
+// Model time advanced per real second at speed 1. The original loop stepped
+// 0.05·speed per frame; at 60 frames/s that is 3·speed per second, so the
+// visual speed at 60 Hz is unchanged, but it no longer depends on frame rate.
+const MODEL_TIME_PER_SECOND = 3;
+const TIME_SERIES_WINDOW = 20; // time units shown in the time series
+const TRAIL_WINDOW = 60; // time units of trail kept in the phase portrait
+const MAX_TRAIL_POINTS = 5000;
+const SETTLED_SPEED = 1e-6; // |(S', T')| below this counts as at rest
+const TRAJECTORY_HUES = [0, 120, 240, 60, 300, 180];
+
+// Keep canvas coordinates sane for points far outside the window.
+const clampPx = (v) => Math.max(-1e4, Math.min(1e4, v));
+
+const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const SharkTunaTrajectoryTool = () => {
-  const { theme } = useTheme();
+  const { theme, currentTheme } = useTheme();
+  const isDark = currentTheme === "dark";
+  const sharkColor = isDark ? "#fb923c" : "#ea580c"; // orange
+  const tunaColor = isDark ? "#2dd4bf" : "#0d9488"; // teal
 
-  // UI State - only for React components
+  // UI State - only for React components (lab-manual defaults)
   const [uiParams, setUiParams] = useState({
     p: 0.03,
     q: 0.04,
@@ -32,6 +66,7 @@ const SharkTunaTrajectoryTool = () => {
 
   const [isAnimating, setIsAnimating] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [, setStatusTick] = useState(0); // forces a status refresh
 
   // Canvas refs - separate static and dynamic layers for performance
   const staticCanvasRef = useRef(null);
@@ -41,372 +76,263 @@ const SharkTunaTrajectoryTool = () => {
   // Transform refs for coordinate conversion
   const phaseTransformRef = useRef(null);
   const timeSeriesTransformRef = useRef(null);
+  const timeSeriesRangeRef = useRef([0, TIME_SERIES_WINDOW]);
 
   // Animation state - pure refs, never cause React re-renders
   const animationStateRef = useRef({
     trajectories: [],
     time: 0,
-    animationId: null,
-    isRunning: false,
-    timeSeriesData: [],
-    params: { ...uiParams }, // Copy of UI params for animation
+    lastUiUpdate: 0,
+    params: { ...uiParams },
   });
 
-  // Update animation parameters when UI changes (only time React affects animation)
   useEffect(() => {
     animationStateRef.current.params = { ...uiParams };
   }, [uiParams]);
 
-  // Display constants
-  const smin = 0,
-    smax = 50,
-    tmin = 0,
-    tmax = 50;
-
-  // Vector field computation (only for display, not animation)
-  const _vectorField = useMemo(() => {
-    const { p, q, beta, delta } = uiParams;
-    const gridSize = 12;
-    const field = [];
-
-    for (let i = 0; i <= gridSize; i++) {
-      for (let j = 0; j <= gridSize; j++) {
-        const s = smin + (i / gridSize) * (smax - smin);
-        const t = tmin + (j / gridSize) * (tmax - tmin);
-        const ds = -delta * s + p * s * t;
-        const dt = beta * t - q * s * t;
-        const magnitude = Math.sqrt(ds * ds + dt * dt);
-
-        field.push({
-          x: s,
-          y: t,
-          dx: ds,
-          dy: dt,
-          magnitude,
-          normalizedDx: magnitude > 0 ? ds / magnitude : 0,
-          normalizedDy: magnitude > 0 ? dt / magnitude : 0,
-        });
-      }
-    }
-    return field;
-  }, [uiParams]);
-
-  // Equilibrium points
-  const _equilibria = useMemo(() => {
-    const { p, q, beta, delta } = uiParams;
-    const points = [{ x: 0, y: 0, stability: "saddle" }];
-    const sEq = beta / q;
-    const tEq = delta / p;
-    if (sEq > 0 && tEq > 0 && sEq <= smax && tEq <= tmax) {
-      points.push({ x: sEq, y: tEq, stability: "stable" });
-    }
-    return points;
-  }, [uiParams]);
-
-  // Static elements drawing function - only redraws when parameters change
-  const drawStaticElements = useCallback(
-    (canvas, ctx) => {
-      const transform = phaseTransformRef.current;
-      if (!transform) return;
-
-      const { plotWidth, plotHeight, dataToPixel } = transform;
-      const { p, q, beta, delta } = animationStateRef.current.params;
-
-      // Clear canvas
-      ctx.clearRect(0, 0, plotWidth, plotHeight);
-
-      // Calculate vector field dynamically
-      // 16x16 grid at coordinates 2,5,8,...,47
-      const gridCoords = [
-        2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 47,
-      ];
-      ctx.strokeStyle = "rgba(150, 150, 150, 0.7)";
-      ctx.fillStyle = "rgba(150, 150, 150, 0.7)";
-      ctx.lineWidth = 1;
-
-      for (let i = 0; i < gridCoords.length; i++) {
-        for (let j = 0; j < gridCoords.length; j++) {
-          const s = gridCoords[i];
-          const t = gridCoords[j];
-
-          // Only draw vectors in the state space (S >= 0, T >= 0)
-          if (s < 0 || t < 0) continue;
-
-          const ds = -delta * s + p * s * t;
-          const dt = beta * t - q * s * t;
-          const magnitude = Math.sqrt(ds * ds + dt * dt);
-
-          if (magnitude === 0) continue;
-
-          const normalizedDx = ds / magnitude;
-          const normalizedDy = dt / magnitude;
-
-          const pos = dataToPixel(s, t);
-          const arrowLength = 18;
-          const endX = pos.x + normalizedDx * arrowLength;
-          const endY = pos.y - normalizedDy * arrowLength;
-
-          ctx.beginPath();
-          ctx.moveTo(pos.x, pos.y);
-          ctx.lineTo(endX, endY);
-          ctx.stroke();
-
-          // Arrowhead
-          const angle = Math.atan2(endY - pos.y, endX - pos.x);
-          ctx.save();
-          ctx.translate(endX, endY);
-          ctx.rotate(angle);
-          ctx.beginPath();
-          ctx.moveTo(0, 0);
-          ctx.lineTo(-6, -2);
-          ctx.lineTo(-6, 2);
-          ctx.closePath();
-          ctx.fill();
-          ctx.restore();
-        }
-      }
-
-      // Calculate and draw equilibria dynamically
-      const equilibriumPoints = [{ x: 0, y: 0, stability: "saddle" }];
-      const sEq = beta / q;
-      const tEq = delta / p;
-      if (sEq > 0 && tEq > 0 && sEq <= smax && tEq <= tmax) {
-        equilibriumPoints.push({ x: sEq, y: tEq, stability: "stable" });
-      }
-
-      equilibriumPoints.forEach(({ x, y, stability }) => {
-        const pos = dataToPixel(x, y);
-
-        ctx.fillStyle = stability === "stable" ? "#2563eb" : "#f59e0b";
-        ctx.strokeStyle = stability === "stable" ? "#1d4ed8" : "#d97706";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 6, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = "white";
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 2.5, 0, 2 * Math.PI);
-        ctx.fill();
-      });
-    },
-    [], // No dependencies - uses current animation parameters
+  // Equilibria, classified from the Jacobian (origin: saddle; interior: center)
+  const equilibria = useMemo(
+    () => lotkaVolterraEquilibria(uiParams),
+    [uiParams],
   );
+  const interior = equilibria.find((e) => e.interior) || null;
 
-  // Dynamic elements drawing function - redraws every animation frame
-  const drawDynamicElements = useCallback(
-    (canvas, ctx) => {
-      const transform = phaseTransformRef.current;
-      if (!transform) return;
+  // Static layer: vector field and equilibria
+  const drawStaticElements = useCallback(() => {
+    const canvas = staticCanvasRef.current;
+    const transform = phaseTransformRef.current;
+    if (!canvas || !transform) return;
 
-      const { plotWidth, plotHeight, dataToPixel } = transform;
-
-      // Clear canvas
-      ctx.clearRect(0, 0, plotWidth, plotHeight);
-
-      // Draw trajectories only
-      const state = animationStateRef.current;
-      state.trajectories.forEach((traj) => {
-        if (!traj.trail || traj.trail.length < 2) return;
-
-        ctx.strokeStyle = traj.color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-
-        traj.trail.forEach((point, i) => {
-          const pos = dataToPixel(point.x, point.y);
-          if (i === 0) ctx.moveTo(pos.x, pos.y);
-          else ctx.lineTo(pos.x, pos.y);
-        });
-        ctx.stroke();
-
-        // Current position
-        if (traj.isActive && traj.s !== undefined && traj.t !== undefined) {
-          const pos = dataToPixel(traj.s, traj.t);
-          ctx.fillStyle = traj.color;
-          ctx.beginPath();
-          ctx.arc(pos.x, pos.y, 4, 0, 2 * Math.PI);
-          ctx.fill();
-        }
-      });
-    },
-    [], // No dependencies
-  );
-
-  // Redraw static elements when parameters change (whether animating or not)
-  useEffect(() => {
-    if (staticCanvasRef.current && phaseTransformRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
-  }, [
-    uiParams.p,
-    uiParams.q,
-    uiParams.beta,
-    uiParams.delta,
-    drawStaticElements,
-  ]);
-
-  const drawTimeSeries = useCallback((canvas, ctx) => {
-    const transform = timeSeriesTransformRef.current;
-    if (!transform) return;
-
-    const { plotWidth, plotHeight } = transform;
-    const state = animationStateRef.current;
+    const { plotWidth, plotHeight, dataToPixel } = transform;
+    const { ctx } = setupCanvas(canvas, {
+      width: plotWidth,
+      height: plotHeight,
+    });
+    const f = lotkaVolterraRHS(uiParams);
 
     ctx.clearRect(0, 0, plotWidth, plotHeight);
 
-    if (state.timeSeriesData.length < 2) return;
+    // Vector field: 16x16 grid at coordinates 2, 5, 8, ..., 47
+    const gridCoords = [
+      2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 47,
+    ];
+    ctx.strokeStyle = "rgba(150, 150, 150, 0.7)";
+    ctx.fillStyle = "rgba(150, 150, 150, 0.7)";
+    ctx.lineWidth = 1;
 
-    // Use sliding window approach - show last 20 time units
-    const timeWindow = 20;
-    const currentTime = state.time;
-    const minTime = Math.max(0, currentTime - timeWindow);
-    const maxPop = Math.max(smax, tmax);
+    for (const s of gridCoords) {
+      for (const t of gridCoords) {
+        const [ds, dt] = f(s, t);
+        const magnitude = Math.hypot(ds, dt);
+        if (magnitude === 0) continue;
 
-    // Helper to convert time series data to pixel coordinates
-    const toPixel = (time, value) => {
-      const x = ((time - minTime) / timeWindow) * plotWidth;
-      const y = plotHeight - (value / maxPop) * plotHeight;
-      return { x, y };
-    };
+        const pos = dataToPixel(s, t);
+        const arrowLength = 18;
+        const endX = pos.x + (ds / magnitude) * arrowLength;
+        const endY = pos.y - (dt / magnitude) * arrowLength;
 
-    // Draw sharks
-    ctx.strokeStyle = "#ff6b35";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    let firstPoint = true;
-    state.timeSeriesData.forEach((point) => {
-      const maxTime = Math.max(timeWindow, currentTime);
-      if (point.time >= minTime && point.time <= maxTime) {
-        const pos = toPixel(point.time, point.sharks);
-        if (firstPoint) {
-          ctx.moveTo(pos.x, pos.y);
-          firstPoint = false;
-        } else {
-          ctx.lineTo(pos.x, pos.y);
-        }
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+
+        const angle = Math.atan2(endY - pos.y, endX - pos.x);
+        ctx.save();
+        ctx.translate(endX, endY);
+        ctx.rotate(angle);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(-6, -2);
+        ctx.lineTo(-6, 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // Equilibria, colored by type
+    equilibria.forEach((eq) => {
+      if (eq.x < SMIN || eq.x > SMAX || eq.y < TMIN || eq.y > TMAX) return;
+      const pos = dataToPixel(eq.x, eq.y);
+      const colors = equilibriumColors(eq);
+      ctx.fillStyle = colors.fill;
+      ctx.strokeStyle = colors.stroke;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 6, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 2.5, 0, 2 * Math.PI);
+      ctx.fill();
+    });
+  }, [uiParams, equilibria]);
+
+  // Dynamic layer: trajectories
+  const drawDynamicElements = useCallback(() => {
+    const canvas = dynamicCanvasRef.current;
+    const transform = phaseTransformRef.current;
+    if (!canvas || !transform) return;
+
+    const { plotWidth, plotHeight, dataToPixel } = transform;
+    const { ctx } = setupCanvas(canvas, {
+      width: plotWidth,
+      height: plotHeight,
+    });
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
+
+    animationStateRef.current.trajectories.forEach((traj) => {
+      const color = `hsl(${traj.hue}, 70%, 50%)`;
+      if (traj.trail.length > 1) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        traj.trail.forEach((point, i) => {
+          const pos = dataToPixel(point.x, point.y);
+          if (i === 0) ctx.moveTo(clampPx(pos.x), clampPx(pos.y));
+          else ctx.lineTo(clampPx(pos.x), clampPx(pos.y));
+        });
+        ctx.stroke();
+      }
+
+      // Current position (only drawn when inside the window)
+      if (traj.s <= SMAX && traj.t <= TMAX) {
+        const pos = dataToPixel(traj.s, traj.t);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 4, 0, 2 * Math.PI);
+        ctx.fill();
       }
     });
-    ctx.stroke();
-
-    // Draw tuna
-    ctx.strokeStyle = "#00d4aa";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    firstPoint = true;
-    state.timeSeriesData.forEach((point) => {
-      const maxTime = Math.max(timeWindow, currentTime);
-      if (point.time >= minTime && point.time <= maxTime) {
-        const pos = toPixel(point.time, point.tuna);
-        if (firstPoint) {
-          ctx.moveTo(pos.x, pos.y);
-          firstPoint = false;
-        } else {
-          ctx.lineTo(pos.x, pos.y);
-        }
-      }
-    });
-    ctx.stroke();
   }, []);
 
-  // Animation loop - completely independent of React
-  const animationLoop = useCallback(() => {
-    const state = animationStateRef.current;
-    if (!state.isRunning) return;
+  // Time series of the most recently started trajectory
+  const drawTimeSeries = useCallback(() => {
+    const canvas = timeSeriesCanvasRef.current;
+    const transform = timeSeriesTransformRef.current;
+    if (!canvas || !transform) return;
 
-    const { p, q, beta, delta, speed } = state.params;
-    if (speed === 0) {
-      state.animationId = requestAnimationFrame(animationLoop);
-      return;
-    }
+    const { plotWidth, plotHeight } = transform;
+    const { ctx } = setupCanvas(canvas, {
+      width: plotWidth,
+      height: plotHeight,
+    });
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
 
-    const h = 0.05 * speed;
+    const trajectories = animationStateRef.current.trajectories;
+    const traj = trajectories[trajectories.length - 1];
+    if (!traj || traj.trail.length < 2) return;
 
-    // Update trajectories
-    state.trajectories = state.trajectories.map((traj) => {
-      if (!traj.isActive) return traj;
-
-      const f = (s, t) => [-delta * s + p * s * t, beta * t - q * s * t];
-      const [s, t] = [traj.s, traj.t];
-
-      // RK4 integration
-      const k1 = f(s, t);
-      const k2 = f(s + (h * k1[0]) / 2, t + (h * k1[1]) / 2);
-      const k3 = f(s + (h * k2[0]) / 2, t + (h * k2[1]) / 2);
-      const k4 = f(s + h * k3[0], t + h * k3[1]);
-
-      let newS = Math.max(
-        0,
-        s + (h / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]),
-      );
-      let newT = Math.max(
-        0,
-        t + (h / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]),
-      );
-
-      // Constrain to state space boundaries
-      newS = Math.max(0, newS);
-      newT = Math.max(0, newT);
-
-      const isInBounds = newS <= smax && newT <= tmax;
-      const newTrail = [...traj.trail.slice(-150), { x: newS, y: newT }];
-
-      return {
-        ...traj,
-        s: newS,
-        t: newT,
-        trail: newTrail,
-        isActive: isInBounds,
-      };
+    const [minTime, maxTime] = timeSeriesRangeRef.current;
+    const span = maxTime - minTime;
+    const maxPop = Math.max(SMAX, TMAX);
+    const toPixel = (time, value) => ({
+      x: ((time - minTime) / span) * plotWidth,
+      y: clampPx(plotHeight - (value / maxPop) * plotHeight),
     });
 
-    state.time += h;
+    const drawSeries = (key, color, dash) => {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash(dash);
+      ctx.beginPath();
+      let first = true;
+      for (const point of traj.trail) {
+        if (point.time < minTime - 1) continue;
+        const pos = toPixel(point.time, point[key]);
+        if (first) {
+          ctx.moveTo(pos.x, pos.y);
+          first = false;
+        } else {
+          ctx.lineTo(pos.x, pos.y);
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+    };
 
-    // Update React time state every ~100ms for UI updates
-    if (Math.floor(state.time * 10) !== Math.floor((state.time - h) * 10)) {
+    drawSeries("x", sharkColor, []); // sharks: solid
+    drawSeries("y", tunaColor, [6, 4]); // tuna: dashed
+  }, [sharkColor, tunaColor]);
+
+  // One animation frame: advance every trajectory by real elapsed time.
+  // Trajectories keep being integrated when they leave the 0–50 window
+  // (only the drawing is clipped), so large orbits still close.
+  const {
+    start: loopStart,
+    stop: loopStop,
+    isRunning: loopRunning,
+  } = useAnimationLoop((dtSeconds, now) => {
+    const state = animationStateRef.current;
+    const { speed } = state.params;
+    const dtModel = dtSeconds * MODEL_TIME_PER_SECOND * speed;
+
+    let anyMoving = false;
+    if (dtModel > 0) {
+      const f = lotkaVolterraRHS(state.params);
+      const rate = (s, t) => lotkaVolterraRate(state.params, s, t);
+      const newTime = state.time + dtModel;
+
+      state.trajectories.forEach((traj) => {
+        if (!traj.isActive) return;
+        const next = advanceState(f, rate, traj.s, traj.t, dtModel);
+        traj.s = next.s;
+        traj.t = next.t;
+        traj.trail.push({ x: next.s, y: next.t, time: newTime });
+
+        // Trim by time, not by sample count
+        const cutoff = newTime - TRAIL_WINDOW;
+        let drop = 0;
+        while (drop < traj.trail.length - 2 && traj.trail[drop].time < cutoff)
+          drop++;
+        if (traj.trail.length - drop > MAX_TRAIL_POINTS)
+          drop = traj.trail.length - MAX_TRAIL_POINTS;
+        if (drop > 0) traj.trail.splice(0, drop);
+
+        if (next.blownUp) {
+          traj.isActive = false;
+          return;
+        }
+        const [ds, dt] = f(next.s, next.t);
+        if (Math.hypot(ds, dt) > SETTLED_SPEED) anyMoving = true;
+      });
+      state.time = newTime;
+    }
+
+    drawDynamicElements();
+    drawTimeSeries();
+
+    const keepGoing = dtModel === 0 ? speed > 0 : anyMoving;
+    if (!keepGoing || now - state.lastUiUpdate > 50) {
+      state.lastUiUpdate = now;
       setCurrentTime(state.time);
     }
-
-    // Update time series - keep last 500 points (about 25 time units of data)
-    const activeTraj = state.trajectories.find((t) => t.isActive);
-    if (activeTraj) {
-      state.timeSeriesData = [
-        ...state.timeSeriesData.slice(-500),
-        {
-          time: state.time,
-          sharks: activeTraj.s || 0,
-          tuna: activeTraj.t || 0,
-        },
-      ];
+    if (!keepGoing) {
+      // Nothing left to animate (every trajectory at rest or gone, or speed 0)
+      setIsAnimating(false);
+      return false;
     }
+    return true;
+  });
 
-    // Draw only dynamic elements (efficient!)
-    const dynamicCanvas = dynamicCanvasRef.current;
-    const timeCanvas = timeSeriesCanvasRef.current;
-
-    if (dynamicCanvas) {
-      const ctx = dynamicCanvas.getContext("2d");
-      drawDynamicElements(dynamicCanvas, ctx);
-    }
-
-    if (timeCanvas) {
-      const ctx = timeCanvas.getContext("2d");
-      drawTimeSeries(timeCanvas, ctx);
-    }
-
-    state.animationId = requestAnimationFrame(animationLoop);
-  }, [drawDynamicElements, drawTimeSeries]);
-
-  // Control functions
   const startAnimation = useCallback(() => {
-    if (animationStateRef.current.isRunning) return;
-
-    animationStateRef.current.isRunning = true;
+    if (!loopRunning()) loopStart();
     setIsAnimating(true);
-    animationLoop();
-  }, [animationLoop]);
+  }, [loopRunning, loopStart]);
+
+  // Restart when the speed slider moves off 0 or a parameter changes
+  useEffect(() => {
+    if (
+      uiParams.speed > 0 &&
+      !loopRunning() &&
+      animationStateRef.current.trajectories.some((t) => t.isActive)
+    ) {
+      startAnimation();
+    }
+  }, [uiParams, loopRunning, startAnimation]);
 
   // Canvas click handler
   const handleCanvasClick = useCallback(
@@ -418,118 +344,89 @@ const SharkTunaTrajectoryTool = () => {
       // Pointer position in the canvas's own CSS pixels (stays correct when
       // ToolContainer scales the tool down to fit a narrow window)
       const { x, y } = localPointer(event, canvas);
-
       const { plotWidth, plotHeight, pixelToData } = transform;
-
-      // Only process clicks within the plot area
       if (x < 0 || x > plotWidth || y < 0 || y > plotHeight) return;
 
       const data = pixelToData(x, y);
+      if (data.x < 0 || data.y < 0 || data.x > SMAX || data.y > TMAX) return;
 
-      if (data.x < 0 || data.y < 0 || data.x > smax || data.y > tmax) return;
-
-      const colorHues = [0, 120, 240, 60, 300, 180];
-      const hue =
-        colorHues[
-          animationStateRef.current.trajectories.length % colorHues.length
-        ];
-
-      const newTrajectory = {
+      const state = animationStateRef.current;
+      state.trajectories.push({
         id: Date.now() + Math.random(),
         s: data.x,
         t: data.y,
         isActive: true,
-        color: `hsl(${hue}, 70%, 50%)`,
-        trail: [{ x: data.x, y: data.y }],
-      };
-
-      animationStateRef.current.trajectories.push(newTrajectory);
-
-      if (animationStateRef.current.trajectories.length === 1) {
-        animationStateRef.current.time = 0;
-        animationStateRef.current.timeSeriesData = [];
-      }
+        hue: TRAJECTORY_HUES[state.trajectories.length % TRAJECTORY_HUES.length],
+        trail: [{ x: data.x, y: data.y, time: state.time }],
+      });
 
       startAnimation();
     },
     [startAnimation],
   );
 
-  const stopAnimation = useCallback(() => {
-    animationStateRef.current.isRunning = false;
-    setIsAnimating(false);
-
-    if (animationStateRef.current.animationId) {
-      cancelAnimationFrame(animationStateRef.current.animationId);
-      animationStateRef.current.animationId = null;
-    }
-  }, []);
-
+  // Reset: clear trajectories, time, and both dynamic canvases
   const resetSimulation = useCallback(() => {
-    stopAnimation();
-    animationStateRef.current.trajectories = [];
-    animationStateRef.current.time = 0;
-    animationStateRef.current.timeSeriesData = [];
+    loopStop();
+    const state = animationStateRef.current;
+    state.trajectories = [];
+    state.time = 0;
+    timeSeriesRangeRef.current = [0, TIME_SERIES_WINDOW];
+    setIsAnimating(false);
     setCurrentTime(0);
-
-    // Redraw static elements after clearing
-    if (staticCanvasRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
-
-    if (timeSeriesCanvasRef.current) {
-      const ctx = timeSeriesCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        timeSeriesCanvasRef.current.width,
-        timeSeriesCanvasRef.current.height,
-      );
-    }
-  }, [stopAnimation, drawStaticElements]);
+    setStatusTick((n) => n + 1);
+    drawDynamicElements();
+    drawTimeSeries();
+  }, [loopStop, drawDynamicElements, drawTimeSeries]);
 
   const updateParam = useCallback((param, value) => {
-    // Use callback to avoid re-renders
     setUiParams((prev) => ({ ...prev, [param]: value }));
   }, []);
 
-  const killPopulation = useCallback((species, amount = 10) => {
-    animationStateRef.current.trajectories =
-      animationStateRef.current.trajectories.map((traj) => {
-        if (!traj.isActive) return traj;
-
-        const newS =
-          species === "sharks" ? Math.max(0, traj.s - amount) : traj.s;
-        const newT = species === "tuna" ? Math.max(0, traj.t - amount) : traj.t;
-
-        return {
-          ...traj,
-          s: newS,
-          t: newT,
-          trail: [...traj.trail, { x: newS, y: newT }],
-        };
+  const killPopulation = useCallback(
+    (species, amount = 10) => {
+      const state = animationStateRef.current;
+      state.trajectories.forEach((traj) => {
+        if (!traj.isActive) return;
+        if (species === "sharks") traj.s = Math.max(0, traj.s - amount);
+        else traj.t = Math.max(0, traj.t - amount);
+        traj.trail.push({ x: traj.s, y: traj.t, time: state.time });
       });
-  }, []);
+      drawDynamicElements();
+      drawTimeSeries();
+      if (state.params.speed > 0) startAnimation();
+    },
+    [drawDynamicElements, drawTimeSeries, startAnimation],
+  );
 
-  // Draw static elements when transform becomes available
+  // Redraw the static layer when parameters change
   useEffect(() => {
-    if (staticCanvasRef.current && phaseTransformRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
+    drawStaticElements();
   }, [drawStaticElements]);
 
-  // Cleanup on unmount
+  // Redraw the dynamic layers after renders that move the time axis or
+  // change the theme
   useEffect(() => {
-    return () => {
-      stopAnimation();
-    };
-  }, [stopAnimation]);
+    drawDynamicElements();
+    drawTimeSeries();
+  }, [currentTime, drawDynamicElements, drawTimeSeries]);
+
+  // Time-series window, shared by the axes and the canvas
+  const tsMin = Math.max(0, currentTime - TIME_SERIES_WINDOW);
+  const tsMax = Math.max(TIME_SERIES_WINDOW, currentTime);
+  timeSeriesRangeRef.current = [tsMin, tsMax];
+  const tsTicks = linearTicks(tsMin, tsMax, 5);
+
+  const trajectories = animationStateRef.current.trajectories;
+  const activeCount = trajectories.filter((t) => t.isActive).length;
+
+  let noInteriorReason = null;
+  if (uiParams.p <= 0) noInteriorReason = "p = 0";
+  else if (uiParams.q <= 0) noInteriorReason = "q = 0";
 
   return (
     <ToolContainer
-      title="Shark-Tuna Population Dynamics"
+      title="Shark-Tuna Trajectories"
       canvasWidth={11}
       canvasHeight={7}
     >
@@ -541,8 +438,8 @@ const SharkTunaTrajectoryTool = () => {
         h={5}
         xLabel="Shark Population (S)"
         yLabel="Tuna Population (T)"
-        xRange={[smin, smax]}
-        yRange={[tmin, tmax]}
+        xRange={[SMIN, SMAX]}
+        yRange={[TMIN, TMAX]}
         xTicks={[0, 10, 20, 30, 40, 50]}
         yTicks={[0, 10, 20, 30, 40, 50]}
         theme={theme}
@@ -550,7 +447,7 @@ const SharkTunaTrajectoryTool = () => {
       >
         {(transform) => {
           phaseTransformRef.current = transform;
-          const { plotWidth, plotHeight, plotStyle } = transform;
+          const { plotStyle } = transform;
           return (
             <>
               {/* Static background layer - vector field and equilibrium points */}
@@ -558,8 +455,6 @@ const SharkTunaTrajectoryTool = () => {
                 ref={staticCanvasRef}
                 className="absolute pointer-events-none"
                 style={plotStyle}
-                width={plotWidth}
-                height={plotHeight}
               />
 
               {/* Dynamic foreground layer - trajectories and moving points */}
@@ -567,8 +462,6 @@ const SharkTunaTrajectoryTool = () => {
                 ref={dynamicCanvasRef}
                 className="absolute cursor-crosshair"
                 style={plotStyle}
-                width={plotWidth}
-                height={plotHeight}
                 onClick={handleCanvasClick}
               />
             </>
@@ -584,22 +477,21 @@ const SharkTunaTrajectoryTool = () => {
         h={2}
         xLabel="Time"
         yLabel="Population"
-        xRange={[Math.max(0, currentTime - 20), Math.max(20, currentTime)]}
-        yRange={[0, Math.max(smax, tmax)]}
-        xTicks={[]}
+        xRange={[tsMin, tsMax]}
+        yRange={[0, Math.max(SMAX, TMAX)]}
+        xTicks={tsTicks}
         yTicks={[0, 10, 20, 30, 40, 50]}
         theme={theme}
-        tooltip="Population dynamics over time"
+        tooltip="Sharks (solid) and tuna (dashed) over time, for the most recent trajectory"
       >
         {(transform) => {
           timeSeriesTransformRef.current = transform;
-          const { plotWidth, plotHeight, plotStyle } = transform;
+          const { plotStyle } = transform;
           return (
             <canvas
               ref={timeSeriesCanvasRef}
+              className="absolute pointer-events-none"
               style={plotStyle}
-              width={plotWidth}
-              height={plotHeight}
             />
           );
         }}
@@ -615,6 +507,7 @@ const SharkTunaTrajectoryTool = () => {
         onChange={(value) => updateParam("p", value / 1000)}
         variant="unipolar"
         label={`Predation Coefficient (p): ${uiParams.p.toFixed(4)}`}
+        tooltip="p: benefit to the sharks from each shark–tuna interaction (the +pST term)"
         theme={theme}
       />
 
@@ -627,6 +520,7 @@ const SharkTunaTrajectoryTool = () => {
         onChange={(value) => updateParam("q", value / 250)}
         variant="unipolar"
         label={`Consumption Rate (q): ${uiParams.q.toFixed(4)}`}
+        tooltip="q: tuna lost to each shark–tuna interaction (the −qST term)"
         theme={theme}
       />
 
@@ -683,7 +577,7 @@ const SharkTunaTrajectoryTool = () => {
             style={{
               fontWeight: "bold",
               marginBottom: "15px",
-              color: "#ff6b35",
+              color: sharkColor,
               fontSize: "1.1em",
             }}
           >
@@ -713,28 +607,48 @@ const SharkTunaTrajectoryTool = () => {
           <div style={{ fontWeight: "bold", marginBottom: "6px" }}>
             Equilibrium Point
           </div>
-          <div
-            style={{
-              marginBottom: "4px",
-              fontSize: "0.9em",
-              whiteSpace: "nowrap",
-            }}
-          >
-            <Equation
-              name="equilibrium-s"
-              size="small"
-              style={{ marginRight: "4px" }}
-            />
-            {(uiParams.beta / uiParams.q).toFixed(1)}
-          </div>
-          <div style={{ fontSize: "0.9em", whiteSpace: "nowrap" }}>
-            <Equation
-              name="equilibrium-t"
-              size="small"
-              style={{ marginRight: "4px" }}
-            />
-            {(uiParams.delta / uiParams.p).toFixed(1)}
-          </div>
+          {interior ? (
+            <>
+              <div
+                style={{
+                  marginBottom: "4px",
+                  fontSize: "0.9em",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Equation
+                  name="equilibrium-s"
+                  size="small"
+                  style={{ marginRight: "4px" }}
+                />
+                {interior.x.toFixed(1)}
+              </div>
+              <div style={{ fontSize: "0.9em", whiteSpace: "nowrap" }}>
+                <Equation
+                  name="equilibrium-t"
+                  size="small"
+                  style={{ marginRight: "4px" }}
+                />
+                {interior.y.toFixed(1)}
+              </div>
+              <div
+                style={{
+                  marginTop: "4px",
+                  fontSize: "0.9em",
+                  fontWeight: "bold",
+                  color: equilibriumColors(interior).fill,
+                }}
+              >
+                {capitalize(interior.type)}
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: "0.9em", opacity: 0.7 }}>
+              {noInteriorReason
+                ? `No coexistence equilibrium when ${noInteriorReason}`
+                : "Only the origin (0, 0)"}
+            </div>
+          )}
         </div>
       </GridDisplay>
 
@@ -806,15 +720,19 @@ const SharkTunaTrajectoryTool = () => {
               fontSize: "0.85em",
             }}
           >
-            <div>
-              Active Trajectories:{" "}
-              {
-                animationStateRef.current.trajectories.filter((t) => t.isActive)
-                  .length
-              }
-            </div>
+            <div>Active Trajectories: {activeCount}</div>
             <div>Current Time: {currentTime.toFixed(1)}</div>
             <div>Animation: {isAnimating ? "Running" : "Stopped"}</div>
+          </div>
+          <div style={{ marginTop: "4px", fontSize: "0.8em", opacity: 0.8 }}>
+            Time series (latest trajectory):{" "}
+            <span style={{ color: sharkColor, fontWeight: "bold" }}>
+              Sharks (solid)
+            </span>{" "}
+            |{" "}
+            <span style={{ color: tunaColor, fontWeight: "bold" }}>
+              Tuna (dashed)
+            </span>
           </div>
           <div style={{ marginTop: "4px", fontSize: "0.8em", opacity: 0.8 }}>
             Click on the phase portrait to add trajectory starting points.
