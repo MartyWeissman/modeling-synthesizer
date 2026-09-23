@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   GridDisplay,
   GridButton,
@@ -8,236 +8,171 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import DiscreteEquation from "../components/DiscreteEquation";
 import { useTheme } from "../hooks/useTheme";
+import { niceStep, linearTicks } from "../utils/ticks";
+
+// Random selection helpers
+const getRandomElement = (array) =>
+  array[Math.floor(Math.random() * array.length)];
+const getRandomNumber = (min, max) =>
+  Math.floor(Math.random() * (max - min + 1)) + min;
+
+const CONTAINERS = [
+  "basket",
+  "house",
+  "bucket",
+  "jar",
+  "box",
+  "bag",
+  "tank",
+  "pond",
+  "field",
+  "room",
+];
+const THINGS = [
+  "apples",
+  "bicycles",
+  "monkeys",
+  "fish",
+  "books",
+  "coins",
+  "marbles",
+  "flowers",
+  "cars",
+  "birds",
+];
+const TIME_UNITS = ["hour", "day", "week", "month"];
+const T_MAX = 10; // the graph shows t = 0, 1, ..., 10
+
+/**
+ * A number as MathML, with a real minus sign (<mo>−</mo>) for negative
+ * values instead of a hyphen inside <mn>. `text` is the already formatted
+ * absolute value (e.g. "0.30").
+ */
+const signedMn = (negative, text) =>
+  negative ? `<mo>−</mo><mn>${text}</mn>` : `<mn>${text}</mn>`;
+
+/** Generate a random linear or exponential growth/decay problem. */
+const makeProblem = () => {
+  const container = getRandomElement(CONTAINERS);
+  const thing = getRandomElement(THINGS);
+  const timeUnit = getRandomElement(TIME_UNITS);
+  const letter = thing.charAt(0).toUpperCase();
+  const variable = `Let ${letter} be the number of ${thing} in the ${container}, and t the time in ${timeUnit}s.`;
+
+  if (Math.random() < 0.5) {
+    // Linear growth/decay
+    const rate = getRandomNumber(2, 7);
+    const isGrowth = Math.random() < 0.5;
+    // Decay problems start with at least 10·rate, so the count stays
+    // non-negative over the whole graph (t = 0..10).
+    const initial = isGrowth
+      ? getRandomNumber(5, 50)
+      : getRandomNumber(T_MAX * rate, T_MAX * rate + 30);
+    const changeVerb = isGrowth ? "adds" : "takes away";
+    const effectiveRate = isGrowth ? rate : -rate;
+    const rateMathml = signedMn(!isGrowth, String(rate));
+
+    return {
+      type: "linear",
+      thing,
+      timeUnit,
+      description: `A ${container} starts with ${initial} ${thing}. Every ${timeUnit}, someone ${changeVerb} ${rate} ${thing}.`,
+      variable,
+      changeEquationProps: {
+        template: "discrete-change-linear",
+        variables: { VARIABLE: letter, RATE: rateMathml },
+      },
+      predictionEquationProps: {
+        template: "discrete-prediction-linear",
+        variables: { VARIABLE: letter, RATE: rateMathml, INITIAL: initial },
+      },
+      calculateValue: (t) => effectiveRate * t + initial,
+    };
+  }
+
+  // Exponential growth/decay
+  const initial = getRandomNumber(50, 500);
+  const percentRate = getRandomNumber(10, 90);
+  const isGrowth = Math.random() < 0.5;
+  const changeVerb = isGrowth ? "increases" : "decreases";
+  const decimalRate = percentRate / 100;
+  const growthFactor = isGrowth ? 1 + decimalRate : 1 - decimalRate;
+
+  return {
+    type: "exponential",
+    thing,
+    timeUnit,
+    description: `A ${container} starts with ${initial} ${thing}. Every ${timeUnit}, the number of ${thing} ${changeVerb} by ${percentRate}%.`,
+    variable,
+    changeEquationProps: {
+      template: "discrete-change-exponential",
+      variables: {
+        VARIABLE: letter,
+        RATE: signedMn(!isGrowth, decimalRate.toFixed(2)),
+      },
+    },
+    predictionEquationProps: {
+      template: "discrete-prediction-exponential",
+      variables: {
+        VARIABLE: letter,
+        INITIAL: initial,
+        FACTOR: growthFactor.toFixed(2),
+      },
+    },
+    calculateValue: (t) => initial * Math.pow(growthFactor, t),
+  };
+};
 
 const DiscreteModelingPracticeTool = () => {
   const { theme, currentTheme } = useTheme();
 
-  // Problem generation state
-  const [currentProblem, setCurrentProblem] = useState(null);
+  // Problem state (the first problem is created right away)
+  const [currentProblem, setCurrentProblem] = useState(() => makeProblem());
   const [showEquation, setShowEquation] = useState(false);
   const [showVariable, setShowVariable] = useState(false);
   const [showPrediction, setShowPrediction] = useState(false);
   const [showGraph, setShowGraph] = useState(false);
 
-  // Random selection helpers
-  const getRandomElement = (array) =>
-    array[Math.floor(Math.random() * array.length)];
-  const getRandomNumber = (min, max) =>
-    Math.floor(Math.random() * (max - min + 1)) + min;
-
-  // Problem generation logic
   const generateNewProblem = useCallback(() => {
-    // Reset all reveals
     setShowEquation(false);
     setShowVariable(false);
     setShowPrediction(false);
     setShowGraph(false);
-
-    // Random data arrays
-    const containers = [
-      "basket",
-      "house",
-      "bucket",
-      "jar",
-      "box",
-      "bag",
-      "tank",
-      "pond",
-      "field",
-      "room",
-    ];
-    const things = [
-      "apples",
-      "bicycles",
-      "monkeys",
-      "fish",
-      "books",
-      "coins",
-      "marbles",
-      "flowers",
-      "cars",
-      "birds",
-    ];
-    const timeUnits = ["hour", "day", "week", "month"];
-
-    // 50/50 chance for linear vs exponential
-    const isLinear = Math.random() < 0.5;
-
-    const container = getRandomElement(containers);
-    const thing = getRandomElement(things);
-    const timeUnit = getRandomElement(timeUnits);
-
-    let problem;
-
-    if (isLinear) {
-      // Linear growth/decay
-      const initial = getRandomNumber(5, 50);
-      const rate = getRandomNumber(2, 7);
-      const isGrowth = Math.random() < 0.5;
-      const changeVerb = isGrowth ? "adds" : "takes away";
-      const effectiveRate = isGrowth ? rate : -rate;
-
-      problem = {
-        type: "linear",
-        container,
-        thing,
-        timeUnit,
-        initial,
-        rate: effectiveRate,
-        isGrowth,
-        description: `A ${container} starts with ${initial} ${thing}. Every ${timeUnit}, someone ${changeVerb} ${rate} ${thing}.`,
-        variable: `Let ${thing.charAt(0).toUpperCase()} be the number of ${thing} in the ${container}.`,
-        changeEquationProps: {
-          template: "discrete-change-linear",
-          variables: {
-            VARIABLE: thing.charAt(0).toUpperCase(),
-            RATE: effectiveRate,
-          },
-        },
-        predictionEquationProps: {
-          template: "discrete-prediction-linear",
-          variables: {
-            VARIABLE: thing.charAt(0).toUpperCase(),
-            RATE: effectiveRate,
-            INITIAL: initial,
-          },
-        },
-        calculateValue: (t) => effectiveRate * t + initial,
-      };
-    } else {
-      // Exponential growth/decay
-      const initial = getRandomNumber(50, 500);
-      const percentRate = getRandomNumber(10, 90);
-      const isGrowth = Math.random() < 0.5;
-      const changeVerb = isGrowth ? "increases" : "decreases";
-      const decimalRate = percentRate / 100;
-      const growthFactor = isGrowth ? 1 + decimalRate : 1 - decimalRate;
-
-      problem = {
-        type: "exponential",
-        container,
-        thing,
-        timeUnit,
-        initial,
-        percentRate,
-        isGrowth,
-        growthFactor,
-        description: `A ${container} starts with ${initial} ${thing}. Every ${timeUnit}, the number of ${thing} ${changeVerb} by ${percentRate}%.`,
-        variable: `Let ${thing.charAt(0).toUpperCase()} be the number of ${thing} in the ${container}.`,
-        changeEquationProps: {
-          template: "discrete-change-exponential",
-          variables: {
-            VARIABLE: thing.charAt(0).toUpperCase(),
-            RATE: isGrowth ? decimalRate.toFixed(2) : (-decimalRate).toFixed(2),
-          },
-        },
-        predictionEquationProps: {
-          template: "discrete-prediction-exponential",
-          variables: {
-            VARIABLE: thing.charAt(0).toUpperCase(),
-            INITIAL: initial,
-            FACTOR: growthFactor.toFixed(2),
-          },
-        },
-        calculateValue: (t) => initial * Math.pow(growthFactor, t),
-      };
-    }
-
-    setCurrentProblem(problem);
+    setCurrentProblem(makeProblem());
   }, []);
 
-  // Generate initial problem on mount
-  React.useEffect(() => {
-    if (!currentProblem) {
-      generateNewProblem();
-    }
-  }, [currentProblem, generateNewProblem]);
-
-  // Generate graph data
-  const generateGraphData = useCallback(() => {
-    if (!currentProblem)
-      return {
-        series: [],
-        timeRange: [0, 10],
-        populationRange: [0, 100],
-        xLabel: "Time",
-        yLabel: "Value",
-        xUnit: "",
-        yUnit: "",
-      };
-
-    const timePoints = Array.from({ length: 11 }, (_, i) => i);
+  // Graph data. While the graph is hidden, the y-axis has no numbers, so it
+  // doesn't give away the size of the answer.
+  const graphData = useMemo(() => {
+    const timePoints = Array.from({ length: T_MAX + 1 }, (_, i) => i);
     const values = timePoints.map((t) => currentProblem.calculateValue(t));
 
-    // Calculate appropriate y-axis range - always start at 0, first quadrant only
+    // y-axis from 0 to a "nice" value above the largest value
     const maxValue = Math.max(...values);
-    const padding = Math.max(maxValue * 0.1, 1); // 10% padding or minimum 1
-    const yMin = 0; // Always start at zero
-    // Round yMax up to nearest multiple of 5 for nice integer tick labels
-    const rawYMax = maxValue + padding;
-    const yMax = Math.ceil(rawYMax / 5) * 5;
-
-    // Generate tick marks
-    const xTicks = timePoints; // Integer time points 0-10
-
-    // Generate appropriate y-axis ticks
-    const yTicks = [];
-    const tickCount = 6; // Aim for ~6 ticks
-    const yRange = yMax - yMin;
-    const tickInterval = Math.ceil(yRange / tickCount);
-
-    for (let i = Math.ceil(yMin); i <= yMax; i += tickInterval) {
-      yTicks.push(i);
-    }
-
-    // Format data for GridTimeSeries
-    const seriesData = timePoints.map((t, i) => ({
-      t: t,
-      value: values[i],
-    }));
+    const rawYMax = maxValue + Math.max(maxValue * 0.1, 1);
+    const step = niceStep(0, rawYMax, 5);
+    const yMax = Math.ceil(rawYMax / step - 1e-9) * step;
 
     return {
       series: [
         {
           name: `${currentProblem.thing.charAt(0).toUpperCase()}(t)`,
-          data: seriesData,
+          data: timePoints.map((t, i) => ({ t, value: values[i] })),
           color: currentTheme === "dark" ? "#60a5fa" : "#2563eb",
           visible: true,
           lineWidth: 2,
         },
       ],
-      timeRange: [0, 10],
-      populationRange: [yMin, yMax],
+      xTicks: timePoints,
+      yTicks: linearTicks(0, yMax, step),
+      timeRange: [0, T_MAX],
+      populationRange: [0, yMax],
       xLabel: "Time",
       yLabel: `Number of ${currentProblem.thing}`,
       xUnit: currentProblem.timeUnit + "s",
       yUnit: "",
     };
   }, [currentProblem, currentTheme]);
-
-  if (!currentProblem) {
-    return (
-      <ToolContainer
-        title="Discrete Modeling Practice"
-        canvasWidth={10}
-        canvasHeight={7}
-      >
-        <GridDisplay
-          x={0}
-          y={0}
-          w={6}
-          h={1}
-          variant="info"
-          fontSize="large"
-          theme={theme}
-        >
-          Loading problem...
-        </GridDisplay>
-      </ToolContainer>
-    );
-  }
-
-  const graphData = generateGraphData();
 
   return (
     <ToolContainer
@@ -497,6 +432,8 @@ const DiscreteModelingPracticeTool = () => {
         series={graphData.series.map((s) => ({ ...s, visible: showGraph }))}
         timeRange={graphData.timeRange}
         populationRange={graphData.populationRange}
+        xTicks={graphData.xTicks}
+        yTicks={showGraph ? graphData.yTicks : []}
         xLabel={graphData.xLabel}
         yLabel={graphData.yLabel}
         xUnit={graphData.xUnit}
