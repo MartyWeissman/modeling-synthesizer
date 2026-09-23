@@ -1,6 +1,6 @@
 // src/tools/ThreeCompartmentMatrixTool.jsx
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   GridLabel,
   GridInput,
@@ -11,6 +11,9 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
+import { niceStep, linearTicks } from "../utils/ticks";
 
 // Default matrix: M[i][j] = rate/fraction from compartment j to compartment i
 const DEFAULT_MATRIX = [
@@ -22,6 +25,10 @@ const DEFAULT_MATRIX = [
 const DEFAULT_NAMES = ["A", "B", "C"];
 const DEFAULT_POPS = [100, 50, 50];
 const MAX_STEPS = 100;
+// Run advances one time step every STEP_INTERVAL_S seconds (real time, so the
+// speed does not depend on the display's refresh rate).
+const STEP_INTERVAL_S = 0.3;
+const MIN_X_SPAN = 10; // the time axis always shows at least steps 0-10
 
 // Colors for the three compartments (light / dark / unicorn)
 const COMP_COLORS = {
@@ -29,6 +36,73 @@ const COMP_COLORS = {
   dark: ["#f87171", "#60a5fa", "#4ade80"],
   unicorn: ["#e11d48", "#7c3aed", "#0891b2"],
 };
+// Marker shape per compartment, so the series differ by more than color
+const MARKERS = ["circle", "square", "triangle"];
+
+// Matrix-vector multiply: new = M * old
+const stepSimulation = (v, mat) => {
+  const next = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      next[i] += (Number(mat[i][j]) || 0) * v[j];
+    }
+  }
+  return next;
+};
+
+const sum3 = (v) => v[0] + v[1] + v[2];
+
+// Compact population formatter
+const fmtPop = (v) => {
+  if (!Number.isFinite(v)) return "—";
+  const a = Math.abs(v);
+  if (a >= 1e6) return v.toExponential(2);
+  if (a >= 100 || a === 0) return String(Math.round(v));
+  return String(parseFloat(v.toPrecision(3)));
+};
+
+// Nice axis covering [lo, hi] whose ends are ticks
+const niceAxis = (lo, hi, count) => {
+  if (!(hi > lo)) hi = lo + 1;
+  const step = niceStep(lo, hi, count);
+  const min = Math.floor(lo / step + 1e-9) * step;
+  const max = Math.ceil(hi / step - 1e-9) * step;
+  return { range: [min, max], ticks: linearTicks(min, max, step) };
+};
+
+const drawMarker = (ctx, shape, x, y, color, r = 5) => {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  if (shape === "square") {
+    ctx.rect(x - r * 0.85, y - r * 0.85, r * 1.7, r * 1.7);
+  } else if (shape === "triangle") {
+    ctx.moveTo(x, y - r * 1.1);
+    ctx.lineTo(x + r, y + r * 0.8);
+    ctx.lineTo(x - r, y + r * 0.8);
+    ctx.closePath();
+  } else {
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+  }
+  ctx.fill();
+};
+
+// Small legend swatch: colored line with the series marker in the middle
+const Swatch = ({ color, shape, dashed = false }) => (
+  <svg width="24" height="10" style={{ flexShrink: 0 }} aria-hidden="true">
+    <line
+      x1="0"
+      y1="5"
+      x2="24"
+      y2="5"
+      stroke={color}
+      strokeWidth={dashed ? 2 : 2.5}
+      strokeDasharray={dashed ? "6 3" : undefined}
+    />
+    {shape === "circle" && <circle cx="12" cy="5" r="3.5" fill={color} />}
+    {shape === "square" && <rect x="9" y="2" width="6" height="6" fill={color} />}
+    {shape === "triangle" && <polygon points="12,1 16,8.5 8,8.5" fill={color} />}
+  </svg>
+);
 
 const ThreeCompartmentMatrixTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -39,20 +113,23 @@ const ThreeCompartmentMatrixTool = () => {
   const [pops, setPops] = useState([...DEFAULT_POPS]);
 
   const [isRunning, setIsRunning] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [currentPops, setCurrentPops] = useState([...DEFAULT_POPS]);
+  // Bumped whenever the simulation state in simRef changes (triggers redraw)
+  const [simVersion, setSimVersion] = useState(0);
+  const bump = useCallback(() => setSimVersion((v) => v + 1), []);
 
-  // ── Canvas / animation refs ───────────────────────────────────────────────
+  // ── Canvas / simulation refs ──────────────────────────────────────────────
   const tsCanvasRef = useRef(null);
+  const transformRef = useRef(null);
+  // The matrix used for each new step is always the one currently entered.
+  const matrixRef = useRef(matrix);
 
-  const animRef = useRef({
-    isRunning: false,
-    animationId: null,
+  const simRef = useRef({
     step: 0,
     pops: [...DEFAULT_POPS],
-    matrix: DEFAULT_MATRIX.map((r) => [...r]),
-    names: [...DEFAULT_NAMES],
     history: [[...DEFAULT_POPS]],
+    matrixEdits: [], // steps at which the matrix was edited mid-run
+    acc: 0, // time accumulated toward the next step while running (s)
+    message: "", // e.g. overflow notice
   });
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -80,308 +157,213 @@ const ThreeCompartmentMatrixTool = () => {
     });
   };
 
-  // Matrix-vector multiply: new = M * old
-  const stepSimulation = (currentPopsArr, mat) => {
-    const next = [0, 0, 0];
-    for (let i = 0; i < 3; i++) {
-      for (let j = 0; j < 3; j++) {
-        next[i] += mat[i][j] * currentPopsArr[j];
-      }
+  // Matrix edits take effect from the next step; remember where they happened
+  // so the graph can mark them.
+  useEffect(() => {
+    matrixRef.current = matrix;
+    const sim = simRef.current;
+    if (sim.step > 0 && sim.matrixEdits[sim.matrixEdits.length - 1] !== sim.step) {
+      sim.matrixEdits.push(sim.step);
+      bump();
     }
-    return next;
-  };
+  }, [matrix, bump]);
+
+  // Before the first step, the starting numbers ARE the t = 0 state.
+  useEffect(() => {
+    const sim = simRef.current;
+    if (sim.step === 0) {
+      sim.pops = [...pops];
+      sim.history = [[...pops]];
+      sim.message = "";
+      bump();
+    }
+  }, [pops, bump]);
 
   // Column sums (ideally all ≈ 1.0)
   const colSums = [0, 1, 2].map(
-    (j) => matrix[0][j] + matrix[1][j] + matrix[2][j],
+    (j) =>
+      (Number(matrix[0][j]) || 0) +
+      (Number(matrix[1][j]) || 0) +
+      (Number(matrix[2][j]) || 0),
   );
+
+  // ── Axes (from the current history) ───────────────────────────────────────
+  const axes = useMemo(() => {
+    const { history } = simRef.current;
+    let lo = 0;
+    let hi = 0;
+    history.forEach((snap) => {
+      [...snap, sum3(snap)].forEach((v) => {
+        if (Number.isFinite(v)) {
+          if (v < lo) lo = v;
+          if (v > hi) hi = v;
+        }
+      });
+    });
+    if (hi === lo) hi = lo + 100;
+    const y = niceAxis(lo, hi + (hi - lo) * 0.05, 5);
+    const x = niceAxis(0, Math.max(history.length - 1, MIN_X_SPAN), 10);
+    return { x, y };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simVersion]);
 
   // ── Time-series drawing ───────────────────────────────────────────────────
   const drawTimeSeries = useCallback(() => {
     const canvas = tsCanvasRef.current;
-    if (!canvas) return;
+    const transform = transformRef.current;
+    if (!canvas || !transform) return;
+    const { ctx, width, height } = setupCanvas(canvas, {
+      width: transform.plotWidth,
+      height: transform.plotHeight,
+    });
+    ctx.clearRect(0, 0, width, height);
 
-    const ctx = canvas.getContext("2d");
-    const W = canvas.width;
-    const H = canvas.height;
-    const history = animRef.current.history;
+    const { history, matrixEdits } = simRef.current;
+    if (history.length < 1) return;
     const isDark = currentTheme === "dark";
     const colors = COMP_COLORS[currentTheme] || COMP_COLORS.light;
+    const toPx = (t, v) => transform.dataToPixel(t, v);
+    const last = history.length - 1;
 
-    ctx.clearRect(0, 0, W, H);
-
-    if (history.length < 1) return;
-
-    // Helper: draw a filled dot
-    const drawDot = (x, y, color, radius = 5) => {
-      ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-    };
-
-    // Padding
-    const pad = { left: 50, right: 12, top: 12, bottom: 40 };
-    const plotW = W - pad.left - pad.right;
-    const plotH = H - pad.top - pad.bottom;
-
-    // Compute totals per step
-    const totals = history.map((snap) => snap[0] + snap[1] + snap[2]);
-
-    // Determine y max (include totals)
-    const allVals = [...history.flat(), ...totals];
-    const rawMax = Math.max(...allVals);
-    const yMax = rawMax > 0 ? rawMax * 1.1 : 100;
-
-    // Background
-    ctx.fillStyle = isDark ? "#111827" : "#f9fafb";
-    ctx.fillRect(0, 0, W, H);
-
-    // Grid lines
-    const gridColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
-    ctx.strokeStyle = gridColor;
-    ctx.lineWidth = 1;
-    const yGridCount = 5;
-    for (let g = 0; g <= yGridCount; g++) {
-      const gy = pad.top + plotH - (g / yGridCount) * plotH;
-      ctx.beginPath();
-      ctx.moveTo(pad.left, gy);
-      ctx.lineTo(pad.left + plotW, gy);
-      ctx.stroke();
-    }
-    // x-axis scales to actual data extent
-    const xMax = Math.max(history.length - 1, 1);
-    const xGridCount = Math.min(xMax, 10);
-    for (let g = 0; g <= xGridCount; g++) {
-      const gx = pad.left + (g / xGridCount) * plotW;
-      ctx.beginPath();
-      ctx.moveTo(gx, pad.top);
-      ctx.lineTo(gx, pad.top + plotH);
-      ctx.stroke();
-    }
-
-    // Axes
-    const axisColor = isDark ? "#e5e7eb" : "#1f2937";
-    ctx.strokeStyle = axisColor;
-    ctx.lineWidth = 1.5;
-    // Y axis
-    ctx.beginPath();
-    ctx.moveTo(pad.left, pad.top);
-    ctx.lineTo(pad.left, pad.top + plotH);
-    ctx.stroke();
-    // X axis
-    ctx.beginPath();
-    ctx.moveTo(pad.left, pad.top + plotH);
-    ctx.lineTo(pad.left + plotW, pad.top + plotH);
-    ctx.stroke();
-
-    // Axis labels
-    const labelColor = isDark ? "#d1d5db" : "#374151";
-    ctx.fillStyle = labelColor;
-    ctx.font = "11px sans-serif";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    for (let g = 0; g <= yGridCount; g++) {
-      const val = (g / yGridCount) * yMax;
-      const gy = pad.top + plotH - (g / yGridCount) * plotH;
-      ctx.fillText(Math.round(val), pad.left - 5, gy);
-    }
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    for (let g = 0; g <= xGridCount; g++) {
-      const step = Math.round((g / xGridCount) * xMax);
-      const gx = pad.left + (g / xGridCount) * plotW;
-      ctx.fillText(step, gx, pad.top + plotH + 5);
-    }
-
-    // Axis titles
-    ctx.fillStyle = labelColor;
-    ctx.font = "12px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    ctx.fillText("Time Step", pad.left + plotW / 2, H - 2);
-
-    ctx.save();
-    ctx.translate(12, pad.top + plotH / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textBaseline = "top";
-    ctx.fillText("Population", 0, 0);
-    ctx.restore();
-
-    // Data lines — three compartments
-    for (let c = 0; c < 3; c++) {
-      const lastSnap = history[history.length - 1];
-      const lastX = pad.left + ((history.length - 1) / xMax) * plotW;
-      const lastY = pad.top + plotH - (lastSnap[c] / yMax) * plotH;
-
-      if (history.length > 1) {
+    // Markers where the matrix was edited during the run
+    if (matrixEdits.length) {
+      ctx.save();
+      ctx.strokeStyle = isDark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.4)";
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.font = "10px sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      matrixEdits.forEach((k) => {
+        const { x } = toPx(k, 0);
         ctx.beginPath();
-        ctx.strokeStyle = colors[c];
-        ctx.lineWidth = 2.5;
-        ctx.lineJoin = "round";
-        history.forEach((snap, t) => {
-          const x = pad.left + (t / xMax) * plotW;
-          const y = pad.top + plotH - (snap[c] / yMax) * plotH;
-          if (t === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        });
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
         ctx.stroke();
-      }
-
-      // Dot at last (or only) point
-      drawDot(lastX, lastY, colors[c]);
+        ctx.fillText("M edited", x + 3, 2);
+      });
+      ctx.restore();
     }
 
-    // Total population line — black (light) or white (dark)
-    const totalLineColor = isDark ? "#ffffff" : "#000000";
-    const lastTotal = totals[totals.length - 1];
-    const lastTotalX = pad.left + ((history.length - 1) / xMax) * plotW;
-    const lastTotalY = pad.top + plotH - (lastTotal / yMax) * plotH;
-
-    if (history.length > 1) {
+    const drawSeries = (valueAt, color, lineWidth, dash) => {
+      if (history.length < 2) return;
       ctx.beginPath();
-      ctx.strokeStyle = totalLineColor;
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
       ctx.lineJoin = "round";
-      ctx.setLineDash([6, 3]);
-      totals.forEach((val, t) => {
-        const x = pad.left + (t / xMax) * plotW;
-        const y = pad.top + plotH - (val / yMax) * plotH;
-        if (t === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+      ctx.setLineDash(dash);
+      history.forEach((snap, t) => {
+        const p = toPx(t, valueAt(snap));
+        if (t === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
       });
       ctx.stroke();
       ctx.setLineDash([]);
+    };
+
+    // Three compartments
+    for (let c = 0; c < 3; c++) {
+      drawSeries((snap) => snap[c], colors[c], 2.5, []);
+      const p = toPx(last, history[last][c]);
+      drawMarker(ctx, MARKERS[c], p.x, p.y, colors[c]);
     }
 
-    // Dot at last (or only) total point
-    drawDot(lastTotalX, lastTotalY, totalLineColor, 4);
+    // Total population — black (light) or white (dark), dashed
+    const totalColor = isDark ? "#ffffff" : "#000000";
+    drawSeries(sum3, totalColor, 2, [6, 3]);
+    const pt = toPx(last, sum3(history[last]));
+    drawMarker(ctx, "circle", pt.x, pt.y, totalColor, 4);
   }, [currentTheme]);
 
-  // Draw on mount and whenever theme changes
+  // Redraw after every step, axis change and theme change
   useEffect(() => {
     drawTimeSeries();
-  }, [currentTheme, drawTimeSeries]);
+  }, [simVersion, axes, drawTimeSeries]);
 
-  // ── Animation loop ────────────────────────────────────────────────────────
-  const animationLoop = useCallback(() => {
-    const anim = animRef.current;
-    if (!anim.isRunning) return;
-
-    if (anim.step >= MAX_STEPS) {
-      anim.isRunning = false;
-      setIsRunning(false);
-      return;
+  // ── Simulation ────────────────────────────────────────────────────────────
+  // Advance one step. Returns true if another step is possible.
+  const doStep = useCallback(() => {
+    const sim = simRef.current;
+    if (sim.step >= MAX_STEPS) return false;
+    const next = stepSimulation(sim.pops, matrixRef.current);
+    if (!next.every(Number.isFinite) || !Number.isFinite(sum3(next))) {
+      sim.message = `Stopped at step ${sim.step}: the numbers became too large to compute.`;
+      bump();
+      return false;
     }
+    sim.pops = next;
+    sim.step += 1;
+    sim.history.push([...next]);
+    bump();
+    return sim.step < MAX_STEPS;
+  }, [bump]);
 
-    const next = stepSimulation(anim.pops, anim.matrix);
-    anim.pops = next;
-    anim.step += 1;
-    anim.history.push([...next]);
-
-    setCurrentPops([...next]);
-    setCurrentStep(anim.step);
-
-    drawTimeSeries();
-
-    anim.animationId = requestAnimationFrame(animationLoop);
-  }, [drawTimeSeries]);
+  const loop = useAnimationLoop((dt) => {
+    const sim = simRef.current;
+    sim.acc += dt;
+    let more = true;
+    while (more && sim.acc >= STEP_INTERVAL_S) {
+      sim.acc -= STEP_INTERVAL_S;
+      more = doStep();
+    }
+    if (!more) {
+      setIsRunning(false);
+      return false;
+    }
+    return true;
+  });
 
   // ── Controls ──────────────────────────────────────────────────────────────
+  const canStep = () => {
+    const sim = simRef.current;
+    return sim.step < MAX_STEPS && !sim.message;
+  };
+
   const handleRun = useCallback(() => {
-    const anim = animRef.current;
-    if (anim.isRunning || anim.step >= MAX_STEPS) return;
-
-    // Initialise canvas once
-    const canvas = tsCanvasRef.current;
-    if (canvas) {
-      const rect = canvas.getBoundingClientRect();
-      if (canvas.width !== rect.width || canvas.height !== rect.height) {
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    }
-
-    if (anim.step === 0) {
-      // First run – snapshot current UI values
-      anim.pops = [...pops];
-      anim.matrix = matrix.map((r) => [...r]);
-      anim.names = [...names];
-      anim.history = [[...pops]];
-      setCurrentPops([...pops]);
-    }
-
-    anim.isRunning = true;
+    if (loop.isRunning() || !canStep()) return;
+    // First step right away, then one every STEP_INTERVAL_S
+    simRef.current.acc = STEP_INTERVAL_S;
     setIsRunning(true);
-    anim.animationId = requestAnimationFrame(animationLoop);
-  }, [pops, matrix, names, animationLoop]);
+    loop.start();
+  }, [loop]);
 
   const handleStep = useCallback(() => {
-    const anim = animRef.current;
-    if (anim.isRunning || anim.step >= MAX_STEPS) return;
-
-    // Initialise on first step just like handleRun
-    const canvas = tsCanvasRef.current;
-    if (canvas) {
-      const rect = canvas.getBoundingClientRect();
-      if (canvas.width !== rect.width || canvas.height !== rect.height) {
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    }
-
-    if (anim.step === 0) {
-      anim.pops = [...pops];
-      anim.matrix = matrix.map((r) => [...r]);
-      anim.names = [...names];
-      anim.history = [[...pops]];
-      setCurrentPops([...pops]);
-    }
-
-    const next = stepSimulation(anim.pops, anim.matrix);
-    anim.pops = next;
-    anim.step += 1;
-    anim.history.push([...next]);
-
-    setCurrentPops([...next]);
-    setCurrentStep(anim.step);
-    drawTimeSeries();
-  }, [pops, matrix, names, drawTimeSeries]);
+    if (loop.isRunning() || !canStep()) return;
+    doStep();
+  }, [loop, doStep]);
 
   const handlePause = useCallback(() => {
-    const anim = animRef.current;
-    anim.isRunning = false;
-    if (anim.animationId) {
-      cancelAnimationFrame(anim.animationId);
-      anim.animationId = null;
-    }
+    loop.stop();
     setIsRunning(false);
-  }, []);
+  }, [loop]);
 
   const handleReset = useCallback(() => {
-    handlePause();
-    const anim = animRef.current;
-    anim.step = 0;
-    anim.pops = [...pops];
-    anim.history = [[...pops]];
-
-    setCurrentStep(0);
-    setCurrentPops([...pops]);
-
-    drawTimeSeries();
-  }, [handlePause, pops, drawTimeSeries]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    const anim = animRef.current;
-    return () => {
-      if (anim.animationId) cancelAnimationFrame(anim.animationId);
-    };
-  }, []);
+    loop.stop();
+    setIsRunning(false);
+    const sim = simRef.current;
+    sim.step = 0;
+    sim.pops = [...pops];
+    sim.history = [[...pops]];
+    sim.matrixEdits = [];
+    sim.acc = 0;
+    sim.message = "";
+    bump();
+  }, [loop, pops, bump]);
 
   // ── Derived display values ────────────────────────────────────────────────
   const colors = COMP_COLORS[currentTheme] || COMP_COLORS.light;
-  const totalPop = currentPops.reduce((a, b) => a + b, 0);
+  const sim = simRef.current;
+  const currentStep = sim.step;
+  const currentPops = sim.pops;
+  const totalPop = sum3(currentPops);
+  const startChanged =
+    currentStep > 0 && pops.some((p, i) => p !== sim.history[0][i]);
+  let statusMsg = "";
+  if (sim.message) statusMsg = sim.message + " Press Reset to start again.";
+  else if (currentStep >= MAX_STEPS)
+    statusMsg = `Reached step ${MAX_STEPS}. Press Reset to start again.`;
+  else if (startChanged) statusMsg = "New starting numbers take effect on Reset.";
 
   // ── Layout constants ──────────────────────────────────────────────────────
   // Canvas: 8 wide × 7 tall
@@ -391,6 +373,7 @@ const ThreeCompartmentMatrixTool = () => {
   const dividerColor = currentTheme === "dark" ? "#4b5563" : "#e5e7eb";
   const mutedColor = currentTheme === "dark" ? "#9ca3af" : "#6b7280";
   const textColor = currentTheme === "dark" ? "#e5e7eb" : "#1f2937";
+  const warnColor = currentTheme === "dark" ? "#fbbf24" : "#b45309";
 
   return (
     <ToolContainer
@@ -474,7 +457,7 @@ const ThreeCompartmentMatrixTool = () => {
         onPress={handleRun}
         bgColor={isRunning ? "#14532d" : "#16a34a"}
         theme={theme}
-        tooltip="Run the model step by step"
+        tooltip="Run: one time step every 0.3 s, up to 100 steps"
       >
         <div style={{ textAlign: "center", lineHeight: "1.1" }}>
           <div style={{ fontSize: "16px" }}>
@@ -599,26 +582,23 @@ const ThreeCompartmentMatrixTool = () => {
         h={3}
         xLabel="Time Step"
         yLabel="Population"
-        xRange={[0, MAX_STEPS]}
-        yRange={[0, 100]}
-        xTicks={[0, 20, 40, 60, 80, 100]}
-        yTicks={[0, 25, 50, 75, 100]}
+        xRange={axes.x.range}
+        yRange={axes.y.range}
+        xTicks={axes.x.ticks}
+        yTicks={axes.y.ticks}
         theme={theme}
         tooltip="Time series of compartment populations"
       >
-        <canvas
-          ref={tsCanvasRef}
-          className="absolute"
-          style={{
-            left: 0,
-            top: 0,
-            width: "100%",
-            height: "100%",
-            pointerEvents: "none",
-          }}
-          width={500}
-          height={300}
-        />
+        {(transform) => {
+          transformRef.current = transform;
+          return (
+            <canvas
+              ref={tsCanvasRef}
+              className="absolute"
+              style={{ ...transform.plotStyle, pointerEvents: "none" }}
+            />
+          );
+        }}
       </GridGraph>
 
       {/* ── 3×3 Unified panel (cols 5-7, rows 4-6) ───────────────────────── */}
@@ -641,7 +621,7 @@ const ThreeCompartmentMatrixTool = () => {
         >
           {/* Step counter */}
           <div
-            style={{ fontSize: "12px", color: mutedColor, marginBottom: "8px" }}
+            style={{ fontSize: "12px", color: mutedColor, marginBottom: statusMsg ? "2px" : "8px" }}
           >
             Step:{" "}
             <span style={{ color: textColor, fontWeight: "bold" }}>
@@ -649,6 +629,14 @@ const ThreeCompartmentMatrixTool = () => {
             </span>{" "}
             / {MAX_STEPS}
           </div>
+          {statusMsg && (
+            <div
+              role="status"
+              style={{ fontSize: "11px", color: warnColor, marginBottom: "6px", lineHeight: 1.25 }}
+            >
+              {statusMsg}
+            </div>
+          )}
 
           {/* Divider */}
           <div
@@ -670,16 +658,7 @@ const ThreeCompartmentMatrixTool = () => {
                   marginBottom: "5px",
                 }}
               >
-                <span
-                  style={{
-                    display: "inline-block",
-                    width: "24px",
-                    height: "3px",
-                    background: colors[c],
-                    borderRadius: "2px",
-                    flexShrink: 0,
-                  }}
-                />
+                <Swatch color={colors[c]} shape={MARKERS[c]} />
                 <span
                   style={{
                     color: colors[c],
@@ -691,7 +670,7 @@ const ThreeCompartmentMatrixTool = () => {
                   {names[c] || DEFAULT_NAMES[c]}
                 </span>
                 <span style={{ color: textColor, fontSize: "12px" }}>
-                  {Math.round(currentPops[c])}
+                  {fmtPop(currentPops[c])}
                 </span>
               </div>
             ))}
@@ -707,15 +686,7 @@ const ThreeCompartmentMatrixTool = () => {
                 borderTop: `1px solid ${dividerColor}`,
               }}
             >
-              <span
-                style={{
-                  display: "inline-block",
-                  width: "24px",
-                  height: "3px",
-                  background: `repeating-linear-gradient(to right, ${textColor} 0px, ${textColor} 6px, transparent 6px, transparent 9px)`,
-                  flexShrink: 0,
-                }}
-              />
+              <Swatch color={textColor} shape="circle" dashed />
               <span
                 style={{
                   color: textColor,
@@ -727,7 +698,7 @@ const ThreeCompartmentMatrixTool = () => {
                 Total
               </span>
               <span style={{ color: textColor, fontSize: "12px" }}>
-                {Math.round(totalPop)}
+                {fmtPop(totalPop)}
               </span>
             </div>
           </div>

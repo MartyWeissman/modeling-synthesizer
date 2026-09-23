@@ -2,13 +2,13 @@
 
 ## Overview
 
-Models the discrete-time dynamics of three interacting compartments using matrix multiplication. At each time step the state vector **v** = [A, B, C]ᵀ is updated by **v**(t+1) = **M** · **v**(t), where **M** is a 3×3 transition matrix whose entry M[i][j] gives the amount (or fraction) transferred from compartment j to compartment i per step. The compartments can represent biological populations, chemical concentrations, disease states, age classes, or any other quantity that flows between three pools. [VERIFY: appropriate biological contexts]
+Models the discrete-time dynamics of three compartments using matrix multiplication. At each time step the state vector **v** = [A, B, C]ᵀ is updated by **v**(t+1) = **M** · **v**(t), where **M** is a 3×3 transition matrix whose entry in row i, column j gives the fraction (or amount per individual) that moves **from** compartment j **to** compartment i in one step. The compartments can be cell states (for example stem-like, basal and luminal tumor cells), disease states (susceptible, infected, immune), or age classes (eggs, hoppers, adults in a Leslie matrix).
 
 ## The Transition Matrix
 
 The **Transition Matrix** occupies the top-left 4×4 block of the interface. Row labels read "To A", "To B", "To C" and column labels read "From A", "From B", "From C", so the entry in row i, column j represents flow **from** compartment j **to** compartment i.
 
-Each matrix entry accepts values between **-1000 and 1000** in steps of 0.01. Negative entries are allowed, which can represent net outflows, inhibition, or other decreasing interactions. The label on each entry shows the two-character abbreviation of the source and destination compartments (e.g., "Ap→Ba" for Apples→Bananas).
+Each matrix entry accepts values between **-1000 and 1000**. Type a value and press Enter (or click elsewhere) to commit it. The label on each entry shows the first two characters of the source and destination names (e.g. "St→Ba" for Stem→Basal).
 
 **Default matrix values:**
 
@@ -16,56 +16,51 @@ Each matrix entry accepts values between **-1000 and 1000** in steps of 0.01. Ne
 - **To B:** From A = 0.20, From B = 0.80, From C = 0.10
 - **To C:** From A = 0.10, From B = 0.10, From C = 0.85
 
-**Conservation note:** If the columns each sum to 1.0, the total population is conserved at every step (a proper Markov/stochastic matrix). The panel on the right displays the column sums so you can monitor this. The tool does not require columns to sum to 1 — any values are permitted.
+**Conservation note:** If every column sums to 1, the total population stays the same at every step (a Markov, or stochastic, matrix). The panel on the right displays the column sums so you can check this. The tool does not require columns to sum to 1: Leslie matrices, for example, have column sums other than 1.
+
+**Editing the matrix during a run:** A matrix edit takes effect from the next step. If you edit the matrix after the run has started, a dashed vertical line labeled "M edited" marks that step on the graph. Press Reset to start over with the new matrix.
 
 ## Parameters
 
-**Compartment names:** Three text inputs (max 12 characters each), defaults "A", "B", "C". The names appear on the row and column labels of the matrix, in the time-series legend, and on the matrix entry labels. Changing a name updates all labels immediately.
+**Compartment names:** Three text inputs (up to 12 characters each), defaults "A", "B", "C". The names appear on the row and column labels of the matrix, on the matrix entry labels, and in the legend.
 
-**Starting number (A):** Numeric input, range 0–9999, step 1, default 100. The initial population of compartment A used when Run or Step is first pressed.
-
-**Starting number (B):** Numeric input, range 0–9999, step 1, default 50. The initial population of compartment B.
-
-**Starting number (C):** Numeric input, range 0–9999, step 1, default 50. The initial population of compartment C.
+**Starting number (A, B, C):** Whole numbers from 0 to 9999; defaults 100, 50 and 50. Before the first step, editing a starting number immediately updates the t = 0 points on the graph and the numbers in the panel. After the run has started, new starting numbers take effect when you press Reset.
 
 ## Controls
 
-**Run (green button):** Starts the simulation, advancing one time step per animation frame (up to 100 steps). The matrix and starting populations are locked in at the moment Run is first pressed. The button label changes to "Running" while the simulation is active. Pressing Run again while running has no effect.
+**Run (green button):** Advances the model one time step every 0.3 seconds, up to 100 steps (a full run takes about 30 seconds). The label changes to "Running" while it runs.
 
-**Step (yellow button):** Advances the simulation by exactly one time step and then stops. Useful for examining the state at each individual step. The matrix and starting populations are locked in on the first Step press, just as with Run. Can be used to single-step after pausing a running simulation.
+**Step (yellow button):** Advances the model by exactly one time step. Useful for checking each multiplication by hand.
 
-**Pause (red button):** Stops the animation loop, freezing the simulation at the current step. The graph and population readout remain visible. Press Run to resume from where it stopped.
+**Pause (red button):** Stops the run at the current step. Press Run to continue or Step to go one step at a time.
 
-**Reset (gray button):** Stops the simulation and returns to t=0, restoring the starting populations from the current "Starting number" inputs. The graph shows only the initial dots at t=0.
+**Reset (gray button):** Stops the run and returns to t = 0, using the current starting numbers and the current matrix.
+
+After step 100 (or if the numbers become too large for the computer to handle), the panel shows a message and Run and Step do nothing until you press Reset.
 
 ## Time-Series Graph
 
-Occupies the bottom-left of the interface. The x-axis (Time Step) **scales dynamically** to the current data: after 5 steps it spans 0–5, after 50 steps it spans 0–50, up to a maximum of 100 steps. The y-axis scales to fit all values including the total.
+Occupies the bottom-left of the interface. The time axis grows with the run: it always shows at least steps 0–10 and extends up to step 100. The vertical axis rescales to fit all values, including the total (and negative values, if the matrix has negative entries).
 
-- **Colored lines** (red, blue, green by default) track each compartment's population over time.
-- **Black dashed line** tracks the total population (sum of all three compartments).
-- **Filled dots** mark the current (most recent) value of each series. At t=0, only dots are shown — one for each compartment and one for the total — giving a clear starting reference before any steps are taken.
+- **Colored lines** (red, blue, green) track each compartment. The current value of each is marked with its own symbol (circle, square, triangle), matching the legend.
+- **Dashed line** tracks the total population (sum of all three compartments).
 
 ## Results Panel
 
-The panel to the right of the time-series graph shows:
+The panel to the right of the graph shows:
 
-**Step counter:** The current time step out of the maximum (100).
+**Step counter:** The current time step out of the maximum (100), plus any status message.
 
-**Legend and current populations:** A colored swatch and name for each compartment, followed by its current (rounded) population value. The total population appears directly below, separated by a thin line, reading as the sum of the three values above it. The total's swatch mimics the dashed line style used in the graph.
+**Legend and current populations:** The name and current value of each compartment (whole numbers above 100, three significant figures below 100, scientific notation above one million), and the total.
 
-**Column sums:** The sum of each column of the transition matrix, displayed as plain numbers. If columns sum to 1.0 the total population is conserved; departures from 1.0 indicate net growth or decay in the system.
+**Column sums:** The sum of each column of the matrix. Column sums of 1 conserve the total population; column sums above or below 1 make the total grow or shrink.
 
 ## What to Observe
 
-- With the default matrix (columns summing to 1.0), press Run and observe the populations converging toward a steady state — the long-run eigenvector of **M**. [VERIFY: steady-state convergence claim for these default values]
-- Use the Step button repeatedly to watch the matrix multiplication unfold one step at a time. Compare each new population vector to **M** times the previous one.
-- Set a diagonal entry (e.g., A→A) above 1.0 to model exponential growth in that compartment and observe the total population increasing over time.
-- Set all off-diagonal entries in a column to 0 to make a compartment absorbing — all individuals that enter stay indefinitely.
-- Rename the compartments (e.g., "Prey", "Pred", "Env") to match a biological scenario and set matrix entries to reflect known transfer rates. [VERIFY: example naming suggestions]
-- After running, press Reset and modify the starting numbers to explore how the long-run behavior depends (or does not depend) on initial conditions.
-- Set one column sum above 1.0 and another below 1.0 and observe the total population (black dashed line) growing or shrinking over time.
-
-## References
-
-[To be added]
+- With the default matrix (columns summing to 1), press Run and watch the populations settle to a steady state. For the default starting numbers (total 200) the steady state is A = 40, B = 80, C = 80, which is the eigenvector of **M** with eigenvalue 1, scaled to the total. The other eigenvalues are 0.75 and 0.6, so the approach is fast: after about 15 steps each population is within 0.5 of its steady-state value.
+- Change the starting numbers but keep the total the same, press Reset and Run again: the steady state does not change. Change the total and the steady state scales with it.
+- Use the Step button to watch the matrix multiplication one step at a time. Compare each new population vector with **M** times the previous one.
+- To make a compartment absorbing (individuals that enter never leave), set its diagonal entry to 1 and the other two entries in its column to 0.
+- Rename the compartments to match a biological scenario (for example "Stem", "Basal", "Luminal", or "S", "I", "M") and enter the transition probabilities.
+- Enter a Leslie matrix (fecundities in the top row, survival probabilities below the diagonal). For eggs, hoppers and adults with 2% and 5% survival and 1000 eggs per adult, the populations repeat every 3 steps.
+- Set one column sum above 1 and another below 1 and watch the total population (dashed line) grow or shrink.
