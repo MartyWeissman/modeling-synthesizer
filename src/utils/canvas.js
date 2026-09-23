@@ -19,9 +19,17 @@ export function setupCanvas(canvas, options = {}) {
   let width = options.width;
   let height = options.height;
   if (width === undefined || height === undefined) {
-    const rect = canvas.getBoundingClientRect();
-    width = width ?? rect.width;
-    height = height ?? rect.height;
+    // Use layout size (unaffected by CSS transforms such as ToolContainer's
+    // scale-to-fit); fall back to the bounding rect if layout size is 0.
+    let w = canvas.offsetWidth;
+    let h = canvas.offsetHeight;
+    if (!w || !h) {
+      const rect = canvas.getBoundingClientRect();
+      w = w || rect.width;
+      h = h || rect.height;
+    }
+    width = width ?? w;
+    height = height ?? h;
   }
   width = Math.max(1, Math.round(width));
   height = Math.max(1, Math.round(height));
@@ -43,6 +51,7 @@ export function setupCanvas(canvas, options = {}) {
 export function canvasCssSize(canvas) {
   if (!canvas) return { width: 0, height: 0 };
   if (canvas._cssWidth) return { width: canvas._cssWidth, height: canvas._cssHeight };
+  if (canvas.offsetWidth) return { width: canvas.offsetWidth, height: canvas.offsetHeight };
   const rect = canvas.getBoundingClientRect();
   return { width: rect.width, height: rect.height };
 }
