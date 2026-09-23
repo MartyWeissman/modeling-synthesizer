@@ -3,8 +3,8 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import GridComponent from "./GridComponent";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
-import { getFontStyle } from "../../utils/typography";
 import { CELL_SIZE } from "../../themes";
+import { useThemeMode, noiseBackgroundSize } from "./themeMode";
 
 const GridTableInput = ({
   x,
@@ -23,31 +23,124 @@ const GridTableInput = ({
   errorHighlights = [], // Array of {index, field, value} for error indication
   lockedCells = [], // Array of {row, key, value} — display fixed value, non-editable
 }) => {
-  // Ensure data has the correct structure
-  const initializeData = useCallback(() => {
-    const initialData = [];
-    for (let i = 0; i < maxRows; i++) {
+  // Rows are kept in local state so that the layout the student typed stays
+  // put: empty rows are NOT compacted while typing (the cleaned, compacted
+  // list is only what we report through onDataChange), and a change to
+  // `columns` alone (e.g. a theme-dependent column colour) never resets the
+  // rows. The table re-initialises from `data` only when `data` really
+  // differs from what the student has entered (e.g. Reset or example data).
+  const isFilled = (v) => v !== "" && v !== null && v !== undefined;
+  const editableKeys = (cols) =>
+    cols
+      .filter((c) => c.type !== "computed" && c.editable !== false)
+      .map((c) => c.key);
+  const computedKeys = (cols) =>
+    cols
+      .filter((c) => c.type === "computed" || c.editable === false)
+      .map((c) => c.key);
+  const rowSig = (row, keys) =>
+    keys.map((k) => (row && isFilled(row[k]) ? String(row[k]) : "")).join("\u0001");
+  const hasEditable = (row, keys) => keys.some((k) => row && isFilled(row[k]));
+
+  const buildFromData = (srcData, cols, nRows) => {
+    const rows = [];
+    const rowToData = [];
+    for (let i = 0; i < nRows; i++) {
       const row = {};
-      columns.forEach((col) => {
+      cols.forEach((col) => {
         row[col.key] =
-          data[i] && data[i][col.key] !== undefined ? data[i][col.key] : "";
+          srcData[i] && srcData[i][col.key] !== undefined ? srcData[i][col.key] : "";
       });
-      initialData.push(row);
+      rows.push(row);
+      rowToData.push(i < srcData.length ? i : -1);
     }
-    return initialData;
-  }, [data, columns, maxRows]);
+    return { rows, rowToData };
+  };
 
-  const [tableData, setTableData] = useState(initializeData);
+  const [table, setTable] = useState(() => buildFromData(data, columns, maxRows));
+  const tableData = table.rows;
+  const rowToData = table.rowToData;
   const tableRef = useRef(null);
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
 
-  // Update internal data when external data changes
+  // Sync from external data
   useEffect(() => {
-    setTableData(initializeData());
-  }, [initializeData]);
+    const cols = columnsRef.current;
+    const eKeys = editableKeys(cols);
+    const cKeys = computedKeys(cols);
+    setTable((prev) => {
+      if (prev.rows.length !== maxRows) return buildFromData(data, cols, maxRows);
+      const rows = prev.rows;
+      const n = rows.length;
+      // 1) Same entries row-by-row: keep layout, refresh computed columns
+      let positional = data.length <= n;
+      for (let i = 0; positional && i < n; i++) {
+        if (rowSig(rows[i], eKeys) !== rowSig(data[i], eKeys)) positional = false;
+      }
+      let mapping = null;
+      if (positional) {
+        mapping = rows.map((_, i) => (i < data.length ? i : -1));
+      } else {
+        // 2) Same non-empty entries in the same order (data is the compacted
+        //    list we reported): keep layout, map rows to data entries
+        const filledRows = [];
+        rows.forEach((r, i) => hasEditable(r, eKeys) && filledRows.push(i));
+        const filledData = [];
+        data.forEach((d, j) => hasEditable(d, eKeys) && filledData.push(j));
+        if (
+          filledRows.length === filledData.length &&
+          filledRows.every(
+            (ri, k) => rowSig(rows[ri], eKeys) === rowSig(data[filledData[k]], eKeys),
+          )
+        ) {
+          mapping = rows.map(() => -1);
+          filledRows.forEach((ri, k) => (mapping[ri] = filledData[k]));
+        }
+      }
+      if (!mapping) return buildFromData(data, cols, maxRows);
+
+      // Refresh computed (read-only) columns from data; keep editable text
+      let changed = mapping.some((m, i) => m !== prev.rowToData[i]);
+      const newRows = rows.map((row, i) => {
+        const src = mapping[i] >= 0 ? data[mapping[i]] : null;
+        let out = row;
+        cKeys.forEach((k) => {
+          const v = src && src[k] !== undefined ? src[k] : "";
+          if (out[k] !== v) {
+            if (out === row) out = { ...row };
+            out[k] = v;
+            changed = true;
+          }
+        });
+        return out;
+      });
+      return changed ? { rows: newRows, rowToData: mapping } : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, maxRows]);
+
+  // Make sure every row has a key for each current column (columns may change)
+  const columnKeySig = columns.map((c) => c.key).join("|");
+  useEffect(() => {
+    setTable((prev) => {
+      const keys = columnsRef.current.map((c) => c.key);
+      if (prev.rows.every((r) => keys.every((k) => k in r))) return prev;
+      return {
+        ...prev,
+        rows: prev.rows.map((r) => {
+          const out = { ...r };
+          keys.forEach((k) => {
+            if (!(k in out)) out[k] = "";
+          });
+          return out;
+        }),
+      };
+    });
+  }, [columnKeySig]);
 
   // Determine theme and texture
-  const isDarkMode = theme.component.includes("gray-700");
-  const isUnicornMode = theme.text.includes("purple-800");
+  const { isDarkMode } = useThemeMode(theme);
   const currentTexture = isDarkMode ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE;
 
   // Calculate dimensions
@@ -65,42 +158,34 @@ const GridTableInput = ({
   // Handle cell value change
   const handleCellChange = useCallback(
     (rowIndex, columnKey, value) => {
-      const newData = [...tableData];
-      newData[rowIndex] = { ...newData[rowIndex], [columnKey]: value };
-      setTableData(newData);
+      const newRows = [...tableData];
+      newRows[rowIndex] = { ...newRows[rowIndex], [columnKey]: value };
 
-      // Call external onChange with cleaned data (remove empty rows)
-      const cleanedData = newData.filter((row) =>
-        columns.some(
-          (col) =>
-            row[col.key] !== "" &&
-            row[col.key] !== null &&
-            row[col.key] !== undefined,
-        ),
-      );
+      // Report cleaned data (empty rows removed) to the caller, but keep the
+      // rows where they are in the table.
+      const isRowFilled = (row) => columns.some((col) => isFilled(row[col.key]));
+      const cleanedData = [];
+      const mapping = newRows.map((row) => {
+        if (!isRowFilled(row)) return -1;
+        cleanedData.push(row);
+        return cleanedData.length - 1;
+      });
+      setTable({ rows: newRows, rowToData: mapping });
       onDataChange?.(cleanedData);
     },
     [tableData, columns, onDataChange],
   );
 
-  // Validate and format input based on column type
-  const formatCellValue = useCallback((value, columnType) => {
-    if (columnType === "number") {
-      if (value === "" || value === null || value === undefined) return "";
-      const num = parseFloat(value);
-      return isNaN(num) ? "" : num.toString();
-    }
-    return value;
-  }, []);
-
   // Check if a cell has an error
   const hasError = useCallback(
     (rowIndex, columnKey) => {
+      const dataIndex = rowToData[rowIndex];
+      if (dataIndex === undefined || dataIndex < 0) return false;
       return errorHighlights.some(
-        (error) => error.index === rowIndex && error.field === columnKey,
+        (error) => error.index === dataIndex && error.field === columnKey,
       );
     },
-    [errorHighlights],
+    [errorHighlights, rowToData],
   );
 
   // Check if a computed cell should show error (empty value when it should have content)
@@ -109,7 +194,8 @@ const GridTableInput = ({
       if (column.type !== "computed") return false;
 
       // For computed log columns, error if value is empty but original value exists
-      const row = data[rowIndex];
+      const dataIndex = rowToData[rowIndex];
+      const row = dataIndex >= 0 ? data[dataIndex] : null;
       if (!row) return false;
 
       if (columnKey === "logX") {
@@ -124,7 +210,7 @@ const GridTableInput = ({
 
       return false;
     },
-    [data],
+    [data, rowToData],
   );
 
   // Get cell input styles with error indication
@@ -191,8 +277,8 @@ const GridTableInput = ({
           width: "100%",
           height: "100%",
           padding: `${BORDER_SIZE}px`,
-          backgroundImage: `url("data:image/svg+xml,${currentTexture}")`,
-          backgroundSize: "40px 40px",
+          backgroundImage: `url(${currentTexture})`,
+          backgroundSize: noiseBackgroundSize(false),
           overflow: "hidden",
         }}
       >
@@ -254,7 +340,9 @@ const GridTableInput = ({
                       const isLocked = !!lock;
                       const displayValue = isLocked
                         ? String(lock.value)
-                        : row[column.key] || "";
+                        : isFilled(row[column.key])
+                          ? String(row[column.key])
+                          : "";
                       const lockedColumn = isLocked
                         ? { ...column, type: "computed" }
                         : column;

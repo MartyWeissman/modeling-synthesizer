@@ -18,6 +18,7 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
+import { localPointer } from "../components/grid/pointer";
 
 const SimpleHarmonicOscillatorTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -592,9 +593,9 @@ const SimpleHarmonicOscillatorTool = () => {
 
       const { pixelToData, plotWidth, plotHeight } = transform;
 
-      const rect = canvas.getBoundingClientRect();
-      const clickX = event.clientX - rect.left;
-      const clickY = event.clientY - rect.top;
+      // Pointer position in the canvas's own CSS pixels (stays correct when
+      // ToolContainer scales the tool down to fit a narrow window)
+      const { x: clickX, y: clickY } = localPointer(event, canvas);
 
       // Check bounds
       if (clickX < 0 || clickX > plotWidth || clickY < 0 || clickY > plotHeight)

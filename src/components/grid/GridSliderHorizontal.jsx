@@ -4,6 +4,11 @@ import React, { useState, useRef, useCallback } from "react";
 import GridComponent from "./GridComponent";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
 import { formatMathText, getFontStyle } from "../../utils/typography";
+import { useThemeMode, noiseBackgroundSize } from "./themeMode";
+
+// Geometry of the track and knob (px, relative to the slider area)
+const TRACK_LEFT = 16; // left end of the channel track
+const KNOB_SIZE = 24; // knob diameter (w-6)
 
 const GridSliderHorizontal = React.memo(
   ({
@@ -14,14 +19,52 @@ const GridSliderHorizontal = React.memo(
     value,
     onChange,
     variant = "bipolar", // 'bipolar' or 'unipolar'
+    // Optional value range. If omitted: bipolar -100..100, unipolar 0..100
+    // (the historical behavior, with integer steps).
+    min: minProp,
+    max: maxProp,
+    step: stepProp, // Optional; default 1 without min/max, else (max-min)/100
     label = "", // Text label above the slider
     tooltip,
+    ariaLabel, // Optional accessible name (defaults to the label)
+    ariaValueText, // Optional human-readable value for screen readers
     theme,
   }) => {
     const [isDragging, setIsDragging] = useState(false);
     const sliderRef = useRef(null);
-    const isDarkMode = theme.component.includes("gray-700");
-    const isUnicornMode = theme.text.includes("purple-800");
+    const { isDarkMode, isUnicornMode } = useThemeMode(theme);
+
+    // Value range in the caller's units
+    const hasRange =
+      Number.isFinite(minProp) && Number.isFinite(maxProp) && maxProp > minProp;
+    const min = hasRange ? minProp : variant === "bipolar" ? -100 : 0;
+    const max = hasRange ? maxProp : 100;
+    const step =
+      Number.isFinite(stepProp) && stepProp > 0
+        ? stepProp
+        : hasRange
+          ? (max - min) / 100
+          : 1;
+
+    // Snap to the step grid and clamp to [min, max]
+    const snap = useCallback(
+      (v) => {
+        const n = Math.round((v - min) / step);
+        const snapped = min + n * step;
+        const clamped = Math.max(min, Math.min(max, snapped));
+        return parseFloat(clamped.toPrecision(12));
+      },
+      [min, max, step],
+    );
+
+    // Fraction of the way from min to max (0..1)
+    const fraction = Math.max(
+      0,
+      Math.min(1, ((Number(value) || 0) - min) / (max - min)),
+    );
+    // Value on the internal -100..100 (bipolar) / 0..100 (unipolar) scale used
+    // for the colors below
+    const scaled = variant === "bipolar" ? fraction * 200 - 100 : fraction * 100;
     const currentTexture = isDarkMode
       ? DARK_NOISE_TEXTURE
       : LIGHT_NOISE_TEXTURE;
@@ -101,28 +144,20 @@ const GridSliderHorizontal = React.memo(
       }
     };
 
-    // Calculate slider position based on variant
-    const getSliderPosition = () => {
-      if (variant === "bipolar") {
-        // -100 to +100 maps to 0% to 100% position (50% = center)
-        return ((value + 100) / 200) * 100;
-      } else {
-        // 0 to 100 maps to 0% to 100% position
-        return value;
-      }
-    };
+    // Knob position as a percentage of the knob's travel
+    const getSliderPosition = () => fraction * 100;
 
     // Get channel glow color based on value and variant
     const getChannelGlow = () => {
       if (variant === "bipolar") {
-        const color = getBipolarColor(value);
-        const intensity = (Math.abs(value) / 100) * 0.5; // Max 50% intensity
+        const color = getBipolarColor(scaled);
+        const intensity = (Math.abs(scaled) / 100) * 0.5; // Max 50% intensity
         return `0 0 ${intensity * 20}px rgba(${color[0]}, ${color[1]}, ${color[2]}, ${intensity})`;
       } else {
         const color = isUnicornMode
-          ? getUnicornColor(value)
-          : getYlOrRedColor(value);
-        const intensity = (value / 100) * 0.5; // Max 50% intensity
+          ? getUnicornColor(scaled)
+          : getYlOrRedColor(scaled);
+        const intensity = (scaled / 100) * 0.5; // Max 50% intensity
         return `0 0 ${intensity * 20}px rgba(${color[0]}, ${color[1]}, ${color[2]}, ${intensity})`;
       }
     };
@@ -133,8 +168,8 @@ const GridSliderHorizontal = React.memo(
       const lightTexture = LIGHT_NOISE_TEXTURE;
 
       if (variant === "bipolar") {
-        const color = getBipolarColor(value);
-        const intensity = (Math.abs(value) / 100) * 0.6; // Max 60% intensity
+        const color = getBipolarColor(scaled);
+        const intensity = (Math.abs(scaled) / 100) * 0.6; // Max 60% intensity
         return `linear-gradient(135deg,
         rgba(${color[0]}, ${color[1]}, ${color[2]}, ${0.3 + intensity * 0.5}) 0%,
         rgba(${Math.round(color[0] * 0.8)}, ${Math.round(color[1] * 0.8)}, ${Math.round(color[2] * 0.8)}, ${0.4 + intensity * 0.4}) 100%),
@@ -142,9 +177,9 @@ const GridSliderHorizontal = React.memo(
       } else {
         // Unipolar - use unicorn colors if in unicorn mode, otherwise YlOrRed
         const color = isUnicornMode
-          ? getUnicornColor(value)
-          : getYlOrRedColor(value);
-        const intensity = (value / 100) * 0.6; // Max 60% intensity
+          ? getUnicornColor(scaled)
+          : getYlOrRedColor(scaled);
+        const intensity = (scaled / 100) * 0.6; // Max 60% intensity
         return `linear-gradient(135deg,
         rgba(${color[0]}, ${color[1]}, ${color[2]}, ${0.3 + intensity * 0.5}) 0%,
         rgba(${Math.round(color[0] * 0.8)}, ${Math.round(color[1] * 0.8)}, ${Math.round(color[2] * 0.8)}, ${0.4 + intensity * 0.4}) 100%),
@@ -158,62 +193,105 @@ const GridSliderHorizontal = React.memo(
       return w * 100 - 32; // 16px padding on each side
     }, [w]);
 
-    // Mouse handling for horizontal movement
-    const handleMouseDown = useCallback(
+    // Convert a pointer x-coordinate to a value. The knob centre travels from
+    // TRACK_LEFT + KNOB_SIZE/2 to TRACK_LEFT + trackWidth - KNOB_SIZE/2 (the
+    // same range the knob is drawn over), so clicking on the knob leaves the
+    // value unchanged.
+    const valueFromClientX = useCallback(
+      (clientX) => {
+        const el = sliderRef.current;
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        // Undo any CSS scale applied by an ancestor (e.g. ToolContainer)
+        const scale = el.offsetWidth > 0 ? rect.width / el.offsetWidth : 1;
+        const relativeX = (clientX - rect.left) / (scale || 1);
+        const travel = getTrackWidth() - KNOB_SIZE;
+        const start = TRACK_LEFT + KNOB_SIZE / 2;
+        const f = Math.max(0, Math.min(1, (relativeX - start) / travel));
+        return snap(min + f * (max - min));
+      },
+      [getTrackWidth, snap, min, max],
+    );
+
+    const emit = useCallback(
+      (newValue) => {
+        if (newValue === null || newValue === undefined || isNaN(newValue))
+          return;
+        onChange?.(newValue);
+      },
+      [onChange],
+    );
+
+    // Pointer handling (mouse, touch and pen) for horizontal movement
+    const handlePointerDown = useCallback(
       (e) => {
-        if (e.button !== 0) return; // Only left mouse button
+        if (e.pointerType === "mouse" && e.button !== 0) return; // Only left mouse button
 
         e.preventDefault();
         e.stopPropagation();
+        const el = e.currentTarget;
+        el.focus?.({ preventScroll: true });
+        try {
+          el.setPointerCapture?.(e.pointerId);
+        } catch {
+          // ignore (e.g. synthetic events)
+        }
         setIsDragging(true);
 
-        const updateValue = (clientX) => {
-          if (!sliderRef.current) return;
+        emit(valueFromClientX(e.clientX));
 
-          const rect = sliderRef.current.getBoundingClientRect();
-          const relativeX = clientX - rect.left;
-
-          // Convert to position within the usable track (where knob center can be)
-          const knobCenterX = relativeX;
-          const trackWidth = getTrackWidth();
-          const trackPosition = knobCenterX - 16; // Subtract track start position (padding)
-          const clampedPosition = Math.max(
-            0,
-            Math.min(trackWidth, trackPosition),
-          ); // Clamp to track bounds
-
-          // Convert to percentage
-          const percentage = clampedPosition / trackWidth;
-
-          let newValue;
-          if (variant === "bipolar") {
-            newValue = (percentage - 0.5) * 200; // -100 to +100
-            newValue = Math.round(Math.max(-100, Math.min(100, newValue)));
-          } else {
-            newValue = percentage * 100; // 0 to 100
-            newValue = Math.round(Math.max(0, Math.min(100, newValue)));
-          }
-
-          onChange(newValue);
+        const handleMove = (ev) => {
+          if (ev.pointerId !== e.pointerId) return;
+          emit(valueFromClientX(ev.clientX));
         };
-
-        // Update immediately
-        updateValue(e.clientX);
-
-        const handleMouseMove = (e) => {
-          updateValue(e.clientX);
-        };
-
-        const handleMouseUp = () => {
+        const handleUp = (ev) => {
+          if (ev.pointerId !== e.pointerId) return;
           setIsDragging(false);
-          document.removeEventListener("mousemove", handleMouseMove);
-          document.removeEventListener("mouseup", handleMouseUp);
+          el.removeEventListener("pointermove", handleMove);
+          el.removeEventListener("pointerup", handleUp);
+          el.removeEventListener("pointercancel", handleUp);
         };
 
-        document.addEventListener("mousemove", handleMouseMove);
-        document.addEventListener("mouseup", handleMouseUp);
+        el.addEventListener("pointermove", handleMove);
+        el.addEventListener("pointerup", handleUp);
+        el.addEventListener("pointercancel", handleUp);
       },
-      [onChange, variant, getTrackWidth],
+      [emit, valueFromClientX],
+    );
+
+    // Keyboard: arrows = one step, PageUp/PageDown = 10 steps, Home/End = ends
+    const handleKeyDown = useCallback(
+      (e) => {
+        const current = Number(value) || 0;
+        let next = null;
+        switch (e.key) {
+          case "ArrowRight":
+          case "ArrowUp":
+            next = current + step;
+            break;
+          case "ArrowLeft":
+          case "ArrowDown":
+            next = current - step;
+            break;
+          case "PageUp":
+            next = current + 10 * step;
+            break;
+          case "PageDown":
+            next = current - 10 * step;
+            break;
+          case "Home":
+            next = min;
+            break;
+          case "End":
+            next = max;
+            break;
+          default:
+            return;
+        }
+        e.preventDefault();
+        emit(snap(next));
+      },
+      [value, step, min, max, snap, emit],
     );
 
     const sliderPosition = getSliderPosition();
@@ -232,7 +310,7 @@ const GridSliderHorizontal = React.memo(
           background: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(251,207,232,0.2) 50%, rgba(196,181,253,0.2) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
-          backgroundSize: "cover, 64px 64px",
+          backgroundSize: noiseBackgroundSize(isUnicornMode),
           boxShadow: isUnicornMode
             ? `
               inset 0 1px 0 0 rgba(255,255,255,0.3),
@@ -281,8 +359,18 @@ const GridSliderHorizontal = React.memo(
           <div className="flex-1 relative">
             <div
               ref={sliderRef}
-              className="w-full h-full relative flex items-center cursor-pointer"
-              onMouseDown={handleMouseDown}
+              className="w-full h-full relative flex items-center cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              style={{ touchAction: "none" }}
+              onPointerDown={handlePointerDown}
+              onKeyDown={handleKeyDown}
+              role="slider"
+              tabIndex={0}
+              aria-valuemin={min}
+              aria-valuemax={max}
+              aria-valuenow={parseFloat((Number(value) || 0).toPrecision(10))}
+              aria-valuetext={ariaValueText || label || undefined}
+              aria-label={ariaLabel || label || tooltip || undefined}
+              aria-orientation="horizontal"
             >
               {/* Channel track */}
               <div
@@ -315,13 +403,13 @@ const GridSliderHorizontal = React.memo(
               <div
                 className="absolute w-6 h-6 rounded-full pointer-events-none"
                 style={{
-                  left: `${16 + (sliderPosition / 100) * (trackWidth - 24) + 12 - 12}px`, // Align knob center with track ends
+                  left: `${TRACK_LEFT + (sliderPosition / 100) * (trackWidth - KNOB_SIZE)}px`, // Knob spans the track ends
                   top: "50%",
                   background: getKnobColor(),
                   backgroundSize: "cover, 32px 32px",
                   backgroundBlendMode:
-                    (variant === "bipolar" && value !== 0) ||
-                    (variant === "unipolar" && value > 5)
+                    (variant === "bipolar" && scaled !== 0) ||
+                    (variant === "unipolar" && scaled > 5)
                       ? "multiply, normal"
                       : "normal",
                   boxShadow: isDragging

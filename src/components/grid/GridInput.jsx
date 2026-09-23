@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import GridComponent from "./GridComponent";
 import { getFontStyle } from "../../utils/typography";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
+import { useThemeMode, noiseBackgroundSize } from "./themeMode";
+import { cleanNumber, decimalsForStep } from "../../utils/ticks";
 
 const GridInput = ({
   x,
@@ -21,7 +23,8 @@ const GridInput = ({
   compact = false, // When true, removes arrows and allows wider input (8 chars)
 }) => {
   const [inputValue, setInputValue] = useState("");
-  const [isFocused, setIsFocused] = useState(false);
+  // True while the text box holds typed text that has not been committed yet
+  const [isDirty, setIsDirty] = useState(false);
   const componentRef = useRef(null);
   const holdTimeoutRef = useRef(null);
   const holdActionRef = useRef(null);
@@ -39,8 +42,7 @@ const GridInput = ({
   valueRef.current = value;
 
   // Determine theme and texture
-  const isDarkMode = theme.component.includes("gray-700");
-  const isUnicornMode = theme.text.includes("purple-800");
+  const { isDarkMode, isUnicornMode } = useThemeMode(theme);
   const currentTexture = isDarkMode ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE;
 
   // Get arrow button colors based on theme
@@ -50,18 +52,25 @@ const GridInput = ({
       ? "#ffffff"
       : "#000000";
 
+  // An integer step means the quantity is an integer (e.g. a count)
+  const isIntegerStep = Number.isInteger(step);
+
   // Calculate appropriate decimal places based on range and step
   const getDecimalPlaces = () => {
     // In compact mode, don't round - allow full precision
     if (compact) return null;
 
-    // If step is 1 or greater (integer step), use 0 decimals
-    if (step >= 1) return 0;
+    // If step is an integer, use 0 decimals
+    if (isIntegerStep) return 0;
 
     const range = max - min;
-    if (range >= 100) return 0; // 1-999: no decimals
-    if (range >= 10) return 1; // 10-99: 1 decimal
-    return 2; // < 10: 2 decimals
+    let fromRange;
+    if (range >= 100) fromRange = 0; // 1-999: no decimals
+    else if (range >= 10) fromRange = 1; // 10-99: 1 decimal
+    else fromRange = 2; // < 10: 2 decimals
+
+    // ...but always enough decimals to show one step (e.g. step 0.1 -> 1)
+    return Math.min(4, Math.max(fromRange, decimalsForStep(step)));
   };
 
   const decimalPlaces = getDecimalPlaces();
@@ -77,41 +86,67 @@ const GridInput = ({
     [decimalPlaces],
   );
 
-  // Update input when value prop changes
+  // Clamp to [min, max], round integer quantities, and remove float noise
+  const normalize = useCallback((num) => {
+    let v = Math.max(minRef.current, Math.min(maxRef.current, num));
+    if (Number.isInteger(stepRef.current)) v = Math.round(v);
+    return cleanNumber(v, stepRef.current || 1);
+  }, []);
+
+  // Show the current value whenever it changes, unless the student is in the
+  // middle of typing a new one
   useEffect(() => {
-    if (!isFocused) {
+    if (!isDirty) {
       setInputValue(formatValue(value));
     }
-  }, [value, isFocused, decimalPlaces, formatValue]);
+  }, [value, isDirty, formatValue]);
 
-  // Handle input changes
+  // Typing only edits the text; the value is committed on Enter or blur
   const handleInputChange = (e) => {
-    const newValue = e.target.value;
-    setInputValue(newValue);
-
-    const numValue = parseFloat(newValue);
-    if (!isNaN(numValue)) {
-      // Always call onChange with clamped value, even if out of range
-      const clampedValue = Math.max(min, Math.min(max, numValue));
-      onChange(clampedValue);
-    }
+    setInputValue(e.target.value);
+    setIsDirty(true);
   };
 
-  // Handle increment/decrement
-  const handleIncrement = useCallback(() => {
-    const newValue = Math.min(max, (value || 0) + step);
-    onChange(newValue);
-  }, [value, max, step, onChange]);
+  // Commit the typed text (if it is a number); otherwise revert to the value
+  const commit = useCallback(() => {
+    if (!isDirty) return;
+    setIsDirty(false);
+    const numValue = parseFloat(String(inputValue).replace("\u2212", "-"));
+    if (isNaN(numValue)) {
+      setInputValue(formatValue(valueRef.current));
+      return;
+    }
+    const newValue = normalize(numValue);
+    setInputValue(formatValue(newValue));
+    if (newValue !== valueRef.current) onChange(newValue);
+  }, [isDirty, inputValue, formatValue, normalize, onChange]);
 
-  const handleDecrement = useCallback(() => {
-    const newValue = Math.max(min, (value || 0) - step);
-    onChange(newValue);
-  }, [value, min, step, onChange]);
+  // Value to step from: the typed number if there is one, else the value
+  const currentNumber = useCallback(() => {
+    if (isDirty) {
+      const typed = parseFloat(String(inputValue).replace("\u2212", "-"));
+      if (!isNaN(typed)) return typed;
+    }
+    return valueRef.current || 0;
+  }, [isDirty, inputValue]);
+
+  const applyStep = useCallback(
+    (direction) => {
+      const newValue = normalize(currentNumber() + direction * stepRef.current);
+      setIsDirty(false);
+      setInputValue(formatValue(newValue));
+      onChange(newValue);
+    },
+    [normalize, currentNumber, formatValue, onChange],
+  );
+
+  // Handle increment/decrement
+  const handleIncrement = useCallback(() => applyStep(1), [applyStep]);
+  const handleDecrement = useCallback(() => applyStep(-1), [applyStep]);
 
   // Mouse hold acceleration logic
   const startHold = useCallback(
     (actionType) => {
-      console.log("startHold called with:", actionType); // Debug
       holdActionRef.current = actionType;
       let currentDelay = 300;
       const minDelay = 50;
@@ -119,27 +154,13 @@ const GridInput = ({
 
       const performAction = () => {
         if (holdTimeoutRef.current === null || !holdActionRef.current) return;
-        console.log(
-          "performAction called, delay:",
-          currentDelay,
-          "current value:",
-          value,
-        ); // Debug
 
         // Use direct value updates with current value from ref
-        if (holdActionRef.current === "increment") {
-          const newValue = Math.min(
-            maxRef.current,
-            (valueRef.current || 0) + stepRef.current,
-          );
-          onChange(newValue);
-        } else if (holdActionRef.current === "decrement") {
-          const newValue = Math.max(
-            minRef.current,
-            (valueRef.current || 0) - stepRef.current,
-          );
-          onChange(newValue);
-        }
+        const direction = holdActionRef.current === "increment" ? 1 : -1;
+        const newValue = normalize(
+          (valueRef.current || 0) + direction * stepRef.current,
+        );
+        onChange(newValue);
 
         currentDelay = Math.max(minDelay, currentDelay * acceleration);
         holdTimeoutRef.current = setTimeout(performAction, currentDelay);
@@ -147,12 +168,10 @@ const GridInput = ({
 
       holdTimeoutRef.current = setTimeout(performAction, currentDelay);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [onChange], // Only onChange needed since we use valueRef for fresh values
+    [onChange, normalize], // valueRef supplies fresh values
   );
 
   const stopHold = useCallback(() => {
-    console.log("stopHold called"); // Debug
     holdActionRef.current = null;
     if (holdTimeoutRef.current) {
       clearTimeout(holdTimeoutRef.current);
@@ -164,7 +183,6 @@ const GridInput = ({
   const handleIncrementMouseDown = useCallback(
     (e) => {
       e.preventDefault();
-      console.log("increment mouse down"); // Debug
       handleIncrement(); // Immediate action
       startHold("increment");
     },
@@ -174,7 +192,6 @@ const GridInput = ({
   const handleDecrementMouseDown = useCallback(
     (e) => {
       e.preventDefault();
-      console.log("decrement mouse down"); // Debug
       handleDecrement(); // Immediate action
       startHold("decrement");
     },
@@ -182,7 +199,6 @@ const GridInput = ({
   );
 
   const handleMouseUp = useCallback(() => {
-    console.log("mouse up"); // Debug
     stopHold();
   }, [stopHold]);
 
@@ -193,16 +209,9 @@ const GridInput = ({
     };
   }, [stopHold]);
 
-  // Handle input focus/blur
-  const handleFocus = () => {
-    setIsFocused(true);
-  };
-
   const handleBlur = useCallback(() => {
-    setIsFocused(false);
-    // Just format the current value, don't change it
-    setInputValue(formatValue(value));
-  }, [formatValue, value]);
+    commit();
+  }, [commit]);
 
   // Handle keyboard input
   const handleKeyDown = (e) => {
@@ -212,25 +221,44 @@ const GridInput = ({
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       handleDecrement();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      commit();
+    } else if (e.key === "Escape") {
+      // Discard the typed text
+      setIsDirty(false);
+      setInputValue(formatValue(value));
     }
   };
 
-  // Click outside to blur
+  // Click outside commits the typed value (in case the blur event is
+  // swallowed, e.g. by a canvas that prevents default on mousedown)
   useEffect(() => {
+    if (!isDirty) return undefined;
     const handleClickOutside = (event) => {
       if (
         componentRef.current &&
         !componentRef.current.contains(event.target)
       ) {
-        if (isFocused) {
-          handleBlur();
-        }
+        commit();
       }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isFocused, handleBlur]);
+  }, [isDirty, commit]);
+
+  // Range label, e.g. "−2 to 2" (with a real minus sign)
+  const formatBound = (v) => String(v).replace(/^-/, "\u2212");
+  const rangeLabel = `${formatBound(min)} to ${formatBound(max)}`;
+
+  // Longest text a student needs to type (formatted min / max)
+  const typedLength = Math.max(
+    3,
+    formatValue(min).length,
+    formatValue(max).length,
+    decimalPlaces > 0 ? 4 : 3,
+  );
 
   return (
     <div ref={componentRef}>
@@ -246,7 +274,7 @@ const GridInput = ({
           background: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
-          backgroundSize: "cover, 64px 64px",
+          backgroundSize: noiseBackgroundSize(isUnicornMode),
           boxShadow: isUnicornMode
             ? `
                 inset 0 1px 0 0 rgba(255,255,255,0.3),
@@ -273,7 +301,7 @@ const GridInput = ({
             background: isUnicornMode
               ? `linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(251,207,232,0.2) 100%), url(${currentTexture})`
               : `url(${currentTexture})`,
-            backgroundSize: "cover, 64px 64px",
+            backgroundSize: noiseBackgroundSize(isUnicornMode),
             boxShadow: isUnicornMode
               ? `
                   inset 2px 2px 4px rgba(236,72,153,0.1),
@@ -306,8 +334,9 @@ const GridInput = ({
               type="text"
               value={inputValue}
               onChange={handleInputChange}
-              onFocus={handleFocus}
               onBlur={handleBlur}
+              inputMode="decimal"
+              aria-label={title || (typeof variable === "string" ? variable : undefined)}
               onKeyDown={handleKeyDown}
               className={`${compact ? "w-20" : "w-12"} h-6 px-1 text-center text-xs ${isUnicornMode ? "bg-purple-50 text-purple-800 border-purple-200" : `${theme.component} ${theme.text}`} border ${compact ? "rounded" : "rounded-l"}`}
               style={{
@@ -315,11 +344,7 @@ const GridInput = ({
                 fontSize: "13px", // Increased from 11px by 2 points
                 background: isUnicornMode ? "rgba(196,181,253,0.1)" : undefined,
               }}
-              maxLength={
-                compact
-                  ? 8
-                  : Math.max(max.toString().length, decimalPlaces > 0 ? 4 : 3)
-              } // 8 chars for compact, based on max value otherwise
+              maxLength={compact ? 8 : typedLength} // 8 chars for compact, else fits min/max
             />
 
             {/* Up/Down arrows (hidden in compact mode) */}
@@ -385,7 +410,7 @@ const GridInput = ({
               marginBottom: "2px", // Move up 2px
             }}
           >
-            {min}-{max}
+            {rangeLabel}
           </div>
         </div>
       </GridComponent>

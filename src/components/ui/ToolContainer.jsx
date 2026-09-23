@@ -1,6 +1,6 @@
 // src/components/ui/ToolContainer.jsx
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useLayoutEffect } from "react";
 import { useTheme } from "../../hooks/useTheme";
 import HelpModal from "./HelpModal";
 import {
@@ -8,13 +8,25 @@ import {
   DARK_NOISE_TEXTURE,
   getBackgroundTexture,
 } from "../../themes/textures";
+import { noiseBackgroundSize } from "../grid/themeMode";
+
+// Horizontal space (px) kept free around a scaled-down tool
+const SIDE_GUTTER = 16;
+
+// Is the keyboard focus somewhere the student is typing?
+const isTypingTarget = (el) => {
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+};
 
 const ToolContainer = React.memo(
   ({ title, children, canvasWidth = 10, canvasHeight = 5 }) => {
-    const { theme } = useTheme();
+    const { theme, currentTheme } = useTheme();
     const [showHelp, setShowHelp] = useState(false);
-    const isDarkMode = theme.component.includes("gray-700");
-    const isUnicornMode = theme.text.includes("purple-800");
+    const isDarkMode = currentTheme === "dark";
+    const isUnicornMode = currentTheme === "unicorn";
     const currentTexture = isDarkMode
       ? DARK_NOISE_TEXTURE
       : LIGHT_NOISE_TEXTURE;
@@ -26,15 +38,18 @@ const ToolContainer = React.memo(
     const urlParams = new URLSearchParams(window.location.search);
     const toolId = urlParams.get("tool");
 
-    // Handle keyboard shortcut (?) for help
+    // Handle keyboard shortcut (?) for help — but not while typing
     useEffect(() => {
-      const handleKeyPress = (e) => {
-        if (e.key === "?" && !showHelp) {
-          setShowHelp(true);
-        }
+      const handleKeyDown = (e) => {
+        if (e.key !== "?" || showHelp) return;
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (isTypingTarget(e.target) || isTypingTarget(document.activeElement))
+          return;
+        e.preventDefault();
+        setShowHelp(true);
       };
-      window.addEventListener("keypress", handleKeyPress);
-      return () => window.removeEventListener("keypress", handleKeyPress);
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
     }, [showHelp]);
 
     // Calculate dynamic dimensions based on canvas size
@@ -48,17 +63,53 @@ const ToolContainer = React.memo(
     const containerWidth = gridWidth + PADDING;
     const containerHeight = gridHeight + TOP_PANEL_HEIGHT + BOTTOM_PADDING;
 
+    // Scale the whole tool down (never up) when the window is narrower than
+    // the tool, so nothing is cut off on laptops/tablets/split screens. At
+    // full width the scale is exactly 1 and no transform is applied.
+    const computeScale = () => {
+      if (typeof window === "undefined") return 1;
+      const available =
+        (document.documentElement?.clientWidth || window.innerWidth) -
+        SIDE_GUTTER;
+      return Math.min(1, Math.max(0.3, available / containerWidth));
+    };
+    const [scale, setScale] = useState(computeScale);
+    useLayoutEffect(() => {
+      const update = () => setScale(computeScale());
+      update();
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [containerWidth]);
+    const isScaled = scale < 1;
+
     return (
       <div className="flex justify-center">
+        {/* Sizer: occupies the scaled size in the page layout */}
+        <div
+          style={
+            isScaled
+              ? {
+                  width: `${containerWidth * scale}px`,
+                  height: `${containerHeight * scale}px`,
+                  flexShrink: 0,
+                }
+              : undefined
+          }
+        >
         <div
           className={`rounded-xl ${theme.shadow} border-2 ${isUnicornMode ? "border-pink-300" : "border-gray-400"}`}
+          data-tool-scale={scale}
           style={{
             width: `${containerWidth}px`,
             height: `${containerHeight}px`,
+            ...(isScaled
+              ? { transform: `scale(${scale})`, transformOrigin: "top left" }
+              : {}),
             backgroundImage: isUnicornMode
               ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 100%), url(${currentTexture})`
               : `url(${currentTexture})`,
-            backgroundSize: "cover, 64px 64px",
+            backgroundSize: noiseBackgroundSize(isUnicornMode),
             boxShadow: isUnicornMode
               ? `
                 inset 0 1px 0 0 rgba(255,255,255,0.3),
@@ -83,7 +134,7 @@ const ToolContainer = React.memo(
               backgroundImage: isUnicornMode
                 ? `linear-gradient(135deg, rgba(251,207,232,0.8) 0%, rgba(196,181,253,0.6) 100%), url(${beveledTexture})`
                 : `url(${beveledTexture})`,
-              backgroundSize: "cover, 64px 64px",
+              backgroundSize: noiseBackgroundSize(isUnicornMode),
               boxShadow: isUnicornMode
                 ? `
                   inset 0 -2px 4px rgba(236,72,153,0.2),
@@ -166,8 +217,9 @@ const ToolContainer = React.memo(
             {children}
           </div>
         </div>
+        </div>
 
-        {/* Help modal overlay */}
+        {/* Help modal overlay (outside the scaled box so it stays fixed to the window) */}
         {showHelp && toolId && (
           <HelpModal toolId={toolId} onClose={() => setShowHelp(false)} />
         )}

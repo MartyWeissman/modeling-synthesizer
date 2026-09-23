@@ -18,6 +18,7 @@ import {
   findDegenerateIntervals1D,
   filterEquilibriaFromDegenerateIntervals,
 } from "../utils/mathHelpers";
+import { localPointer } from "../components/grid/pointer";
 
 const OneDimensionalCalculator = () => {
   const { theme, currentTheme } = useTheme();
@@ -403,8 +404,10 @@ const OneDimensionalCalculator = () => {
       const canvas = phaseLineCanvasRef.current;
       if (!canvas) return;
 
-      const rect = canvas.getBoundingClientRect();
-      const clickX = event.clientX - rect.left;
+      // Pointer x in canvas pixels (correct even when ToolContainer has scaled
+      // the tool down, or the window was resized after the canvas was sized)
+      const { x: localX } = localPointer(event, canvas);
+      const clickX = localX * (canvas.width / (canvas.offsetWidth || canvas.width));
 
       const { width } = canvas;
       const xRange = xMax - xMin;

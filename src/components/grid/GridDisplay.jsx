@@ -5,6 +5,22 @@ import GridComponent from "./GridComponent";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
 import { getFontStyle } from "../../utils/typography";
 import { CELL_SIZE } from "../../themes";
+import { useThemeMode, noiseBackgroundSize } from "./themeMode";
+
+// Named font sizes (px), the same sizes as Tailwind's text-xs ... text-xl.
+// Applied as an inline font-size only, so nested text keeps the inherited
+// proportional line-height (Tailwind's text-* classes would also fix the
+// line-height, which makes rows of smaller nested text taller).
+const FONT_SIZE_PX = {
+  xs: 12,
+  small: 14,
+  sm: 14,
+  medium: 16,
+  md: 16,
+  large: 18,
+  lg: 18,
+  xl: 20,
+};
 
 const GridDisplay = React.memo(
   ({
@@ -19,7 +35,7 @@ const GridDisplay = React.memo(
     align = "center", // 'left', 'center', 'right'
 
     // Styling
-    fontSize = "auto", // 'auto', 'sm', 'md', 'lg', 'xl'
+    fontSize = "auto", // 'auto' | 'xs' | 'small'/'sm' | 'medium'/'md' | 'large'/'lg' | 'xl' | number (px) | a Tailwind "text-*" class
 
     // Standard props
     tooltip,
@@ -27,8 +43,7 @@ const GridDisplay = React.memo(
     children,
   }) => {
     // Determine theme and texture
-    const isDarkMode = theme.component.includes("gray-700");
-    const isUnicornMode = theme.text.includes("purple-800");
+    const { isDarkMode, isUnicornMode } = useThemeMode(theme);
     const currentTexture = isDarkMode
       ? DARK_NOISE_TEXTURE
       : LIGHT_NOISE_TEXTURE;
@@ -109,10 +124,18 @@ const GridDisplay = React.memo(
       }
     };
 
-    // Auto-calculate font size based on content area dimensions
+    // Font size: named sizes and numbers (px) are applied inline (see
+    // FONT_SIZE_PX); a Tailwind "text-*" class is passed through; "auto" picks
+    // a class from the content area.
+    const fixedFontPx =
+      typeof fontSize === "number" ? fontSize : FONT_SIZE_PX[fontSize] ?? null;
     const getFontSize = () => {
-      if (fontSize !== "auto") return fontSize;
-
+      if (fixedFontPx !== null) return "";
+      if (fontSize !== "auto") {
+        if (typeof fontSize === "string" && fontSize.startsWith("text-"))
+          return fontSize;
+        return ""; // unknown name: inherit rather than emit a junk class
+      }
       const contentArea = contentWidth * contentHeight;
       if (contentArea >= 40000) return "text-4xl"; // Very large displays
       if (contentArea >= 20000) return "text-3xl"; // Large displays
@@ -149,7 +172,7 @@ const GridDisplay = React.memo(
           background: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
-          backgroundSize: "cover, 64px 64px",
+          backgroundSize: noiseBackgroundSize(isUnicornMode),
           boxShadow: isUnicornMode
             ? `
               inset 0 1px 0 0 rgba(255,255,255,0.3),
@@ -179,8 +202,12 @@ const GridDisplay = React.memo(
         >
           {/* Resizable internal content area */}
           <div
-            className={`w-full h-full rounded-sm flex items-center ${getAlignClass()} ${variantStyles.textColor} ${variantStyles.fontFamily} ${variantStyles.fontWeight} ${getFontSize()}`}
+            className={`w-full h-full rounded-sm flex items-center ${getAlignClass()} ${variantStyles.textColor} ${getFontSize()}`}
             style={{
+              // Font family/weight are CSS values, so they go in style (not className)
+              fontFamily: variantStyles.fontFamily,
+              fontWeight: variantStyles.fontWeight,
+              ...(fixedFontPx !== null ? { fontSize: `${fixedFontPx}px` } : {}),
               // This is the resizable part - scales with w/h
               width: `${contentWidth}px`,
               height: `${contentHeight}px`,

@@ -17,6 +17,7 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
+import { localPointer } from "../components/grid/pointer";
 
 const FitzHughNagumoTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -567,9 +568,9 @@ const FitzHughNagumoTool = () => {
       const transform = phaseTransformRef.current;
       if (!canvas || !transform) return;
 
-      const rect = canvas.getBoundingClientRect();
-      const clickX = event.clientX - rect.left;
-      const clickY = event.clientY - rect.top;
+      // Pointer position in the canvas's own CSS pixels (stays correct when
+      // ToolContainer scales the tool down to fit a narrow window)
+      const { x: clickX, y: clickY } = localPointer(event, canvas);
 
       // Use transform's pixelToData for coordinate conversion
       const { pixelToData, plotWidth, plotHeight } = transform;

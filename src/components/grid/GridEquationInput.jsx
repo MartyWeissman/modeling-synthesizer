@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import GridComponent from "./GridComponent";
+import { useThemeMode, noiseBackgroundSize } from "./themeMode";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
 import { getFontStyle } from "../../utils/typography";
 import { CELL_SIZE } from "../../themes";
@@ -25,8 +26,7 @@ const GridEquationInput = React.memo(
     const [hasError, setHasError] = useState(false);
 
     // Determine theme and texture
-    const isDarkMode = theme.component.includes("gray-700");
-    const isUnicornMode = theme.text.includes("purple-800");
+    const { isDarkMode, isUnicornMode } = useThemeMode(theme);
     const currentTexture = isDarkMode
       ? DARK_NOISE_TEXTURE
       : LIGHT_NOISE_TEXTURE;
@@ -48,7 +48,8 @@ const GridEquationInput = React.memo(
 
       // Allow letters (for X, Y, sin, cos, tan, sqrt, exp, log, abs, pow, pi, e)
       // numbers, operators, parentheses, underscores (for X_tau), and basic punctuation
-      const validPattern = /^[A-Za-z0-9_\+\-\*\/\(\)\.\s\^]+$/;
+      // (commas for multi-argument functions like pow(X,2) and max(X,Y))
+      const validPattern = /^[A-Za-z0-9_+\-*/().\s^,]+$/;
       return validPattern.test(equation);
     };
 
@@ -129,7 +130,7 @@ const GridEquationInput = React.memo(
           background: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
-          backgroundSize: "cover, 64px 64px",
+          backgroundSize: noiseBackgroundSize(isUnicornMode),
           boxShadow: isUnicornMode
             ? `
               inset 0 1px 0 0 rgba(255,255,255,0.3),
