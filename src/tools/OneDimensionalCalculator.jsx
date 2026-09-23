@@ -1,6 +1,6 @@
-// src/tools/OneDimensionalExplorer.jsx
+// src/tools/OneDimensionalCalculator.jsx
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   GridEquationInput,
   GridSliderHorizontal,
@@ -18,7 +18,31 @@ import {
   findDegenerateIntervals1D,
   filterEquilibriaFromDegenerateIntervals,
 } from "../utils/mathHelpers";
+import { randomNormal } from "../utils/random";
+import { setupCanvas, clearCanvas, canvasCssSize } from "../utils/canvas";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
 import { localPointer } from "../components/grid/pointer";
+import {
+  DT,
+  rk4DelayStep,
+  historyValueAt,
+} from "./oneDimensionalCalculatorMath";
+
+// Integration step DT = 0.05 time units. One step used to be taken per animation
+// frame; at 60 Hz that is 3 time units per second, which is kept as the
+// animation speed (now independent of the display's refresh rate).
+const SIM_TIME_PER_SECOND = DT * 60;
+const T_END = 10; // each run lasts from t = 0 to t = 10
+
+/** Round for display and never show "-0". */
+const roundForDisplay = (v, decimals) => {
+  const r = parseFloat(v.toFixed(decimals));
+  return r === 0 ? 0 : r; // turns -0 into 0
+};
+/** Short label for an axis value (at most 2 decimals, no "-0"). */
+const formatAxisValue = (v) => String(roundForDisplay(v, 2));
+/** Equilibrium value for the status box (3 decimals, no "-0.000"). */
+const formatEquilibrium = (v) => roundForDisplay(v, 3).toFixed(3);
 
 const OneDimensionalCalculator = () => {
   const { theme, currentTheme } = useTheme();
@@ -32,12 +56,59 @@ const OneDimensionalCalculator = () => {
   const [epsilon, setEpsilon] = useState(0.0);
   const [showDerivativePlot, setShowDerivativePlot] = useState(false);
 
-  // Dynamical system and analysis
-  const [dynamicalSystem, setDynamicalSystem] = useState(null);
-  const [equilibriumSystem, setEquilibriumSystem] = useState(null);
-  const [phaseLineAnalysis, setPhaseLineAnalysis] = useState(null);
-  const [degenerateIntervals, setDegenerateIntervals] = useState([]);
-  const [equationError, setEquationError] = useState("");
+  // The equation as typed (X_tau = X(t − τ)), and its "same-time" form with
+  // X_tau replaced by X, used for equilibria, the X' plot, and τ = 0.
+  const dynamicalSystem = useMemo(() => {
+    try {
+      return new DynamicalSystem1D(equation, ["k", "X_tau"]);
+    } catch {
+      return null;
+    }
+  }, [equation]);
+  const systemValid = !!dynamicalSystem && dynamicalSystem.isValidSystem();
+  const equationError = !dynamicalSystem
+    ? "The equation couldn't be read."
+    : systemValid
+      ? ""
+      : dynamicalSystem.getError();
+
+  const equilibriumSystem = useMemo(() => {
+    if (!systemValid) return null;
+    try {
+      const system = new DynamicalSystem1D(equation, ["k"], {
+        substitute: { X_tau: "X" },
+      });
+      return system.isValidSystem() ? system : null;
+    } catch {
+      return null;
+    }
+  }, [equation, systemValid]);
+
+  // Phase line analysis (equilibria, stability, degenerate intervals)
+  const phaseLineAnalysis = useMemo(
+    () =>
+      equilibriumSystem
+        ? analyzePhaseLine1D(equilibriumSystem, { k }, xMin, xMax)
+        : null,
+    [equilibriumSystem, k, xMin, xMax],
+  );
+  const degenerateIntervals = useMemo(
+    () =>
+      equilibriumSystem
+        ? findDegenerateIntervals1D(equilibriumSystem, { k }, xMin, xMax)
+        : [],
+    [equilibriumSystem, k, xMin, xMax],
+  );
+  const equilibria = useMemo(
+    () =>
+      phaseLineAnalysis
+        ? filterEquilibriaFromDegenerateIntervals(
+            phaseLineAnalysis.equilibria,
+            degenerateIntervals,
+          )
+        : [],
+    [phaseLineAnalysis, degenerateIntervals],
+  );
 
   // Canvas refs - 2 layers for phase line, plus dynamic ball layer and time series
   const phaseBackgroundCanvasRef = useRef(null);
@@ -49,501 +120,253 @@ const OneDimensionalCalculator = () => {
   // Animation state - pure refs for smooth performance
   const animationStateRef = useRef({
     balls: [], // Array of {id, x, t, history: [{t, x}], active: boolean}
-    animationId: null,
-    isRunning: false,
-    params: { k, tau, epsilon },
     nextBallId: 0,
+    simTimeDebt: 0, // simulated time owed to the balls (frame-rate independence)
   });
 
-  // Sync UI params to animation state
-  useEffect(() => {
-    animationStateRef.current.params = { k, tau, epsilon };
-  }, [k, tau, epsilon]);
+  // Advance one ball by one step DT (RK4 for the drift plus noise)
+  const stepBall = (ball) => {
+    const noise = (epsilon / 2) * Math.sqrt(DT) * randomNormal();
+    let newX;
+    if (systemValid && equilibriumSystem) {
+      newX =
+        rk4DelayStep(dynamicalSystem, equilibriumSystem, ball.history, DT, k, tau) +
+        noise;
+    } else {
+      newX = ball.x + noise;
+    }
+    const newT = ball.history.length * DT; // history[i] is at t = i·DT
 
-  // Box-Muller transform: standard normal sample
-  const randn = useCallback(() => {
-    let u = 0, v = 0;
-    while (u === 0) u = Math.random();
-    while (v === 0) v = Math.random();
-    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-  }, []);
+    // Keep integrating when X leaves the window (it may come back); stop at
+    // t = 10, or if X blows up.
+    const escape = 1e6 * Math.max(1, xMax - xMin);
+    if (!Number.isFinite(newX) || Math.abs(newX) > escape) {
+      return { ...ball, active: false };
+    }
+    ball.history.push({ t: newT, x: newX });
+    return { ...ball, x: newX, t: newT, active: newT < T_END - 1e-9 };
+  };
 
-  // RK4 integration for 1D system with delay support
-  const rk4Step = useCallback(
-    (history, dt, params) => {
-      const currentX = history[history.length - 1].x;
-
-      // Always compute noise - must be outside the validity check so X'=0 still drifts
-      const epsilon = params.epsilon || 0;
-      const noise = (epsilon / 2) * Math.sqrt(dt) * randn();
-
-      if (!dynamicalSystem || !dynamicalSystem.isValidSystem()) {
-        return currentX + noise;
-      }
-
-      const tau = params.tau || 0;
-
-      // Helper to get delayed value X(t - tau)
-      const getDelayedX = (currentHistory) => {
-        if (tau === 0) return currentX;
-
-        // Find the index that's approximately tau seconds ago
-        // Since dt = 0.05, we need to look back tau/dt steps
-        const stepsBack = Math.round(tau / dt);
-        const index = currentHistory.length - 1 - stepsBack;
-
-        if (index < 0) {
-          // If we don't have enough history, use the initial value
-          return currentHistory[0].x;
-        }
-
-        return currentHistory[index].x;
-      };
-
-      // For delay equations, we pass X_tau as a separate parameter
-      // The equation can use X_tau to refer to X(t - tau)
-      const xDelayed = getDelayedX(history);
-      const evalParams = { ...params, X_tau: xDelayed };
-
-      const k1 = dynamicalSystem.evaluateDerivative(currentX, evalParams);
-      const k2 = dynamicalSystem.evaluateDerivative(
-        currentX + 0.5 * dt * k1,
-        evalParams,
-      );
-      const k3 = dynamicalSystem.evaluateDerivative(
-        currentX + 0.5 * dt * k2,
-        evalParams,
-      );
-      const k4 = dynamicalSystem.evaluateDerivative(
-        currentX + dt * k3,
-        evalParams,
-      );
-
-      return currentX + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4) + noise;
-    },
-    [dynamicalSystem, randn],
-  );
-
-  // Draw balls on phase line (only those within extended bounds)
-  const drawBalls = useCallback(
-    (canvas, ctx) => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const { width, height } = canvas;
+  // Map X to phase-line pixels (the line shows 10% beyond the window)
+  const phaseLineMapper = useCallback(
+    (width) => {
       const xRange = xMax - xMin;
       const xMinExtended = xMin - 0.1 * xRange;
       const xMaxExtended = xMax + 0.1 * xRange;
       const marginLeft = 40;
       const marginRight = 40;
       const drawableWidth = width - marginLeft - marginRight;
-      const centerY = height / 2;
-
-      const xToPixel = (x) =>
-        marginLeft +
-        ((x - xMinExtended) / (xMaxExtended - xMinExtended)) * drawableWidth;
-
-      const state = animationStateRef.current;
-      const tau = state.params.tau || 0;
-      const dt = 0.05;
-
-      // Draw each ball as a shaded sphere - only if within extended viewport bounds
-      state.balls.forEach((ball) => {
-        // Draw ghost ball at X(t - tau) position if tau > 0 and ball is active
-        if (tau > 0 && ball.active && ball.history.length > 1) {
-          const stepsBack = Math.round(tau / dt);
-          const delayedIndex = Math.max(0, ball.history.length - 1 - stepsBack);
-          const delayedX = ball.history[delayedIndex].x;
-
-          // Only draw ghost if within extended bounds
-          if (delayedX >= xMinExtended && delayedX <= xMaxExtended) {
-            const ghostPixelX = xToPixel(delayedX);
-            const ghostRadius = 10;
-
-            // Light gray ghost ball with subtle gradient
-            const ghostGradient = ctx.createRadialGradient(
-              ghostPixelX - ghostRadius * 0.3,
-              centerY - ghostRadius * 0.3,
-              ghostRadius * 0.1,
-              ghostPixelX,
-              centerY,
-              ghostRadius,
-            );
-            ghostGradient.addColorStop(0, "rgba(200, 200, 200, 0.6)");
-            ghostGradient.addColorStop(0.4, "rgba(160, 160, 160, 0.5)");
-            ghostGradient.addColorStop(1, "rgba(120, 120, 120, 0.4)");
-
-            ctx.beginPath();
-            ctx.arc(ghostPixelX, centerY, ghostRadius, 0, 2 * Math.PI);
-            ctx.fillStyle = ghostGradient;
-            ctx.fill();
-          }
-        }
-
-        // Draw main ball - only if within the extended bounds
-        if (ball.x < xMinExtended || ball.x > xMaxExtended) return;
-
-        const pixelX = xToPixel(ball.x);
-        const radius = 10;
-
-        // Create radial gradient for sphere shading
-        const gradient = ctx.createRadialGradient(
-          pixelX - radius * 0.3,
-          centerY - radius * 0.3,
-          radius * 0.1,
-          pixelX,
-          centerY,
-          radius,
-        );
-        gradient.addColorStop(0, "#6eb5ff");
-        gradient.addColorStop(0.4, "#4a9eff");
-        gradient.addColorStop(1, "#1e5a9e");
-
-        ctx.beginPath();
-        ctx.arc(pixelX, centerY, radius, 0, 2 * Math.PI);
-        ctx.fillStyle = gradient;
-        ctx.fill();
-      });
+      return {
+        xMinExtended,
+        xMaxExtended,
+        toPixel: (x) =>
+          marginLeft +
+          ((x - xMinExtended) / (xMaxExtended - xMinExtended)) * drawableWidth,
+        fromPixel: (px) =>
+          xMinExtended +
+          ((px - marginLeft) / drawableWidth) * (xMaxExtended - xMinExtended),
+      };
     },
     [xMin, xMax],
   );
 
-  // Draw time series trajectories
-  const drawTimeSeries = useCallback(
-    (canvas, ctx) => {
-      const transform = timeSeriesTransformRef.current;
-      if (!transform) return;
+  // Draw balls on phase line (only those within extended bounds)
+  const drawBalls = () => {
+    const setup = setupCanvas(ballCanvasRef.current);
+    if (!setup) return;
+    const { ctx, width, height } = setup;
+    ctx.clearRect(0, 0, width, height);
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const { dataToPixel } = transform;
-
-      // Draw boundary lines at xMin and xMax
-      [xMin, xMax].forEach((value) => {
-        const leftPos = dataToPixel(0, value);
-        const rightPos = dataToPixel(10, value);
-        ctx.strokeStyle =
-          currentTheme === "dark"
-            ? "rgba(128, 128, 128, 0.2)"
-            : "rgba(128, 128, 128, 0.3)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(leftPos.x, leftPos.y);
-        ctx.lineTo(rightPos.x, rightPos.y);
-        ctx.stroke();
-      });
-
-      // Draw equilibrium lines
-      if (phaseLineAnalysis && phaseLineAnalysis.equilibria) {
-        const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
-          phaseLineAnalysis.equilibria,
-          degenerateIntervals,
-        );
-
-        filteredEquilibria.forEach((eq) => {
-          const leftPos = dataToPixel(0, eq.x);
-          const rightPos = dataToPixel(10, eq.x);
-
-          ctx.strokeStyle =
-            currentTheme === "dark"
-              ? "rgba(128, 128, 128, 0.5)"
-              : "rgba(128, 128, 128, 0.6)";
-          ctx.lineWidth = 1.5;
-
-          if (eq.type === "unstable") {
-            ctx.setLineDash([5, 5]);
-          } else if (eq.type === "semi-stable") {
-            ctx.setLineDash([2, 2]);
-          } else {
-            ctx.setLineDash([]);
-          }
-
-          ctx.beginPath();
-          ctx.moveTo(leftPos.x, leftPos.y);
-          ctx.lineTo(rightPos.x, rightPos.y);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        });
-      }
-
-      // Draw degenerate interval rectangles
-      if (degenerateIntervals && degenerateIntervals.length > 0) {
-        degenerateIntervals.forEach((interval) => {
-          const topLeft = dataToPixel(0, interval.xMax);
-          const bottomRight = dataToPixel(10, interval.xMin);
-
-          ctx.fillStyle =
-            currentTheme === "dark"
-              ? "rgba(128, 128, 128, 0.2)"
-              : "rgba(128, 128, 128, 0.15)";
-          ctx.fillRect(
-            topLeft.x,
-            topLeft.y,
-            bottomRight.x - topLeft.x,
-            bottomRight.y - topLeft.y,
-          );
-        });
-      }
-
-      // Draw trajectories
-      const state = animationStateRef.current;
-      state.balls.forEach((ball) => {
-        if (ball.history.length < 2) return;
-
-        ctx.strokeStyle = "#4a9eff";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-
-        ball.history.forEach((point, index) => {
-          const pos = dataToPixel(point.t, point.x);
-
-          if (index === 0) {
-            ctx.moveTo(pos.x, pos.y);
-          } else {
-            ctx.lineTo(pos.x, pos.y);
-          }
-        });
-
-        ctx.stroke();
-      });
-    },
-    [xMin, xMax, currentTheme, phaseLineAnalysis, degenerateIntervals],
-  );
-
-  // Animation loop
-  const animationLoop = useCallback(() => {
+    const { xMinExtended, xMaxExtended, toPixel } = phaseLineMapper(width);
+    const centerY = height / 2;
+    const radius = 10;
     const state = animationStateRef.current;
-    if (!state.isRunning) return;
 
-    const dt = 0.05;
-    const params = state.params;
-
-    // Calculate extended bounds (10% padding on each side)
-    const xRange = xMax - xMin;
-    const xMinExtended = xMin - 0.1 * xRange;
-    const xMaxExtended = xMax + 0.1 * xRange;
-
-    // Update each ball
-    state.balls = state.balls.map((ball) => {
-      // Skip updating if ball is no longer active
-      if (!ball.active) {
-        return ball;
+    state.balls.forEach((ball) => {
+      // Ghost ball at the delayed position X(t − τ) while the ball moves
+      if (tau > 0 && ball.active && ball.history.length > 1) {
+        const delayedX = historyValueAt(ball.history, ball.t - tau, DT);
+        if (delayedX >= xMinExtended && delayedX <= xMaxExtended) {
+          const ghostPixelX = toPixel(delayedX);
+          const ghostGradient = ctx.createRadialGradient(
+            ghostPixelX - radius * 0.3,
+            centerY - radius * 0.3,
+            radius * 0.1,
+            ghostPixelX,
+            centerY,
+            radius,
+          );
+          ghostGradient.addColorStop(0, "rgba(200, 200, 200, 0.6)");
+          ghostGradient.addColorStop(0.4, "rgba(160, 160, 160, 0.5)");
+          ghostGradient.addColorStop(1, "rgba(120, 120, 120, 0.4)");
+          ctx.beginPath();
+          ctx.arc(ghostPixelX, centerY, radius, 0, 2 * Math.PI);
+          ctx.fillStyle = ghostGradient;
+          ctx.fill();
+        }
       }
 
-      const newX = rk4Step(ball.history, dt, params);
-      const newT = ball.t + dt;
+      // Main ball - only within the extended bounds
+      if (ball.x < xMinExtended || ball.x > xMaxExtended) return;
+      const pixelX = toPixel(ball.x);
+      const gradient = ctx.createRadialGradient(
+        pixelX - radius * 0.3,
+        centerY - radius * 0.3,
+        radius * 0.1,
+        pixelX,
+        centerY,
+        radius,
+      );
+      gradient.addColorStop(0, "#6eb5ff");
+      gradient.addColorStop(0.4, "#4a9eff");
+      gradient.addColorStop(1, "#1e5a9e");
+      ctx.beginPath();
+      ctx.arc(pixelX, centerY, radius, 0, 2 * Math.PI);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+    });
+  };
 
-      // Check termination conditions
-      let stillActive = true;
+  // Draw time series trajectories
+  const drawTimeSeries = () => {
+    const transform = timeSeriesTransformRef.current;
+    if (!transform) return;
+    const setup = setupCanvas(timeSeriesCanvasRef.current, {
+      width: transform.plotWidth,
+      height: transform.plotHeight,
+    });
+    if (!setup) return;
+    const { ctx, width, height } = setup;
+    ctx.clearRect(0, 0, width, height);
 
-      // Terminate if time exceeds 10
-      if (newT >= 10) {
-        stillActive = false;
-      }
+    const { dataToPixel } = transform;
 
-      // Terminate if X escapes extended bounds [xMinExtended, xMaxExtended]
-      if (newX < xMinExtended || newX > xMaxExtended) {
-        stillActive = false;
-      }
-
-      return {
-        ...ball,
-        x: newX,
-        t: newT,
-        history: [...ball.history, { t: newT, x: newX }],
-        active: stillActive,
-      };
+    // Boundary lines at xMin and xMax
+    [xMin, xMax].forEach((value) => {
+      const leftPos = dataToPixel(0, value);
+      const rightPos = dataToPixel(T_END, value);
+      ctx.strokeStyle =
+        currentTheme === "dark"
+          ? "rgba(128, 128, 128, 0.2)"
+          : "rgba(128, 128, 128, 0.3)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(leftPos.x, leftPos.y);
+      ctx.lineTo(rightPos.x, rightPos.y);
+      ctx.stroke();
     });
 
-    // Draw updated state
-    if (ballCanvasRef.current) {
-      const ctx = ballCanvasRef.current.getContext("2d");
-      drawBalls(ballCanvasRef.current, ctx);
-    }
+    // Equilibrium lines: solid = stable, dashed = unstable, dotted = semi-stable
+    equilibria.forEach((eq) => {
+      const leftPos = dataToPixel(0, eq.x);
+      const rightPos = dataToPixel(T_END, eq.x);
+      ctx.strokeStyle =
+        currentTheme === "dark"
+          ? "rgba(128, 128, 128, 0.5)"
+          : "rgba(128, 128, 128, 0.6)";
+      ctx.lineWidth = 1.5;
+      if (eq.type === "unstable") ctx.setLineDash([5, 5]);
+      else if (eq.type === "semi-stable") ctx.setLineDash([2, 2]);
+      else ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(leftPos.x, leftPos.y);
+      ctx.lineTo(rightPos.x, rightPos.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
 
-    if (timeSeriesCanvasRef.current) {
-      const ctx = timeSeriesCanvasRef.current.getContext("2d");
-      drawTimeSeries(timeSeriesCanvasRef.current, ctx);
-    }
+    // Degenerate interval bands
+    degenerateIntervals.forEach((interval) => {
+      const topLeft = dataToPixel(0, interval.xMax);
+      const bottomRight = dataToPixel(T_END, interval.xMin);
+      ctx.fillStyle =
+        currentTheme === "dark"
+          ? "rgba(128, 128, 128, 0.2)"
+          : "rgba(128, 128, 128, 0.15)";
+      ctx.fillRect(
+        topLeft.x,
+        topLeft.y,
+        bottomRight.x - topLeft.x,
+        bottomRight.y - topLeft.y,
+      );
+    });
 
-    // Stop animation if no active balls remain
-    const hasActiveBalls = state.balls.some((ball) => ball.active);
-    if (!hasActiveBalls) {
-      state.isRunning = false;
-      if (state.animationId) {
-        cancelAnimationFrame(state.animationId);
-        state.animationId = null;
-      }
-      return;
-    }
+    // Trajectories (the canvas clips parts outside the window)
+    animationStateRef.current.balls.forEach((ball) => {
+      if (ball.history.length < 2) return;
+      ctx.strokeStyle = "#4a9eff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ball.history.forEach((point, index) => {
+        const pos = dataToPixel(point.t, point.x);
+        if (index === 0) ctx.moveTo(pos.x, pos.y);
+        else ctx.lineTo(pos.x, pos.y);
+      });
+      ctx.stroke();
+    });
+  };
 
-    state.animationId = requestAnimationFrame(animationLoop);
-  }, [rk4Step, drawBalls, drawTimeSeries, xMin, xMax]);
-
-  // Start/stop animation when balls are added/removed
-  useEffect(() => {
+  // Animation frame: advance the balls by the real elapsed time (in fixed
+  // steps of DT), redraw, and stop when no ball is moving any more.
+  const onFrame = (dtReal) => {
     const state = animationStateRef.current;
-
-    if (state.balls.length > 0 && !state.isRunning) {
-      state.isRunning = true;
-      animationLoop();
+    state.simTimeDebt += dtReal * SIM_TIME_PER_SECOND;
+    while (state.simTimeDebt >= DT - 1e-9) {
+      state.simTimeDebt -= DT;
+      state.balls = state.balls.map((ball) => (ball.active ? stepBall(ball) : ball));
     }
-
-    return () => {
-      if (state.animationId) {
-        cancelAnimationFrame(state.animationId);
-        state.isRunning = false;
-      }
-    };
-  }, [animationLoop]);
+    drawBalls();
+    drawTimeSeries();
+    const keepGoing = state.balls.some((ball) => ball.active);
+    if (!keepGoing) state.simTimeDebt = 0;
+    return keepGoing;
+  };
+  const { start: loopStart, stop: loopStop } = useAnimationLoop(onFrame);
 
   // Handle canvas click to add ball
-  const handlePhaseLineClick = useCallback(
-    (event) => {
-      if (!dynamicalSystem || !dynamicalSystem.isValidSystem()) return;
+  const handlePhaseLineClick = (event) => {
+    if (!systemValid) return;
+    const canvas = phaseLineCanvasRef.current;
+    if (!canvas) return;
 
-      const canvas = phaseLineCanvasRef.current;
-      if (!canvas) return;
+    // Pointer x in the canvas's CSS pixels (correct even when ToolContainer
+    // has scaled the tool down)
+    const { x: clickX } = localPointer(event, canvas);
+    const { width } = canvasCssSize(canvas);
+    const x = phaseLineMapper(width).fromPixel(clickX);
 
-      // Pointer x in canvas pixels (correct even when ToolContainer has scaled
-      // the tool down, or the window was resized after the canvas was sized)
-      const { x: localX } = localPointer(event, canvas);
-      const clickX = localX * (canvas.width / (canvas.offsetWidth || canvas.width));
+    // Only add ball if within reasonable bounds
+    const xRange = xMax - xMin;
+    if (x < xMin - 0.3 * xRange || x > xMax + 0.3 * xRange) return;
 
-      const { width } = canvas;
-      const xRange = xMax - xMin;
-      const xMinExtended = xMin - 0.1 * xRange;
-      const xMaxExtended = xMax + 0.1 * xRange;
-      const marginLeft = 40;
-      const marginRight = 40;
-      const drawableWidth = width - marginLeft - marginRight;
+    const state = animationStateRef.current;
+    state.balls.push({
+      id: state.nextBallId++,
+      x,
+      t: 0,
+      history: [{ t: 0, x }],
+      active: true,
+    });
 
-      // Convert pixel to x value
-      const x =
-        xMinExtended +
-        ((clickX - marginLeft) / drawableWidth) * (xMaxExtended - xMinExtended);
-
-      // Only add ball if within reasonable bounds
-      if (x < xMin - 0.3 * xRange || x > xMax + 0.3 * xRange) return;
-
-      const state = animationStateRef.current;
-      const newBall = {
-        id: state.nextBallId++,
-        x: x,
-        t: 0,
-        history: [{ t: 0, x: x }],
-        active: true,
-      };
-
-      state.balls.push(newBall);
-
-      // Draw at initial position FIRST (before animation moves the ball)
-      if (ballCanvasRef.current) {
-        const ctx = ballCanvasRef.current.getContext("2d");
-        drawBalls(ballCanvasRef.current, ctx);
-      }
-
-      // Start animation via rAF so browser can render the initial draw first
-      if (!state.isRunning) {
-        state.isRunning = true;
-        state.animationId = requestAnimationFrame(animationLoop);
-      }
-    },
-    [dynamicalSystem, xMin, xMax, animationLoop, drawBalls],
-  );
+    // Draw at the initial position first, then start moving
+    drawBalls();
+    loopStart();
+  };
 
   // Clear all balls and trajectories
-  const handleClearPlots = useCallback(() => {
+  const handleClearPlots = () => {
+    loopStop();
     const state = animationStateRef.current;
     state.balls = [];
-    state.isRunning = false;
-
-    if (state.animationId) {
-      cancelAnimationFrame(state.animationId);
-      state.animationId = null;
-    }
-
-    // Clear canvases
-    if (ballCanvasRef.current) {
-      const ctx = ballCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        ballCanvasRef.current.width,
-        ballCanvasRef.current.height,
-      );
-    }
-
-    if (timeSeriesCanvasRef.current) {
-      const ctx = timeSeriesCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        timeSeriesCanvasRef.current.width,
-        timeSeriesCanvasRef.current.height,
-      );
-    }
-  }, []);
-
-  // Update dynamical system when equation changes
-  useEffect(() => {
-    try {
-      // Include X_tau as a potential parameter for delay equations
-      const system = new DynamicalSystem1D(equation, ["k", "X_tau"]);
-      setDynamicalSystem(system);
-
-      if (system.isValidSystem()) {
-        setEquationError("");
-      } else {
-        setEquationError(system.getError());
-      }
-    } catch (error) {
-      setEquationError(`Unexpected error: ${error.message}`);
-      setDynamicalSystem(null);
-    }
-  }, [equation]);
-
-  // Update phase line analysis when system or parameters change
-  useEffect(() => {
-    if (dynamicalSystem && dynamicalSystem.isValidSystem()) {
-      // For equilibrium analysis, replace X_tau with X (equilibrium condition)
-      const equilibriumEquation = equation.replace(/X_tau/g, "X");
-
-      try {
-        const eqSystem = new DynamicalSystem1D(equilibriumEquation, ["k"]);
-        setEquilibriumSystem(eqSystem);
-
-        if (eqSystem.isValidSystem()) {
-          const analysis = analyzePhaseLine1D(eqSystem, { k }, xMin, xMax);
-          setPhaseLineAnalysis(analysis);
-
-          const intervals = findDegenerateIntervals1D(
-            eqSystem,
-            { k },
-            xMin,
-            xMax,
-          );
-          setDegenerateIntervals(intervals);
-        } else {
-          setPhaseLineAnalysis(null);
-          setDegenerateIntervals([]);
-        }
-      } catch (error) {
-        // If equilibrium system fails, no phase line analysis
-        setEquilibriumSystem(null);
-        setPhaseLineAnalysis(null);
-        setDegenerateIntervals([]);
-      }
-    } else {
-      setEquilibriumSystem(null);
-      setPhaseLineAnalysis(null);
-      setDegenerateIntervals([]);
-    }
-  }, [dynamicalSystem, equation, k, xMin, xMax]);
+    state.simTimeDebt = 0;
+    clearCanvas(ballCanvasRef.current);
+    clearCanvas(timeSeriesCanvasRef.current);
+    drawTimeSeries(); // keep the equilibrium lines
+  };
 
   // Draw background X' plot
   const drawDerivativePlot = useCallback(
-    (canvas, ctx) => {
-      const { width, height } = canvas;
+    ({ ctx, width, height }) => {
       ctx.clearRect(0, 0, width, height);
 
       if (!showDerivativePlot) return;
@@ -644,8 +467,7 @@ const OneDimensionalCalculator = () => {
 
   // Draw phase line (static elements)
   const drawPhaseLine = useCallback(
-    (canvas, ctx) => {
-      const { width, height } = canvas;
+    ({ ctx, width, height }) => {
       ctx.clearRect(0, 0, width, height);
 
       const xRange = xMax - xMin;
@@ -687,8 +509,8 @@ const OneDimensionalCalculator = () => {
       ctx.font = "12px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      ctx.fillText(xMin.toFixed(1), xToPixel(xMin), centerY + 15);
-      ctx.fillText(xMax.toFixed(1), xToPixel(xMax), centerY + 15);
+      ctx.fillText(formatAxisValue(xMin), xToPixel(xMin), centerY + 15);
+      ctx.fillText(formatAxisValue(xMax), xToPixel(xMax), centerY + 15);
 
       // Draw degenerate intervals
       if (degenerateIntervals && degenerateIntervals.length > 0) {
@@ -909,77 +731,56 @@ const OneDimensionalCalculator = () => {
       phaseLineAnalysis,
       degenerateIntervals,
       showDerivativePlot,
-      dynamicalSystem,
+      equilibriumSystem,
       k,
       xMin,
       xMax,
     ],
   );
 
-  // Canvas initialization
+  // Redraw every layer after each render (cheap; renders happen only on UI
+  // changes). This also picks up size changes of the canvases.
   useEffect(() => {
-    // Phase line canvases (6x3 grid)
-    [phaseBackgroundCanvasRef, phaseLineCanvasRef, ballCanvasRef].forEach(
-      (ref) => {
-        if (ref.current) {
-          const canvas = ref.current;
-          const rect = canvas.getBoundingClientRect();
-          canvas.width = rect.width;
-          canvas.height = rect.height;
-        }
-      },
-    );
+    const background = setupCanvas(phaseBackgroundCanvasRef.current);
+    if (background) drawDerivativePlot(background);
+    const line = setupCanvas(phaseLineCanvasRef.current);
+    if (line) drawPhaseLine(line);
+    drawBalls();
+    drawTimeSeries();
+  });
 
-    // Time series canvas - use transform dimensions
-    if (timeSeriesCanvasRef.current && timeSeriesTransformRef.current) {
-      const canvas = timeSeriesCanvasRef.current;
-      canvas.width = timeSeriesTransformRef.current.plotWidth;
-      canvas.height = timeSeriesTransformRef.current.plotHeight;
-    }
+  // Time-series y ticks: the window edges and the equilibria, placed at their
+  // exact values (labels are rounded). Labels that would overlap an
+  // equilibrium label are left blank.
+  const { yTicks, yTickLabels } = useMemo(() => {
+    const span = xMax - xMin;
+    const minGap = 0.06 * span;
+    const eqValues = equilibria.map((eq) => eq.x);
+    const items = [
+      ...eqValues.map((v) => ({ v, priority: 0 })),
+      { v: xMin, priority: 1 },
+      { v: xMax, priority: 1 },
+    ];
+    const labeled = [];
+    const ticks = [];
+    const labels = [];
+    items
+      .sort((a, b) => a.priority - b.priority)
+      .forEach(({ v }) => {
+        if (ticks.some((t) => Math.abs(t - v) < 1e-9 * Math.max(1, span))) return;
+        ticks.push(v);
+        const clash = labeled.some((u) => Math.abs(u - v) < minGap);
+        labels.push(clash ? "" : formatAxisValue(v));
+        if (!clash) labeled.push(v);
+      });
+    return { yTicks: ticks, yTickLabels: labels };
+  }, [equilibria, xMin, xMax]);
 
-    if (phaseBackgroundCanvasRef.current) {
-      const ctx = phaseBackgroundCanvasRef.current.getContext("2d");
-      drawDerivativePlot(phaseBackgroundCanvasRef.current, ctx);
-    }
-
-    if (phaseLineCanvasRef.current) {
-      const ctx = phaseLineCanvasRef.current.getContext("2d");
-      drawPhaseLine(phaseLineCanvasRef.current, ctx);
-    }
-  }, [drawDerivativePlot, drawPhaseLine]);
-
-  // Redraw background when toggle or parameters change
-  useEffect(() => {
-    if (phaseBackgroundCanvasRef.current) {
-      const ctx = phaseBackgroundCanvasRef.current.getContext("2d");
-      drawDerivativePlot(phaseBackgroundCanvasRef.current, ctx);
-    }
-  }, [drawDerivativePlot]);
-
-  // Redraw phase line when parameters change
-  useEffect(() => {
-    if (phaseLineCanvasRef.current) {
-      const ctx = phaseLineCanvasRef.current.getContext("2d");
-      drawPhaseLine(phaseLineCanvasRef.current, ctx);
-    }
-  }, [drawPhaseLine]);
-
-  // Redraw balls and time series when parameters change or canvases are reinitialized
-  useEffect(() => {
-    if (ballCanvasRef.current) {
-      const ctx = ballCanvasRef.current.getContext("2d");
-      drawBalls(ballCanvasRef.current, ctx);
-    }
-
-    if (timeSeriesCanvasRef.current) {
-      const ctx = timeSeriesCanvasRef.current.getContext("2d");
-      drawTimeSeries(timeSeriesCanvasRef.current, ctx);
-    }
-  }, [drawBalls, drawTimeSeries, showDerivativePlot, k, xMin, xMax, tau]);
+  const statusText = { fontSize: "0.85em" };
 
   return (
     <ToolContainer
-      title="1D Dynamical System Explorer"
+      title="1D Dynamical System Calculator"
       canvasWidth={9}
       canvasHeight={6}
     >
@@ -1035,30 +836,10 @@ const OneDimensionalCalculator = () => {
         xLabel="t"
         yLabel="X"
         xTicks={[0, 5, 10]}
-        yTicks={(() => {
-          const ticks = [
-            xMin.toFixed(1).padStart(4, " "),
-            xMax.toFixed(1).padStart(4, " "),
-          ];
-
-          if (phaseLineAnalysis && phaseLineAnalysis.equilibria) {
-            const filteredEquilibria = filterEquilibriaFromDegenerateIntervals(
-              phaseLineAnalysis.equilibria,
-              degenerateIntervals,
-            );
-
-            filteredEquilibria.forEach((eq) => {
-              ticks.push(eq.x.toFixed(1).padStart(4, " "));
-            });
-          }
-
-          return ticks;
-        })()}
-        xRange={[0, 10]}
-        yRange={(() => {
-          const xRange = xMax - xMin;
-          return [xMin - 0.1 * xRange, xMax + 0.1 * xRange];
-        })()}
+        yTicks={yTicks}
+        yTickLabels={yTickLabels}
+        xRange={[0, T_END]}
+        yRange={[xMin - 0.1 * (xMax - xMin), xMax + 0.1 * (xMax - xMin)]}
         leftAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
         tooltip="Time Series"
         theme={theme}
@@ -1070,8 +851,6 @@ const OneDimensionalCalculator = () => {
               ref={timeSeriesCanvasRef}
               className="absolute pointer-events-none"
               style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
@@ -1126,7 +905,7 @@ const OneDimensionalCalculator = () => {
         theme={theme}
       />
 
-      {/* Xmax input - stacked below Xmin */}
+      {/* Xmax input - above Xmin */}
       <GridInput
         x={6}
         y={3}
@@ -1212,7 +991,7 @@ const OneDimensionalCalculator = () => {
           x={7}
           y={4}
           w={2}
-          h={1}
+          h={2}
           value={equationError}
           variant="status"
           align="left"
@@ -1229,66 +1008,55 @@ const OneDimensionalCalculator = () => {
       )}
 
       {/* Valid status display */}
-      {!equationError &&
-        dynamicalSystem &&
-        dynamicalSystem.isValidSystem() &&
-        phaseLineAnalysis && (
-          <GridDisplay
-            x={7}
-            y={4}
-            w={2}
-            h={2}
-            variant="info"
-            align="left"
-            fontSize="small"
-            theme={theme}
-          >
-            <div style={{ padding: "4px" }}>
-              <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
-                System Status
-              </div>
-              {degenerateIntervals.length > 0 ? (
-                <div style={{ fontSize: "0.85em" }}>
-                  <div>Degenerate interval detected</div>
-                  <div style={{ marginTop: "2px" }}>
-                    X' = 0 on [{degenerateIntervals[0].xMin.toFixed(2)},{" "}
-                    {degenerateIntervals[0].xMax.toFixed(2)}]
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div style={{ fontSize: "0.85em" }}>
-                    Equilibria: {phaseLineAnalysis.equilibria.length}
-                  </div>
-                  {tau > 0 && (
-                    <>
-                      <div style={{ fontSize: "0.85em", marginTop: "2px" }}>
-                        Delay parameter τ = {tau.toFixed(2)}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "0.75em",
-                          marginTop: "2px",
-                          fontStyle: "italic",
-                          opacity: 0.8,
-                        }}
-                      >
-                        Use "X_tau" in formula for delay variable.
-                      </div>
-                    </>
-                  )}
-                  <div style={{ fontSize: "0.85em", marginTop: "2px" }}>
-                    {phaseLineAnalysis.equilibria.map((eq, i) => (
-                      <div key={i}>
-                        X* = {eq.x.toFixed(3)} ({eq.type})
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
+      {!equationError && phaseLineAnalysis && (
+        <GridDisplay
+          x={7}
+          y={4}
+          w={2}
+          h={2}
+          variant="info"
+          align="left"
+          fontSize="small"
+          theme={theme}
+        >
+          <div style={{ padding: "4px", maxHeight: "100%", overflowY: "auto" }}>
+            <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
+              System Status
             </div>
-          </GridDisplay>
-        )}
+            {degenerateIntervals.map((interval, i) => (
+              <div key={`d${i}`} style={statusText}>
+                X' = 0 on [{formatEquilibrium(interval.xMin)},{" "}
+                {formatEquilibrium(interval.xMax)}]
+              </div>
+            ))}
+            <div style={statusText}>Equilibria: {equilibria.length}</div>
+            {tau > 0 && (
+              <>
+                <div style={{ ...statusText, marginTop: "2px" }}>
+                  Delay τ = {tau.toFixed(2)}
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.75em",
+                    marginTop: "2px",
+                    fontStyle: "italic",
+                    opacity: 0.8,
+                  }}
+                >
+                  Use "X_tau" in formula for delay variable.
+                </div>
+              </>
+            )}
+            <div style={{ ...statusText, marginTop: "2px" }}>
+              {equilibria.map((eq, i) => (
+                <div key={i}>
+                  X* = {formatEquilibrium(eq.x)} ({eq.type})
+                </div>
+              ))}
+            </div>
+          </div>
+        </GridDisplay>
+      )}
     </ToolContainer>
   );
 };
