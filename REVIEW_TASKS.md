@@ -449,7 +449,7 @@ These are the items where a student currently sees something **wrong**.
 - [x] `#223` **P2 Resolve every `[VERIFY]` marker.** Nearly every help file still has some. Many can be resolved with the verified facts in the sections above.
 - [x] `#224` **P2 Fill or remove empty "References: [To be added]" sections.**
 - [x] `#225` **P2 Re-check each help file's numbers** (defaults, ranges, axis limits, button names) against the code constants. Drift is common: SHO, two-compartment, logistic, shark-tuna, and gentamicin all have mismatches.
-- [ ] `#226` **P3 Add a math-check step to `/write-help`.** The command checks help against the code but not the *math*. Several wrong claims came in that way (Hutchinson regimes, SHO period, discrete-logistic equilibrium).
+- [x] `#226` **P3 Add a math-check step to `/write-help`.** The command checks help against the code but not the *math*. Several wrong claims came in that way (Hutchinson regimes, SHO period, discrete-logistic equilibrium).
 - [x] `#227` **P3 Standardize delay notation.** MathML uses undefined subscripts (P_τ, G_τ, L_τ) while the help uses P(t−τ). Use the explicit form everywhere. Also typeset parameters (like C) in italic rather than bold-italic.
 
 ---
@@ -495,6 +495,33 @@ These are the items where a student currently sees something **wrong**.
 - [ ] `#237` ⏸ *(needs Marty)* **Logistic Growth Explorer b slider runs 0–1; the help says 0–2.** Pick one; the code change is one line either way.
 - [x] `#238` P3 Yule passes `disabled` to GridButton, which ignores it.
 - [x] `#239` P3 1D Calculator shows "-0.0" ticks and "X* = -0.000" for tiny values.
-- [ ] `#240` P3 Lazy-load the help modal (react-markdown, ~115 kB) so tool pages load faster.
+- [x] `#240` P3 Lazy-load the help modal (react-markdown, ~115 kB) so tool pages load faster.
 - [x] `#241` P2 Help files show raw "[VERIFY: …]" markers to students (covered by #223; listed so it isn't missed).
 - [x] `#242` GridWheelSelector's `<style jsx>` made React log an error in 4 tools (fixed in phase A).
+
+### Decisions needed from Marty (raised while fixing)
+
+- [ ] `#243` ⏸ **Insulin-Glucose Regulation integration.** The minimal tool now uses accurate RK4. The full tool still uses the old 0.1-h Euler steps (made safe: no clamping, substeps instead). With exact RK4 the IGO2 delay exercise looks different: lasting oscillations start near τ ≈ 45 min instead of ≈ 30 min, and at τ = 30–42 min the swings are small and die out (arguably closer to the manual's Figure B). Switching is one line (`simulateInsulinGlucose` instead of `simulateInsulinGlucoseEuler`). Your call.
+- [ ] `#244` ⏸ **Logistic Growth Explorer vs. manual p.89.** The manual says "Note that t0 = 0 here", but the tool's default t₀ is 10.
+- [ ] `#245` ⏸ **Atmospheric Molecule vs. manual p.161.** The manual asks how gravity and temperature affect vertical *velocities*, but the tool shows only positions (it's a position random walk).
+- [ ] `#246` ⏸ **Glycolysis status now shows "Type (linearization): center / stable spiral / …".** This came with the stability-label fix, but it touches the deferred glycolysis teaching decision (#073). Keep or remove?
+- [ ] `#247` ⏸ **Answers visible in tools?** A few new readouts may make lab exercises easier — decide whether to keep each:
+  - Muscle Tremor status now says none / damped / sustained, switching exactly at the theoretical threshold (MT2 asks for the critical delay).
+  - 2D Matrix Visualizer shows a "Long run: …" summary (partly answers Les5).
+  - Ion Channel: theoretical P(open) is hidden behind a "Show theory" link (IC2).
+  - Deliberately *not* added because they'd give away answers: SHO theoretical period, Two-Compartment equilibrium line, Hutchinson/Tremor/Discrete-Logistic threshold values in the help.
+- [ ] `#248` ⏸ **GLV Pause scope.** Pause freezes the orange grid particles; clicked trajectories keep moving (as the old help described). Should Pause stop everything?
+- [ ] `#249` ⏸ **Three-Compartment run speed** is now one step per 0.3 s (a full 100-step run ≈ 30 s, was ≈ 1.7 s on a 60 Hz screen). OK for p.179?
+- [ ] `#250` ⏸ **Two-Compartment pace** is now 4 true Markov steps per second, each plotted (was ~12 hidden steps/s in batches of 8). OK for p.168–169?
+
+### Small follow-ups
+
+- [ ] `#251` P3 GridDisplay ignores `style.color` (e.g. error text in the calculators can't be red).
+- [ ] `#252` P3 Matrix & Vector Calculator (2×2 mode) has an empty bottom row; Three-Compartment name inputs show a default letter above renamed boxes.
+- [ ] `#253` P3 Linear Regression readout has 3 decimals, so small slopes lose precision (aspirin −0.031 vs equation −0.0311).
+- [ ] `#254` P3 Discrete Modeling Practice pairs odd nouns ("a tank starts with 204 cars").
+- [ ] `#255` P3 Growth & Collapse bars jump in height when the run ends (axis rescales).
+- [ ] `#256` P3 Holling–Tanner's (0, m) saddle isn't drawn (m = 7 is outside the 0–6 window); GLV equilibria on the axes are drawn as half-circles.
+- [ ] `#257` P3 Muscle Tremor: the hand leaves the forearm window near L = 10 or 30. Discrete Logistic: β slider follows typed βmin/βmax before "Set Window".
+- [x] `#258` GridButton now supports `disabled` (several tools already passed it).
+- [x] `#259` React "background/backgroundSize" style warning in shared components fixed.
