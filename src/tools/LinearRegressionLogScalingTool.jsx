@@ -1,6 +1,6 @@
 // src/tools/LinearRegressionLogScalingTool.jsx
 
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   GridTableInput,
   GridGraph,
@@ -16,6 +16,23 @@ import {
   generateRegressionLine,
   validateRegressionData,
 } from "../utils/mathHelpers";
+import { niceTicks, linearTicks } from "../utils/ticks";
+import { setupCanvas } from "../utils/canvas";
+
+// Example exponential data (y = 2^x), loaded at start and by "Load Sample"
+const SAMPLE_DATA = [
+  { x: 1, y: 2 },
+  { x: 2, y: 4 },
+  { x: 3, y: 8 },
+  { x: 4, y: 16 },
+  { x: 5, y: 32 },
+];
+
+/** Statistic to 3 decimals, never "-0.000". */
+const formatStat = (v) => {
+  const s = v.toFixed(3);
+  return /^-0\.0+$/.test(s) ? s.slice(1) : s;
+};
 
 const LinearRegressionLogScalingTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -26,55 +43,38 @@ const LinearRegressionLogScalingTool = () => {
   const transformRef = useRef(null);
 
   // Data state
-  const [tableData, setTableData] = useState([
-    { x: 1, y: 2 },
-    { x: 2, y: 4 },
-    { x: 3, y: 8 },
-    { x: 4, y: 16 },
-    { x: 5, y: 32 },
-  ]);
+  const [tableData, setTableData] = useState(SAMPLE_DATA);
 
   // Scaling options state
   const [xScale, setXScale] = useState("linear"); // "linear" or "log"
   const [yScale, setYScale] = useState("linear"); // "linear" or "log"
   const [logBase, setLogBase] = useState("log10"); // "log10", "log2", "ln"
 
-  // Error state for invalid log operations
-  const [logErrors, setLogErrors] = useState([]);
-
   // Regression state
   const [showRegression, setShowRegression] = useState(false);
   const [showVariance, setShowVariance] = useState(false);
   const [showRSS, setShowRSS] = useState(false);
-  const [regressionStats, setRegressionStats] = useState({
-    slope: 0,
-    intercept: 0,
-    rSquared: 0,
-  });
 
-  // Helper function to compute logarithm based on current base
+  // Logarithm in the selected base
   const computeLog = useCallback(
     (value) => {
-      if (logBase === "log10") return Math.log10(value);
       if (logBase === "log2") return Math.log2(value);
       if (logBase === "ln") return Math.log(value);
-      return Math.log10(value); // fallback
+      return Math.log10(value);
     },
     [logBase],
   );
 
-  // Process data and check for log errors
-  const processedData = useCallback(() => {
+  // Parse the table, flag values that can't be log-transformed, and compute
+  // the plotted coordinates (px, py) in the current scaling.
+  const { validPoints, logErrors } = useMemo(() => {
     const errors = [];
-    const validPoints = [];
-
+    const points = [];
     tableData.forEach((row, index) => {
       const x = parseFloat(row.x);
       const y = parseFloat(row.y);
+      if (isNaN(x) || isNaN(y)) return; // skip incomplete rows
 
-      if (isNaN(x) || isNaN(y)) return; // Skip invalid numbers
-
-      // Check for log scale errors
       let hasError = false;
       if (xScale === "log" && x <= 0) {
         errors.push({ index, field: "x", value: x });
@@ -84,308 +84,122 @@ const LinearRegressionLogScalingTool = () => {
         errors.push({ index, field: "y", value: y });
         hasError = true;
       }
+      if (hasError) return;
 
-      if (!hasError) {
-        const point = { x, y };
-
-        // Add log-transformed values if needed
-        if (xScale === "log") {
-          point.logX = computeLog(x);
-        }
-        if (yScale === "log") {
-          point.logY = computeLog(y);
-        }
-
-        validPoints.push(point);
-      }
+      points.push({
+        x,
+        y,
+        px: xScale === "log" ? computeLog(x) : x,
+        py: yScale === "log" ? computeLog(y) : y,
+      });
     });
-
-    return { validPoints, errors };
+    return { validPoints: points, logErrors: errors };
   }, [tableData, xScale, yScale, computeLog]);
 
-  // Calculate axis ranges with 10% buffer
-  const axisRanges = useCallback(() => {
-    const { validPoints } = processedData();
-
+  // Axis ranges: small margin below, 10% above
+  const { xRange, yRange } = useMemo(() => {
     if (validPoints.length === 0) {
       return { xRange: [0, 10], yRange: [0, 10] };
     }
+    const pad = (values) => {
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      return min === max
+        ? [min - 1, max + 1]
+        : [min - (max - min) * 0.05, max + (max - min) * 0.1];
+    };
+    return {
+      xRange: pad(validPoints.map((p) => p.px)),
+      yRange: pad(validPoints.map((p) => p.py)),
+    };
+  }, [validPoints]);
 
-    // Get values based on current scaling
-    const xValues = validPoints.map((p) => (xScale === "log" ? p.logX : p.x));
-    const yValues = validPoints.map((p) => (yScale === "log" ? p.logY : p.y));
+  // Ticks: "nice" values inside the axis range, in the plotted units (for a
+  // log axis these are values of the logarithm, matching the axis label
+  // log(X) or ln(X)). Grid lines at every tick plus 4 subdivisions.
+  const { xTicks, yTicks, xGridLines, yGridLines } = useMemo(() => {
+    const gridLines = (ticks, [min, max]) => {
+      if (ticks.length < 2) return ticks;
+      const step = ticks[1] - ticks[0];
+      return linearTicks(min, max, step / 5);
+    };
+    const xt = niceTicks(xRange[0], xRange[1], 5);
+    const yt = niceTicks(yRange[0], yRange[1], 5);
+    return {
+      xTicks: xt,
+      yTicks: yt,
+      xGridLines: gridLines(xt, xRange),
+      yGridLines: gridLines(yt, yRange),
+    };
+  }, [xRange, yRange]);
 
-    const xMin = Math.min(...xValues);
-    const xMax = Math.max(...xValues);
-    const yMin = Math.min(...yValues);
-    const yMax = Math.max(...yValues);
-
-    // Add 10% buffer to high end, small buffer to low end
-    const xRange =
-      xMin === xMax
-        ? [xMin - 1, xMax + 1]
-        : [xMin - (xMax - xMin) * 0.05, xMax + (xMax - xMin) * 0.1];
-
-    const yRange =
-      yMin === yMax
-        ? [yMin - 1, yMax + 1]
-        : [yMin - (yMax - yMin) * 0.05, yMax + (yMax - yMin) * 0.1];
-
-    return { xRange, yRange };
-  }, [processedData, xScale, yScale]);
-
-  // Generate nice tick marks for linear scale
-  const generateLinearTicks = useCallback((min, max, targetCount = 5) => {
-    const range = max - min;
-    const rawStep = range / targetCount;
-
-    // Round to nice numbers (1, 2, 5, 10, etc.)
-    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
-    const normalizedStep = rawStep / magnitude;
-
-    let niceStep;
-    if (normalizedStep <= 1) niceStep = magnitude;
-    else if (normalizedStep <= 2) niceStep = 2 * magnitude;
-    else if (normalizedStep <= 5) niceStep = 5 * magnitude;
-    else niceStep = 10 * magnitude;
-
-    // Generate ticks
-    const startTick = Math.ceil(min / niceStep) * niceStep;
-    const ticks = [];
-    for (let tick = startTick; tick <= max; tick += niceStep) {
-      ticks.push(Math.round(tick * 1000000) / 1000000); // Avoid floating point errors
-    }
-
-    return ticks;
-  }, []);
-
-  // Generate tick marks for log scale
-  const generateLogTicks = useCallback((min, max) => {
-    const ticks = [];
-    const minPower = Math.floor(min);
-    const maxPower = Math.ceil(max);
-
-    for (let power = minPower; power <= maxPower; power++) {
-      ticks.push(power);
-    }
-
-    return ticks;
-  }, []);
-
-  // Generate minor ticks for linear scale
-  const generateLinearMinorTicks = useCallback((majorTicks) => {
-    if (majorTicks.length < 1) return [];
-
-    const minorTicks = [];
-
-    // Include all major tick positions
-    minorTicks.push(...majorTicks);
-
-    if (majorTicks.length >= 2) {
-      const stepSize = majorTicks[1] - majorTicks[0];
-      const minorStepSize = stepSize / 5; // 5 minor divisions between major ticks
-
-      for (let i = 0; i < majorTicks.length - 1; i++) {
-        const start = majorTicks[i];
-        const end = majorTicks[i + 1];
-
-        // Add 4 minor ticks between each pair of major ticks
-        for (let j = 1; j < 5; j++) {
-          const minorTick = start + j * minorStepSize;
-          if (minorTick < end) {
-            minorTicks.push(minorTick);
-          }
-        }
-      }
-    }
-
-    return minorTicks;
-  }, []);
-
-  // Generate minor ticks for log scale
-  const generateLogMinorTicks = useCallback((majorTicks, min, max) => {
-    const minorTicks = [];
-
-    // Include all major tick positions
-    minorTicks.push(...majorTicks);
-
-    for (let i = 0; i < majorTicks.length; i++) {
-      const power = majorTicks[i];
-      const baseValue = Math.pow(10, power);
-
-      // Add minor ticks at 2, 3, 4, 5, 6, 7, 8, 9 times the base value
-      for (let multiplier = 2; multiplier <= 9; multiplier++) {
-        const minorValue = baseValue * multiplier;
-        const logMinorValue = Math.log10(minorValue);
-
-        // Only include if within range
-        if (logMinorValue >= min && logMinorValue <= max) {
-          minorTicks.push(logMinorValue);
-        }
-      }
-    }
-
-    return minorTicks;
-  }, []);
-
-  // Generate axis ticks
-  const axisTicks = useCallback(() => {
-    const { xRange, yRange } = axisRanges();
-
-    const xTicks =
-      xScale === "log"
-        ? generateLogTicks(xRange[0], xRange[1])
-        : generateLinearTicks(xRange[0], xRange[1]);
-
-    const yTicks =
-      yScale === "log"
-        ? generateLogTicks(yRange[0], yRange[1])
-        : generateLinearTicks(yRange[0], yRange[1]);
-
-    // Generate minor ticks
-    const xMinorTicks =
-      xScale === "log"
-        ? generateLogMinorTicks(xTicks, xRange[0], xRange[1])
-        : generateLinearMinorTicks(xTicks);
-
-    const yMinorTicks =
-      yScale === "log"
-        ? generateLogMinorTicks(yTicks, yRange[0], yRange[1])
-        : generateLinearMinorTicks(yTicks);
-
-    return { xTicks, yTicks, xMinorTicks, yMinorTicks };
-  }, [
-    axisRanges,
-    xScale,
-    yScale,
-    generateLinearTicks,
-    generateLogTicks,
-    generateLinearMinorTicks,
-    generateLogMinorTicks,
-  ]);
-
-  // Calculate regression statistics (must be before functions that reference it)
-  const calculateRegression = useCallback(() => {
-    const { validPoints } = processedData();
-
-    if (validPoints.length < 2) {
-      return {
-        slope: 0,
-        intercept: 0,
-        rSquared: 0,
-        isValid: false,
-      };
-    }
-
-    // Create points for regression based on current scaling
-    const regressionPoints = validPoints.map((point) => ({
-      x: xScale === "log" ? point.logX : point.x,
-      y: yScale === "log" ? point.logY : point.y,
-    }));
-
-    // Validate and calculate regression
-    const validation = validateRegressionData(regressionPoints);
-    if (!validation.isValid) {
-      console.warn("Regression validation failed:", validation.error);
-      return {
-        slope: 0,
-        intercept: 0,
-        rSquared: 0,
-        isValid: false,
-      };
-    }
-
-    return calculateLinearRegression(regressionPoints);
-  }, [processedData, xScale, yScale]);
+  // Least-squares line in the current coordinates. Derived from the data
+  // (never stale); near-zero results are shown as 0 (e.g. not −1.78e-16).
+  const regression = useMemo(() => {
+    const invalid = { slope: 0, intercept: 0, rSquared: 0, isValid: false };
+    if (validPoints.length < 2) return invalid;
+    const pts = validPoints.map((p) => ({ x: p.px, y: p.py }));
+    if (!validateRegressionData(pts).isValid) return invalid;
+    const fit = calculateLinearRegression(pts);
+    if (!fit.isValid) return fit;
+    const maxAbsX = Math.max(...pts.map((p) => Math.abs(p.x)), 1e-300);
+    const maxAbsY = Math.max(...pts.map((p) => Math.abs(p.y)), 1e-300);
+    const snap = (v, scale) => (Math.abs(v) < 1e-9 * scale ? 0 : v);
+    return {
+      ...fit,
+      slope: snap(fit.slope, maxAbsY / maxAbsX),
+      intercept: snap(fit.intercept, maxAbsY),
+    };
+  }, [validPoints]);
 
   // Handle data changes from table
-  const handleDataChange = useCallback(
-    (newData) => {
-      setTableData(newData);
+  const handleDataChange = useCallback((newData) => {
+    setTableData(newData);
+  }, []);
 
-      // Recalculate regression if it's currently enabled
-      if (showRegression) {
-        // Use setTimeout to ensure state has updated before calculating
-        setTimeout(() => {
-          const regression = calculateRegression();
-          setRegressionStats(regression);
-        }, 0);
-      }
-    },
-    [showRegression, calculateRegression],
-  );
-
-  // Handle scaling changes - toggle off regression when changing scales
+  // Scale toggles keep the fit on; it is recomputed for the new coordinates.
   const handleXScaleToggle = useCallback(() => {
     setXScale((prev) => (prev === "linear" ? "log" : "linear"));
-    // Turn off regression when changing scales
-    setShowRegression(false);
   }, []);
 
   const handleYScaleToggle = useCallback(() => {
     setYScale((prev) => (prev === "linear" ? "log" : "linear"));
-    // Turn off regression when changing scales
-    setShowRegression(false);
   }, []);
 
-  // Handle log base changes
-  const handleLogBaseChange = useCallback((base) => {
-    setLogBase(base);
+  // The RSS squares measure distances to the fitted line, so showing them
+  // turns the fit on, and turning the fit off hides them.
+  const handleRegressionToggle = useCallback((on) => {
+    setShowRegression(on);
+    if (!on) setShowRSS(false);
   }, []);
 
-  // Update errors when data processing changes (including logarithm base changes)
-  useEffect(() => {
-    const { errors } = processedData();
-    setLogErrors(errors);
-  }, [processedData]);
-
-  // Recalculate regression when logarithm base changes
-  useEffect(() => {
-    if (showRegression) {
-      const regression = calculateRegression();
-      setRegressionStats(regression);
-    }
-  }, [logBase, showRegression, calculateRegression]);
-
-  // Handle regression toggle
-  const handleRegressionToggle = useCallback(() => {
-    const newShowRegression = !showRegression;
-    setShowRegression(newShowRegression);
-
-    if (newShowRegression) {
-      // Calculate and update regression statistics
-      const regression = calculateRegression();
-      setRegressionStats(regression);
-    }
-  }, [showRegression, calculateRegression]);
+  const handleRSSToggle = useCallback((on) => {
+    setShowRSS(on);
+    if (on) setShowRegression(true);
+  }, []);
 
   // Draw data points on canvas
   const drawDataPoints = useCallback(() => {
     const transform = transformRef.current;
     if (!canvasRef.current || !transform) return;
 
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    const { validPoints } = processedData();
-    const { xRange, yRange } = axisRanges();
-    const { xMinorTicks, yMinorTicks } = axisTicks();
     const { dataToPixel, plotWidth, plotHeight } = transform;
+    const setup = setupCanvas(canvasRef.current, {
+      width: plotWidth,
+      height: plotHeight,
+    });
+    if (!setup) return;
+    const { ctx, width, height } = setup;
+    ctx.clearRect(0, 0, width, height);
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw minor grid lines first (so they appear in the background)
-    const minorGridColor =
+    // Grid lines first (so they appear in the background)
+    ctx.strokeStyle =
       currentTheme === "dark"
-        ? "rgba(100, 116, 139, 0.6)" // Higher contrast gray for dark mode
-        : "rgba(148, 163, 184, 0.7)"; // Higher contrast gray for light mode
-
-    ctx.strokeStyle = minorGridColor;
+        ? "rgba(100, 116, 139, 0.6)"
+        : "rgba(148, 163, 184, 0.7)";
     ctx.lineWidth = 0.5;
-    ctx.setLineDash([2, 2]); // Subtle dashed lines
-
-    // Draw vertical minor grid lines
-    xMinorTicks.forEach((tick) => {
+    ctx.setLineDash([2, 2]);
+    xGridLines.forEach((tick) => {
       const top = dataToPixel(tick, yRange[1]);
       const bottom = dataToPixel(tick, yRange[0]);
       ctx.beginPath();
@@ -393,9 +207,7 @@ const LinearRegressionLogScalingTool = () => {
       ctx.lineTo(bottom.x, bottom.y);
       ctx.stroke();
     });
-
-    // Draw horizontal minor grid lines
-    yMinorTicks.forEach((tick) => {
+    yGridLines.forEach((tick) => {
       const left = dataToPixel(xRange[0], tick);
       const right = dataToPixel(xRange[1], tick);
       ctx.beginPath();
@@ -403,181 +215,109 @@ const LinearRegressionLogScalingTool = () => {
       ctx.lineTo(right.x, right.y);
       ctx.stroke();
     });
-
-    // Reset line style for other elements
     ctx.setLineDash([]);
 
-    // Draw regression line first (so it appears behind points)
-    if (showRegression && regressionStats.isValid) {
-      const regressionLinePoints = generateRegressionLine(
-        regressionStats.slope,
-        regressionStats.intercept,
+    // Regression line (behind the points)
+    if (showRegression && regression.isValid) {
+      const linePoints = generateRegressionLine(
+        regression.slope,
+        regression.intercept,
         xRange,
         100,
       );
-
-      ctx.strokeStyle = currentTheme === "dark" ? "#ef4444" : "#dc2626"; // Red-400 / Red-600
+      ctx.strokeStyle = currentTheme === "dark" ? "#ef4444" : "#dc2626";
       ctx.lineWidth = 2;
       ctx.beginPath();
-
-      regressionLinePoints.forEach((point, index) => {
+      linePoints.forEach((point, index) => {
         const pixel = dataToPixel(point.x, point.y);
-        if (index === 0) {
-          ctx.moveTo(pixel.x, pixel.y);
-        } else {
-          ctx.lineTo(pixel.x, pixel.y);
-        }
+        if (index === 0) ctx.moveTo(pixel.x, pixel.y);
+        else ctx.lineTo(pixel.x, pixel.y);
       });
       ctx.stroke();
     }
 
-    // Draw TSS visualization if enabled
-    if (showVariance) {
-      // Calculate mean Y value (based on current scaling)
-      const yValues = validPoints.map((p) => (yScale === "log" ? p.logY : p.y));
-      const yMean = yValues.reduce((sum, y) => sum + y, 0) / yValues.length;
-
-      // Draw green horizontal line at mean
+    // TSS: mean line and squares from each point to the mean
+    if (showVariance && validPoints.length > 0) {
+      const yMean =
+        validPoints.reduce((sum, p) => sum + p.py, 0) / validPoints.length;
       const meanLeft = dataToPixel(xRange[0], yMean);
       const meanRight = dataToPixel(xRange[1], yMean);
-      ctx.strokeStyle = currentTheme === "dark" ? "#4ade80" : "#16a34a"; // Green-400 / Green-600
+      ctx.strokeStyle = currentTheme === "dark" ? "#4ade80" : "#16a34a";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(meanLeft.x, meanLeft.y);
       ctx.lineTo(meanRight.x, meanRight.y);
       ctx.stroke();
 
-      // Draw TSS squares
       validPoints.forEach((point) => {
-        const plotX = xScale === "log" ? point.logX : point.x;
-        const plotY = yScale === "log" ? point.logY : point.y;
-
-        const dataPixel = dataToPixel(plotX, plotY);
-        const meanPixel = dataToPixel(plotX, yMean);
-
-        const varianceHeight = Math.abs(dataPixel.y - meanPixel.y);
-        const squareSize = varianceHeight;
-
-        // Square extends from data point to mean line, then horizontally
-        const startX = dataPixel.x;
-        const startY = plotY < yMean ? meanPixel.y : dataPixel.y; // Start from mean if below, from data point if above
-
-        // Draw green square
+        const dataPixel = dataToPixel(point.px, point.py);
+        const meanPixel = dataToPixel(point.px, yMean);
+        const side = Math.abs(dataPixel.y - meanPixel.y);
+        const startY = point.py < yMean ? meanPixel.y : dataPixel.y;
         ctx.fillStyle =
           currentTheme === "dark"
             ? "rgba(74, 222, 128, 0.3)"
-            : "rgba(22, 163, 74, 0.3)"; // Green with transparency
+            : "rgba(22, 163, 74, 0.3)";
         ctx.strokeStyle = currentTheme === "dark" ? "#4ade80" : "#16a34a";
         ctx.lineWidth = 1;
-
-        ctx.fillRect(startX, startY, squareSize, varianceHeight);
-        ctx.strokeRect(startX, startY, squareSize, varianceHeight);
+        ctx.fillRect(dataPixel.x, startY, side, side);
+        ctx.strokeRect(dataPixel.x, startY, side, side);
       });
     }
 
-    // Draw RSS squares if enabled
-    if (showRSS && showRegression && regressionStats.isValid) {
+    // RSS: squares from each point to the fitted line
+    if (showRSS && regression.isValid) {
       validPoints.forEach((point) => {
-        // Get the values to plot based on current scaling
-        const plotX = xScale === "log" ? point.logX : point.x;
-        const plotY = yScale === "log" ? point.logY : point.y;
-
-        // Calculate predicted value
-        const predictedY =
-          regressionStats.slope * plotX + regressionStats.intercept;
-        const residual = plotY - predictedY;
-
-        // Convert to canvas coordinates using dataToPixel
-        const dataPixel = dataToPixel(plotX, plotY);
-        const predPixel = dataToPixel(plotX, predictedY);
-
-        // Calculate square size based on residual magnitude
-        const residualHeight = Math.abs(dataPixel.y - predPixel.y);
-        const squareSize = residualHeight; // Make it a true square
-
-        // Determine direction: left if r*m > 0, right if r*m < 0
-        const rm = residual * regressionStats.slope;
-        const goLeft = rm > 0;
-
-        // Square extends from data point to regression line, then left/right
-        // If point is below line (residual < 0), square goes upward from data point
-        // If point is above line (residual > 0), square goes downward from data point
-        const startX = goLeft ? dataPixel.x - squareSize : dataPixel.x;
+        const predictedY = regression.slope * point.px + regression.intercept;
+        const residual = point.py - predictedY;
+        const dataPixel = dataToPixel(point.px, point.py);
+        const predPixel = dataToPixel(point.px, predictedY);
+        const side = Math.abs(dataPixel.y - predPixel.y);
+        // Square extends away from the line: left if residual·slope > 0
+        const goLeft = residual * regression.slope > 0;
+        const startX = goLeft ? dataPixel.x - side : dataPixel.x;
         const startY = residual < 0 ? predPixel.y : dataPixel.y;
-
-        // Draw blue square
         ctx.fillStyle =
           currentTheme === "dark"
             ? "rgba(96, 165, 250, 0.3)"
-            : "rgba(37, 99, 235, 0.3)"; // Blue with transparency
+            : "rgba(37, 99, 235, 0.3)";
         ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#2563eb";
         ctx.lineWidth = 1;
-
-        ctx.fillRect(startX, startY, squareSize, residualHeight);
-        ctx.strokeRect(startX, startY, squareSize, residualHeight);
+        ctx.fillRect(startX, startY, side, side);
+        ctx.strokeRect(startX, startY, side, side);
       });
     }
 
-    // Theme-appropriate point color
-    const pointColor = currentTheme === "dark" ? "#60a5fa" : "#2563eb"; // Blue-400 / Blue-600
-
-    // Draw data points on top of regression line and RSS squares
+    // Data points on top
+    const pointColor = currentTheme === "dark" ? "#60a5fa" : "#2563eb";
     validPoints.forEach((point) => {
-      // Get the values to plot based on current scaling
-      const plotX = xScale === "log" ? point.logX : point.x;
-      const plotY = yScale === "log" ? point.logY : point.y;
-
-      // Convert to canvas coordinates using dataToPixel
-      const pixel = dataToPixel(plotX, plotY);
-
-      // Draw 5px circle
+      const pixel = dataToPixel(point.px, point.py);
       ctx.fillStyle = pointColor;
       ctx.beginPath();
       ctx.arc(pixel.x, pixel.y, 5, 0, 2 * Math.PI);
       ctx.fill();
-
-      // Optional: Add stroke for better visibility
       ctx.strokeStyle = currentTheme === "dark" ? "#1e293b" : "#ffffff";
       ctx.lineWidth = 1;
       ctx.stroke();
     });
   }, [
-    processedData,
-    axisRanges,
-    axisTicks,
-    xScale,
-    yScale,
+    validPoints,
+    xRange,
+    yRange,
+    xGridLines,
+    yGridLines,
     currentTheme,
     showRegression,
     showVariance,
     showRSS,
-    regressionStats,
+    regression,
   ]);
 
-  // Initialize canvas and draw points when data or scaling changes
+  // Redraw after every render (the plot area can change size with the tick
+  // labels, so this is simplest and cheap)
   useEffect(() => {
-    if (canvasRef.current && transformRef.current) {
-      const canvas = canvasRef.current;
-      canvas.width = transformRef.current.plotWidth;
-      canvas.height = transformRef.current.plotHeight;
-      drawDataPoints();
-    }
-  }, [drawDataPoints]);
-
-  // Redraw when window resizes
-  useEffect(() => {
-    const handleResize = () => {
-      if (canvasRef.current && transformRef.current) {
-        const canvas = canvasRef.current;
-        canvas.width = transformRef.current.plotWidth;
-        canvas.height = transformRef.current.plotHeight;
-        drawDataPoints();
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [drawDataPoints]);
+    drawDataPoints();
+  });
 
   // Calculate axis labels based on current settings with proper subscripts
   const getXLabel = () => {
@@ -611,15 +351,15 @@ const LinearRegressionLogScalingTool = () => {
   };
 
   // Format regression equation with proper notation
-  const formatRegressionEquation = useCallback(() => {
-    if (!showRegression || !regressionStats.isValid) return "";
+  const formatRegressionEquation = () => {
+    if (!showRegression || !regression.isValid) return "";
 
-    const yVar = getRegressionVariableName(yScale, "y");
-    const xVar = getRegressionVariableName(xScale, "x");
+    const yVar = getRegressionVariableName(yScale, "Y");
+    const xVar = getRegressionVariableName(xScale, "X");
 
     // Format numbers to 3 significant figures
-    const slope = parseFloat(regressionStats.slope.toPrecision(3));
-    const intercept = parseFloat(regressionStats.intercept.toPrecision(3));
+    const slope = parseFloat(regression.slope.toPrecision(3));
+    const intercept = parseFloat(regression.intercept.toPrecision(3));
 
     // Format the slope coefficient
     let slopeStr;
@@ -642,11 +382,11 @@ const LinearRegressionLogScalingTool = () => {
     }
 
     return `${yVar} ≈ ${slopeStr}${xVar}${interceptStr}`;
-  }, [showRegression, regressionStats, yScale, xScale, logBase]);
+  };
 
   // Process table data to include computed log values
   const getProcessedTableData = useCallback(() => {
-    return tableData.map((row, index) => {
+    return tableData.map((row) => {
       const processedRow = { ...row };
 
       // Compute Log(X) if X scaling is log
@@ -735,10 +475,10 @@ const LinearRegressionLogScalingTool = () => {
         title="Data Plot"
         xLabel={getXLabel()}
         yLabel={getYLabel()}
-        xRange={axisRanges().xRange}
-        yRange={axisRanges().yRange}
-        xTicks={axisTicks().xTicks}
-        yTicks={axisTicks().yTicks}
+        xRange={xRange}
+        yRange={yRange}
+        xTicks={xTicks}
+        yTicks={yTicks}
         theme={theme}
       >
         {(transform) => {
@@ -751,8 +491,6 @@ const LinearRegressionLogScalingTool = () => {
                 ...transform.plotStyle,
                 pointerEvents: "none",
               }}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
@@ -810,14 +548,14 @@ const LinearRegressionLogScalingTool = () => {
               Data Analysis
             </div>
             <div style={{ fontSize: "0.85em", marginBottom: "4px" }}>
-              N = {processedData().validPoints.length}
+              N = {validPoints.length}
             </div>
-            {showRegression && regressionStats.isValid ? (
+            {showRegression && regression.isValid ? (
               <div>
                 <div style={{ fontSize: "0.8em", lineHeight: "1.2" }}>
-                  <div>Slope: {regressionStats.slope.toFixed(3)}</div>
-                  <div>Intercept: {regressionStats.intercept.toFixed(3)}</div>
-                  <div>R²: {regressionStats.rSquared.toFixed(3)}</div>
+                  <div>Slope: {formatStat(regression.slope)}</div>
+                  <div>Intercept: {formatStat(regression.intercept)}</div>
+                  <div>R²: {formatStat(regression.rSquared)}</div>
                 </div>
                 <div
                   style={{
@@ -892,7 +630,7 @@ const LinearRegressionLogScalingTool = () => {
         type="toggle"
         variant="function"
         active={showRSS}
-        onToggle={setShowRSS}
+        onToggle={handleRSSToggle}
         theme={theme}
         title="Residual Sum of Squares"
       >
@@ -908,10 +646,7 @@ const LinearRegressionLogScalingTool = () => {
         y={5}
         w={1}
         h={1}
-        onPress={() => {
-          // TODO: Clear all data
-          setTableData([]);
-        }}
+        onPress={() => setTableData([])}
         theme={theme}
       >
         <div style={{ textAlign: "center", lineHeight: "1.1" }}>
@@ -925,16 +660,7 @@ const LinearRegressionLogScalingTool = () => {
         y={5}
         w={1}
         h={1}
-        onPress={() => {
-          // TODO: Add sample data
-          setTableData([
-            { x: 1, y: 2 },
-            { x: 2, y: 4 },
-            { x: 3, y: 8 },
-            { x: 4, y: 16 },
-            { x: 5, y: 32 },
-          ]);
-        }}
+        onPress={() => setTableData(SAMPLE_DATA)}
         theme={theme}
       >
         <div style={{ textAlign: "center", lineHeight: "1.1" }}>
