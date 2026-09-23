@@ -58,12 +58,12 @@ These are the items where a student currently sees something **wrong**.
   2. "Toxic > 12 mg/L" is applied to the whole curve. The default once-daily regimen, with a peak around 17, is flagged toxic even though toxicity is mainly trough-driven. The help's "maintain adequate trough levels for efficacy" is backwards.
   3. "Trough" reports the *first* trough, not the steady-state trough. For example it shows 15.4 when the steady-state value is 52.6. ✔
 - [ ] `#008` **Insulin units are inconsistent between the two insulin tools.** The full tool converts `I*6` "pmol/L" (baseline about 3 pmol/L, implausibly low); the minimal tool uses `I*100`. Pick one scale for both (`InsulinGlucoseTool.jsx:98` vs `MinimalInsulinGlucoseTool.jsx:60`).
-- [ ] `#009` **GridGraph tick labels can show wrong numbers.** `formatTickLabel` truncates to 4 characters: −1000 → "-100", 15000 → "2e+4", −0.25 → "-0.3", 0.001 → "0.00". ✔
+- [x] `#009` **GridGraph tick labels can show wrong numbers.** `formatTickLabel` truncates to 4 characters: −1000 → "-100", 15000 → "2e+4", −0.25 → "-0.3", 0.001 → "0.00". ✔
   - If a tool passes a string tick, it throws a TypeError. The 1D Calculator crashes when Xmin = −10. ✔
   - Fix: use step-aware precision, and never truncate digits (`GridGraph.jsx:161-185`).
 - [ ] `#010` **Linear Regression: this is the cause of the "tick misalignment" you noted.** `generateLogTicks` returns integer ticks *outside* the axis range. For example, the range is [0.24, 1.63] but the ticks are 0, 1, 2, so they are drawn off the axes. ✔ Keep only in-range ticks and add 2×/5× ticks (`LinearRegressionLogScalingTool.jsx:163-173`).
 - [ ] `#011` **Yule Process has no help file.** The (?) button shows "not found". An outline is in §3 below.
-- [ ] `#012` **Styling depends on the Tailwind *Play CDN* (`cdn.tailwindcss.com`, marked "not for production").** `src/index.css` uses v3 `@tailwind` directives under the v4 PostCSS plugin, so the built CSS contains almost none of the utility classes. If the CDN is slow or blocked (school networks, offline), the whole app is unstyled.
+- [x] `#012` 🧪 *(Tailwind v3.4 now compiled at build time; CDN removed)* **Styling depends on the Tailwind *Play CDN* (`cdn.tailwindcss.com`, marked "not for production").** `src/index.css` uses v3 `@tailwind` directives under the v4 PostCSS plugin, so the built CSS contains almost none of the utility classes. If the CDN is slow or blocked (school networks, offline), the whole app is unstyled.
   - Fix: switch to `@import "tailwindcss";` (and port `tailwind.config.js`), confirm that `dist/` CSS contains the classes, then remove the CDN script (`index.html:99`).
 - [ ] `#013` **Help files with wrong math claims.** Each is detailed in its tool section:
   - SHO: period, which extreme is where, the u/k effect, and buttons that don't exist.
@@ -103,74 +103,74 @@ These are the items where a student currently sees something **wrong**.
 
 ### Shared components
 
-- [ ] `#023` **P2 `GridButton` ignores its `w`/`h` props** (hard-coded 1×1, `GridButton.jsx:111-112`). The w = 2/3 buttons in Brownian, MuscleTremor, SharkTunaInteraction, and Yule render as 1×1 next to an empty cell. CLAUDE.md also documents `w={2}`.
-- [ ] `#024` **P2 `GridDisplay` `fontSize="small"|"large"|…` does nothing.** The value is inserted raw as a CSS class (53 uses). Map names to `text-xs`/`text-sm`, as `GridLabel` does (`GridDisplay.jsx:114`).
-- [ ] `#025` **P2 `GridSliderHorizontal` click mapping is off.** The knob is drawn over `trackWidth−24` but clicks map over `trackWidth`, so clicking the knob changes the value (e.g., 0 → 4) ✔. It also silently ignores `min`/`max` props, which caused the Logistic "b 0–2" help error (`:170-186, 318`).
-- [ ] `#026` **P2 `GridGraph` padding is sized from `tick.toString()`, not the displayed label.** A tick like 0.30000000000000004 reserves about 124 px (`:57-63`).
-- [ ] `#027` **P2 `GridGraphDualY` renders ticks raw.** There is no formatter, so float noise shows. Share one tick formatter and one padding helper across GridGraph, GridGraphDualY, and GridTimeSeries.
-- [ ] `#028` **P2 `GridTimeSeries` runs a permanent 60 fps rAF loop** to redraw static data (CPU/battery drain). It also ignores tick props passed by tools, and sits about 4 px off GridGraph's plot area.
-- [ ] `#029` **P2 `GridTableInput` compacts empty rows on every keystroke.** The cursor jumps and entries move rows (Linear Regression). It also re-initializes its rows when `columns` change, which caused the Leslie theme-wipe bug.
-- [ ] `#030` **P2 `GridInput`: debug `console.log` spam** (`:114-185`). Also:
+- [x] `#023` **P2 `GridButton` ignores its `w`/`h` props** (hard-coded 1×1, `GridButton.jsx:111-112`). The w = 2/3 buttons in Brownian, MuscleTremor, SharkTunaInteraction, and Yule render as 1×1 next to an empty cell. CLAUDE.md also documents `w={2}`.
+- [x] `#024` 🧪 *(status/equation text now really uses small/xs sizes — check readability)* **P2 `GridDisplay` `fontSize="small"|"large"|…` does nothing.** The value is inserted raw as a CSS class (53 uses). Map names to `text-xs`/`text-sm`, as `GridLabel` does (`GridDisplay.jsx:114`).
+- [x] `#025` **P2 `GridSliderHorizontal` click mapping is off.** The knob is drawn over `trackWidth−24` but clicks map over `trackWidth`, so clicking the knob changes the value (e.g., 0 → 4) ✔. It also silently ignores `min`/`max` props, which caused the Logistic "b 0–2" help error (`:170-186, 318`).
+- [x] `#026` **P2 `GridGraph` padding is sized from `tick.toString()`, not the displayed label.** A tick like 0.30000000000000004 reserves about 124 px (`:57-63`).
+- [x] `#027` **P2 `GridGraphDualY` renders ticks raw.** There is no formatter, so float noise shows. Share one tick formatter and one padding helper across GridGraph, GridGraphDualY, and GridTimeSeries.
+- [x] `#028` **P2 `GridTimeSeries` runs a permanent 60 fps rAF loop** to redraw static data (CPU/battery drain). It also ignores tick props passed by tools, and sits about 4 px off GridGraph's plot area.
+- [x] `#029` **P2 `GridTableInput` compacts empty rows on every keystroke.** The cursor jumps and entries move rows (Linear Regression). It also re-initializes its rows when `columns` change, which caused the Leslie theme-wipe bug.
+- [x] `#030` 🧪 *(typed numbers now apply on Enter/Tab/click-away)* **P2 `GridInput`: debug `console.log` spam** (`:114-185`). Also:
   - Integer inputs aren't rounded, so N = 50.5 flips 51 coins while the expectations use 50.5.
   - Decimal places come from the range, not the step.
   - Every keystroke fires `onChange`. Commit on blur/Enter instead.
   - The range prints as "-2-2"; use "−2 to 2".
-- [ ] `#031` **P3 `GridEquationInput`: the allowed-character regex lacks `,`**, so `pow(X,2)` and `max(X,Y)` are flagged red.
-- [ ] `#032` **P3 `GridWindow` ignores `title` (only `tooltip`).**
-- [ ] `#033` **P3 Theme detection by color substring** (`theme.component.includes("gray-700")`) in about 15 components, contrary to CLAUDE.md. Use `useTheme().currentTheme`.
-- [ ] `#034` **P3 Wrong `backgroundSize` on noise textures.** `"cover, 64px 64px"` with a single `url()` layer stretches the noise instead of tiling it.
-- [ ] `#035` **P3 `GridGraph` defaults its axis labels to "tuna"/"sharks".** Default them to `""`.
+- [x] `#031` **P3 `GridEquationInput`: the allowed-character regex lacks `,`**, so `pow(X,2)` and `max(X,Y)` are flagged red.
+- [x] `#032` **P3 `GridWindow` ignores `title` (only `tooltip`).**
+- [x] `#033` **P3 Theme detection by color substring** (`theme.component.includes("gray-700")`) in about 15 components, contrary to CLAUDE.md. Use `useTheme().currentTheme`.
+- [x] `#034` **P3 Wrong `backgroundSize` on noise textures.** `"cover, 64px 64px"` with a single `url()` layer stretches the noise instead of tiling it.
+- [x] `#035` **P3 `GridGraph` defaults its axis labels to "tuna"/"sharks".** Default them to `""`.
 
 ### Rendering, accessibility, responsiveness
 
-- [ ] `#036` **P2 No `devicePixelRatio` scaling on any canvas.** Everything is blurry on Retina/HiDPI screens. Add a shared `setupCanvas(canvas)` helper.
-- [ ] `#037` **P2 Keyboard and screen-reader access.**
+- [ ] `#036` ◐ *(shared components done; tool canvases in phase B)* **P2 No `devicePixelRatio` scaling on any canvas.** Everything is blurry on Retina/HiDPI screens. Add a shared `setupCanvas(canvas)` helper.
+- [x] `#037` 🧪 *(buttons/sliders keyboard + touch; help modal is a proper dialog)* **P2 Keyboard and screen-reader access.**
   - Buttons are `<div>`s with no role, tabIndex, or key handling.
   - Sliders have no `role="slider"`, ARIA values, or arrow keys, and are mouse-only, so they don't drag on tablets.
   - Help modal: no `role="dialog"` or focus trap.
   - Fix: use pointer events, real `<button>`s, and ARIA.
-- [ ] `#038` **P2 Fixed-pixel `ToolContainer`** (up to 1250 px wide) overflows on laptops, tablets, and split screen. Scale with `transform: scale(min(1, available/needed))`.
-- [ ] `#039` **P2 Flash on every navigation.** Theme and tool are read from the URL in an effect, so dark-mode users get a white flash on every navigation, and direct links flash the menu first. Initialize state lazily from `URLSearchParams`.
+- [x] `#038` 🧪 *(tools scale down in narrow windows)* **P2 Fixed-pixel `ToolContainer`** (up to 1250 px wide) overflows on laptops, tablets, and split screen. Scale with `transform: scale(min(1, available/needed))`.
+- [x] `#039` 🧪 **P2 Flash on every navigation.** Theme and tool are read from the URL in an effect, so dark-mode users get a white flash on every navigation, and direct links flash the menu first. Initialize state lazily from `URLSearchParams`.
 - [ ] `#040` **P3 Color-only encoding** throughout (glucose/insulin, nullclines, the gentamicin bands). Add line styles for color-blind students.
-- [ ] `#041` **P3 Pressing `?` opens help even while typing in an input.** Ignore it when the target is an input.
-- [ ] `#042` **P3 Hard-to-read titles and a generic tab title.** Tool titles use the Dancing Script cursive. Set `document.title` per tool.
+- [x] `#041` **P3 Pressing `?` opens help even while typing in an input.** Ignore it when the target is an input.
+- [ ] `#042` ◐ *(tab titles done; title font is a look decision for Marty)* **P3 Hard-to-read titles and a generic tab title.** Tool titles use the Dancing Script cursive. Set `document.title` per tool.
 
 ### Utilities / parser
 
-- [ ] `#043` **P2 `ln` is whitelisted but math.js has no `ln`.** `ln(X)` errors ✔. Fix with `math.import({ ln: math.log })`.
-- [ ] `#044` **P2 Parser error messages leak math.js internals.**
+- [x] `#043` **P2 `ln` is whitelisted but math.js has no `ln`.** `ln(X)` errors ✔. Fix with `math.import({ ln: math.log })`.
+- [x] `#044` 🧪 *(new student-facing parser messages)* **P2 Parser error messages leak math.js internals.**
   - `X(1-X)` gives "'X' is not a function"; `kX` gives "Undefined symbol kX".
   - Lowercase `x` gives "Undefined symbol x".
   - `t` gives "use uppercase T" even though T isn't valid either.
   - "Declare parameters: [k, X_tau]" asks for something students can't do.
   - Fix: add a friendly error layer and auto-insert `*` before `(`. The 2D and 1D validators are duplicated; share one.
-- [ ] `#045` **P1 `mathHelpers` root finding has three problems.** ✔
+- [x] `#045` **P1 `mathHelpers` root finding has three problems.** ✔
   1. It misses tangent roots that fall on a grid point: `(X-0.2)^2` on the default window reports **no equilibrium**.
   2. It reports sign changes across poles as equilibria: `tan X` gives ±π/2 "stable".
   3. Its absolute 1e-6 tolerances give wrong roots for small k (0.0005 instead of 0), and flag `X^4` as "X′ = 0 on an interval".
   - Fix: use scaled tolerances and bisect on interval width.
-- [ ] `#046` **P3 `calculateLinearRegression` returns NaN with `isValid: true`** when all x are equal. Use mean-centred sums.
-- [ ] `#047` **P3 Box–Muller can hit `Math.log(0)`.** Use `1 - Math.random()` (Brownian, Atmospheric).
+- [x] `#046` **P3 `calculateLinearRegression` returns NaN with `isValid: true`** when all x are equal. Use mean-centred sums.
+- [ ] `#047` ◐ *(shared randomNormal added; tools switch over in phase B)* **P3 Box–Muller can hit `Math.log(0)`.** Use `1 - Math.random()` (Brownian, Atmospheric).
 
 ### Build, deploy, performance
 
-- [ ] `#048` **P2 One 1.1 MB JS chunk.** Every tool, plus math.js and the dev tools, is imported eagerly and re-parsed on every full-reload navigation. Use `React.lazy(() => import(...))` per tool.
-- [ ] `#049` **P2 `deploy.yml` uses Node 18 (EOL).** Move to 22. PR runs also get `pages: write`; split into build (PR) and deploy (main) jobs and add a lint step.
-- [ ] `#050` **P2 The sitemap lists only 10 of 32 student tools**, and `lastmod` is 2025-01-27. Generate it from `tools.js` at build time.
-- [ ] `#051` **P3 Dev tools reachable by students.** `?tool=component-test` etc. open without `?dev=true`, because `getToolById` ignores visibility. Gate them behind `import.meta.env.DEV`.
-- [ ] `#052` **P3 `?tool=<unknown>` shows only "Tool not found".** Add a Back link.
-- [ ] `#053` **P3 Metadata and SEO cleanup.**
+- [x] `#048` **P2 One 1.1 MB JS chunk.** Every tool, plus math.js and the dev tools, is imported eagerly and re-parsed on every full-reload navigation. Use `React.lazy(() => import(...))` per tool.
+- [x] `#049` **P2 `deploy.yml` uses Node 18 (EOL).** Move to 22. PR runs also get `pages: write`; split into build (PR) and deploy (main) jobs and add a lint step.
+- [x] `#050` **P2 The sitemap lists only 10 of 32 student tools**, and `lastmod` is 2025-01-27. Generate it from `tools.js` at build time.
+- [x] `#051` **P3 Dev tools reachable by students.** `?tool=component-test` etc. open without `?dev=true`, because `getToolById` ignores visibility. Gate them behind `import.meta.env.DEV`.
+- [x] `#052` **P3 `?tool=<unknown>` shows only "Tool not found".** Add a Back link.
+- [x] `#053` 🧪 *(new favicon from Logo.png, social preview image)* **P3 Metadata and SEO cleanup.**
   - The favicon is the Vite logo (`Logo.png` is unused).
   - There's no `og:image`.
   - The static canonical URL contradicts the per-tool sitemap entries.
   - `google…html` sits at the repo root instead of in `public/`.
-- [ ] `#054` **P3 `npm run deploy` (gh-pages) is obsolete now that Pages deploys via Actions.** Remove it, or document why it's kept.
+- [x] `#054` **P3 `npm run deploy` (gh-pages) is obsolete now that Pages deploys via Actions.** Remove it, or document why it's kept.
 
 ### Registry (`src/data/tools.js`)
 
-- [ ] `#055` **P2 Yule description.** A Yule process is *pure birth*; with deaths it's a birth–death (Galton–Watson) process. Rename it, or say "Yule process with death".
-- [ ] `#056` **P2 `self-interaction-simulator` has `topics: []`**, so it appears under no topic.
-- [ ] `#057` **P3 Other description fixes.**
+- [x] `#055` **P2 Yule description.** A Yule process is *pure birth*; with deaths it's a birth–death (Galton–Watson) process. Rename it, or say "Yule process with death".
+- [x] `#056` **P2 `self-interaction-simulator` has `topics: []`**, so it appears under no topic.
+- [x] `#057` **P3 Other description fixes.**
   - "Einstein-Stokes" → "Stokes–Einstein" (also in the README).
   - SHO "circular trajectories" → "elliptical".
   - Tree ring "using z-scores": no z-score is shown.
@@ -182,7 +182,7 @@ These are the items where a student currently sees something **wrong**.
   - Discrete logistic (deterministic chaos) is in "Randomness".
   - Ion channel and Two-compartment (stochastic) are in "Order".
   - The Lab 6 description in CLAUDE.md doesn't match its tools.
-- [ ] `#059` **P3 The menu shows only the first topic and first lab tag**, so insulin-glucose shows only "Lab 1". `getToolsByCategory`, `searchTools`, and `getAllTools` are unused, and one checks only `.lab`.
+- [x] `#059` **P3 The menu shows only the first topic and first lab tag**, so insulin-glucose shows only "Lab 1". `getToolsByCategory`, `searchTools`, and `getAllTools` are unused, and one checks only `.lab`.
 
 ---
 
@@ -273,8 +273,8 @@ These are the items where a student currently sees something **wrong**.
 - [ ] `#113` P3 Only about 31% of the "5625 particles" are on-screen, at 80k evaluations per frame (slow on Chromebooks). Axis labels are lowercase x/y while equations need uppercase X/Y.
 
 **one-dimensional-calculator**
-- [ ] `#114` P1 A string tick crashes the tool when Xmin = −10 ✔.
-- [ ] `#115` P1 Tangent roots are missed and flat roots are flagged as degenerate intervals (see §1).
+- [x] `#114` P1 A string tick crashes the tool when Xmin = −10 ✔.
+- [x] `#115` P1 Tangent roots are missed and flat roots are flagged as degenerate intervals (see §1).
 - [ ] `#116` P1 Help example `k*X_tau*(1-X)` never oscillates. Use `k*X*(1-X_tau)`, and note that kτ ≤ 1 < π/2 means sustained oscillation needs a larger coefficient.
 - [ ] `#117` P2 Equilibrium ticks are placed at *rounded* values, so they're about 3 px off the equilibrium lines.
 - [ ] `#118` P2 The status box hides the other equilibria when a degenerate interval exists, and can overflow.
@@ -429,7 +429,7 @@ These are the items where a student currently sees something **wrong**.
 - [ ] `#213` P3 Add point trails. Help: "lightness encodes radius" should say it's periodic bands.
 
 **leslie-matrix**
-- [ ] `#214` P1 Changing the theme wipes the table, and the next keystroke overwrites the student's parameters with blanks (GridTableInput reinit).
+- [x] `#214` *(fixed in GridTableInput (entries survive theme switch))* P1 Changing the theme wipes the table, and the next keystroke overwrites the student's parameters with blanks (GridTableInput reinit).
 - [ ] `#215` P1 λ₁ comes from 300 unchecked power iterations, and the primitivity test ignores zero survivals. It shows λ = 0.629 when the true value is 1.0003 ✔. Compute exactly by bisection on Euler–Lotka.
 - [ ] `#216` P2 λ₁ and the eigenvector are hidden for imprimitive matrices, but they still exist. Show them with an "oscillates" note.
 - [ ] `#217` P2 `pseudoLog` goes negative for 0 < v < 0.1, so declining populations fall off the plot.
@@ -440,7 +440,7 @@ These are the items where a student currently sees something **wrong**.
 
 **matrix-vector-calculator** (dev): solid ✔. Minor: label style ("M × N" vs "Mv"), and 4×4 is cramped.
 
-- [ ] `#222` P2 Move the eigen code into `linearAlgebra.js`: `eig2x2(M, tol)` and `leslieLambda(f, s)`. Add Node unit tests for defective, scalar, complex, singular, and near-imprimitive cases.
+- [x] `#222` P2 Move the eigen code into `linearAlgebra.js`: `eig2x2(M, tol)` and `leslieLambda(f, s)`. Add Node unit tests for defective, scalar, complex, singular, and near-imprimitive cases.
 
 ---
 
@@ -457,24 +457,24 @@ These are the items where a student currently sees something **wrong**.
 ## 4. Repo hygiene & docs
 
 - [ ] `#228` **P2 Remove or move the stray root file `## User`.** It's a 437 KB pasted chat log. It's currently *untracked*, so not public, but it's easy to commit by accident.
-- [ ] `#229` **P2 Delete dead code.**
+- [x] `#229` **P2 Delete dead code.**
   - `src/App.jsx` and `App.css` (not imported; lint `no-undef`).
   - `src_backup/`, `src/tools/old/`, and the `*.backup` files.
   - `equationParser.legacy.js` and `equationParserTest.js`.
   - Unused utils: `odeSolver.js`, `layoutPlanner.js`, `soundPresets.js`.
   - The empty `grid/index.jsx` and `tools/index.jsx`, and the stale `tools/index.js`.
   - Unused grid components, or move them to `dev/`: GridKnob, GridSlider, GridScreen, GridVectorField.
-- [ ] `#230` **P3 Add `.claude/worktrees/` and `.claude/settings.local.json` to `.gitignore`.** The worktree copy in your Dropbox folder is a full duplicate of the project.
-- [ ] `#231` **P2 README "Available Tools" is missing about 14 student tools.** Consider generating the list from `tools.js`.
+- [x] `#230` **P3 Add `.claude/worktrees/` and `.claude/settings.local.json` to `.gitignore`.** The worktree copy in your Dropbox folder is a full duplicate of the project.
+- [x] `#231` **P2 README "Available Tools" is missing about 14 student tools.** Consider generating the list from `tools.js`.
   - "Open source and free for educational use" understates the MIT license.
   - "NOT YET Mobile friendly" → "Not yet mobile-friendly".
-- [ ] `#232` **P3 Update CONTRIBUTING.md** (dev tools list, Node version, the obsolete `npm run deploy`).
-- [ ] `#233` **P3 Update CLAUDE.md.**
+- [x] `#232` **P3 Update CONTRIBUTING.md** (dev tools list, Node version, the obsolete `npm run deploy`).
+- [x] `#233` **P3 Update CLAUDE.md.**
   - It says "three patterns" but lists four.
   - It documents GridButton `w={2}` and GridDisplay `fontSize="small"`, which don't work.
   - Every shared component breaks its "no color detection" rule.
   - Its Lab 6 description doesn't match the Lab 6 tools.
-- [ ] `#234` **P3 Retire stale notes.** `GRIDGRAPH_MIGRATION_GUIDE.md`, `SOUND_EFFECTS_GUIDE.md`, and `docs/GridLayoutGuide.md` are probably obsolete. `SESSION_NOTES.md` is dated 2025 (probably meant 2026). Turn `test-equilibria.js` into a real test (e.g., Vitest) and add math unit tests for the utils.
+- [x] `#234` *(guides kept — still current; test-equilibria.js became a Vitest test)* **P3 Retire stale notes.** `GRIDGRAPH_MIGRATION_GUIDE.md`, `SOUND_EFFECTS_GUIDE.md`, and `docs/GridLayoutGuide.md` are probably obsolete. `SESSION_NOTES.md` is dated 2025 (probably meant 2026). Turn `test-equilibria.js` into a real test (e.g., Vitest) and add math unit tests for the utils.
 - [ ] `#235` **P3 Clear the lint backlog.** There are 126 problems: 62 unused variables, 29 useless escapes, 27 hook-dependency warnings (most benign; the real ones are listed above), and 8 `no-undef` (all in dead `App.jsx`). Then add lint to CI.
 
 ---
@@ -486,3 +486,15 @@ These are the items where a student currently sees something **wrong**.
 3. **Accumulate results across runs** (histograms with theory overlays) for Coin Flipper, Tree Ring, Growth–Collapse, and Genetic Drift. This shows the CLT and fixation probabilities.
 4. **Consistent controls:** Start/Pause/Reset and a speed slider in every animated tool; lock or restart on parameter change; say which trajectory the time series is following.
 5. **Better defaults that show the phenomenon the lab is about:** oscillations in the Lab 4 tools, a prefilled Leslie example, sample data for Logistic.
+
+---
+
+## 6. New items found while fixing
+
+- [ ] `#236` ⏸ *(needs Marty)* **Matrix & Vector Calculator is dev-only, but Lab Manual p.163 (Les3) says "you may wish to use the Matrix & Vector Calculator."** Students can't reach it (and now a direct link shows "not found" without `?dev=true`). Decide: make it a student tool (which lab?) or change the manual.
+- [ ] `#237` ⏸ *(needs Marty)* **Logistic Growth Explorer b slider runs 0–1; the help says 0–2.** Pick one; the code change is one line either way.
+- [ ] `#238` P3 Yule passes `disabled` to GridButton, which ignores it.
+- [ ] `#239` P3 1D Calculator shows "-0.0" ticks and "X* = -0.000" for tiny values.
+- [ ] `#240` P3 Lazy-load the help modal (react-markdown, ~115 kB) so tool pages load faster.
+- [ ] `#241` P2 Help files show raw "[VERIFY: …]" markers to students (covered by #223; listed so it isn't missed).
+- [x] `#242` GridWheelSelector's `<style jsx>` made React log an error in 4 tools (fixed in phase A).
