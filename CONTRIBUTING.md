@@ -11,8 +11,8 @@ This document covers development setup, project structure, and guidelines for co
 ### Running Locally
 
 ```bash
-# Clone the repository
-git clone https://github.com/MartyWeissman/modeling-synthesizer.git
+# Clone the repository (SSH)
+git clone git@github.com:MartyWeissman/modeling-synthesizer.git
 cd modeling-synthesizer
 
 # Install dependencies
@@ -31,6 +31,24 @@ The development server runs at `http://localhost:5173/modeling-synthesizer/`
 - `npm run preview` - Preview production build locally
 - `npm run lint` - Run ESLint
 - `npm run deploy` - Manual deploy to GitHub Pages
+
+## Quick Git Workflow
+
+```bash
+# 1. Make your changes, then check what's modified
+git status
+
+# 2. Stage specific files (avoid git add -A)
+git add src/tools/YourTool.jsx
+
+# 3. Commit
+git commit -m "Short description of changes"
+
+# 4. Push to main (auto-deploys to GitHub Pages)
+git push
+```
+
+Pushing to `main` triggers GitHub Actions to build and deploy to GitHub Pages automatically. No manual deploy step needed.
 
 ## Project Structure
 
