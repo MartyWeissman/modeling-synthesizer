@@ -2,6 +2,12 @@
 
 import React, { useRef, useEffect, useCallback } from "react";
 import GridGraph from "./GridGraph";
+import { useThemeMode } from "./themeMode";
+import { setupCanvas } from "../../utils/canvas";
+
+// Extra canvas margin (px) around the plot area so markers and line caps at
+// the edges of the plot are not clipped.
+const CANVAS_MARGIN = 6;
 
 const GridTimeSeries = ({
   x,
@@ -19,12 +25,19 @@ const GridTimeSeries = ({
   showMarkers = false,
   currentTime = null, // Vertical line at current time
   events = [], // Array of {time, label, color} for special events
+  xTicks: xTicksProp = null, // Optional explicit x-axis ticks (else 6 evenly spaced)
+  yTicks: yTicksProp = null, // Optional explicit y-axis ticks (else 6 evenly spaced)
+  xTickLabels = null, // Optional custom x tick labels
+  yTickLabels = null, // Optional custom y tick labels
   theme,
   tooltip,
   children,
 }) => {
   const canvasRef = useRef(null);
-  const animationIdRef = useRef(null);
+  const { isDarkMode } = useThemeMode(theme);
+  // GridGraph's transform (plot area size/position + data->pixel mapping),
+  // captured during GridGraph's render so we draw in exactly its plot area.
+  const transformRef = useRef(null);
 
   // Generate tick marks based on ranges with smart formatting
   const generateTicks = (range, numTicks = 6) => {
@@ -45,65 +58,35 @@ const GridTimeSeries = ({
     });
   };
 
-  const xTicks = generateTicks(timeRange);
-  const yTicks = generateTicks(populationRange);
+  const xTicks = xTicksProp || generateTicks(timeRange);
+  const yTicks = yTicksProp || generateTicks(populationRange);
 
-  // Calculate padding to match GridGraph's layout
-  const calculatePadding = useCallback(() => {
-    const maxYTickLength = Math.max(
-      ...yTicks.map((tick) => tick.toString().length),
-    );
-    const yTickWidth = Math.max(25, maxYTickLength * 6 + 10);
-    const yAxisLabelWidth = 20;
-    const xTickHeight = 15;
-    const xAxisLabelHeight = 20;
-
-    return {
-      left: yTickWidth + yAxisLabelWidth,
-      right: 15,
-      top: 15,
-      bottom: xTickHeight + xAxisLabelHeight,
-    };
-  }, [yTicks]);
-
-  // Convert data coordinates to canvas coordinates (accounting for padding)
-  const dataToCanvas = useCallback(
-    (dataX, dataY, canvasWidth, canvasHeight) => {
-      const [xMin, xMax] = timeRange;
-      const [yMin, yMax] = populationRange;
-
-      const padding = calculatePadding();
-      const plotWidth = canvasWidth - padding.left - padding.right;
-      const plotHeight = canvasHeight - padding.top - padding.bottom;
-
-      const canvasX =
-        padding.left + ((dataX - xMin) / (xMax - xMin)) * plotWidth;
-      const canvasY =
-        padding.top +
-        plotHeight -
-        ((dataY - yMin) / (yMax - yMin)) * plotHeight;
-
-      return [canvasX, canvasY];
-    },
-    [timeRange, populationRange, calculatePadding],
-  );
-
-  // Draw time series
+  // Draw time series (only when the data, ranges, theme or layout change;
+  // there is no animation loop).
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const transform = transformRef.current;
+    if (!canvas || !transform) return;
 
-    const ctx = canvas.getContext("2d");
-    const rect = canvas.getBoundingClientRect();
+    const { plotWidth, plotHeight, dataToPixel } = transform;
+    const M = CANVAS_MARGIN;
+    const setup = setupCanvas(canvas, {
+      width: plotWidth + 2 * M,
+      height: plotHeight + 2 * M,
+    });
+    if (!setup) return;
+    const { ctx, width, height } = setup;
+    ctx.clearRect(0, 0, width, height);
+    ctx.translate(M, M);
 
-    // Set canvas size to match display size
-    if (canvas.width !== rect.width || canvas.height !== rect.height) {
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-    }
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // A point is drawn if it lies inside the plot area (small tolerance).
+    const inPlot = (px, py) =>
+      px >= -M && px <= plotWidth + M && py >= -M && py <= plotHeight + M;
+    const toPixel = (point) => {
+      const timeValue = point.t || point.x || point.time || 0;
+      const dataValue = point.value || point.y || 0;
+      return dataToPixel(timeValue, dataValue);
+    };
 
     // Draw series
     series.forEach((seriesData) => {
@@ -125,28 +108,13 @@ const GridTimeSeries = ({
       let hasStarted = false;
 
       seriesData.data.forEach((point) => {
-        const timeValue = point.t || point.x || point.time || 0;
-        const dataValue = point.value || point.y || 0;
-
-        const [canvasX, canvasY] = dataToCanvas(
-          timeValue,
-          dataValue,
-          canvas.width,
-          canvas.height,
-        );
-
-        // Only draw if within bounds
-        if (
-          canvasX >= 0 &&
-          canvasX <= canvas.width &&
-          canvasY >= 0 &&
-          canvasY <= canvas.height
-        ) {
+        const { x: px, y: py } = toPixel(point);
+        if (inPlot(px, py)) {
           if (!hasStarted) {
-            ctx.moveTo(canvasX, canvasY);
+            ctx.moveTo(px, py);
             hasStarted = true;
           } else {
-            ctx.lineTo(canvasX, canvasY);
+            ctx.lineTo(px, py);
           }
         }
       });
@@ -157,24 +125,10 @@ const GridTimeSeries = ({
       if (showMarkers && seriesData.data.length < 100) {
         ctx.fillStyle = seriesData.color || "#0066cc";
         seriesData.data.forEach((point) => {
-          const timeValue = point.t || point.x || point.time || 0;
-          const dataValue = point.value || point.y || 0;
-
-          const [canvasX, canvasY] = dataToCanvas(
-            timeValue,
-            dataValue,
-            canvas.width,
-            canvas.height,
-          );
-
-          if (
-            canvasX >= 0 &&
-            canvasX <= canvas.width &&
-            canvasY >= 0 &&
-            canvasY <= canvas.height
-          ) {
+          const { x: px, y: py } = toPixel(point);
+          if (inPlot(px, py)) {
             ctx.beginPath();
-            ctx.arc(canvasX, canvasY, 3, 0, 2 * Math.PI);
+            ctx.arc(px, py, 3, 0, 2 * Math.PI);
             ctx.fill();
           }
         });
@@ -183,20 +137,14 @@ const GridTimeSeries = ({
 
     // Draw current time indicator
     if (currentTime !== null && currentTime !== undefined) {
-      const [canvasX] = dataToCanvas(
-        currentTime,
-        0,
-        canvas.width,
-        canvas.height,
-      );
-
-      if (canvasX >= 0 && canvasX <= canvas.width) {
+      const { x: px } = dataToPixel(currentTime, 0);
+      if (px >= 0 && px <= plotWidth) {
         ctx.strokeStyle = "#ff4444";
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
-        ctx.moveTo(canvasX, 0);
-        ctx.lineTo(canvasX, canvas.height);
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, plotHeight);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -204,81 +152,60 @@ const GridTimeSeries = ({
 
     // Draw events
     events.forEach((event) => {
-      const [canvasX] = dataToCanvas(
-        event.time,
-        0,
-        canvas.width,
-        canvas.height,
-      );
+      const { x: px } = dataToPixel(event.time, 0);
 
-      if (canvasX >= 0 && canvasX <= canvas.width) {
+      if (px >= 0 && px <= plotWidth) {
         const eventColor = event.color || "#ff6600";
 
         ctx.strokeStyle = eventColor;
         ctx.lineWidth = 2;
         ctx.setLineDash([3, 3]);
         ctx.beginPath();
-        ctx.moveTo(canvasX, 0);
-        ctx.lineTo(canvasX, canvas.height);
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, plotHeight);
         ctx.stroke();
         ctx.setLineDash([]);
 
         ctx.fillStyle = eventColor;
         ctx.beginPath();
-        ctx.arc(canvasX, 10, 4, 0, 2 * Math.PI);
+        ctx.arc(px, 10, 4, 0, 2 * Math.PI);
         ctx.fill();
 
         if (event.label) {
-          ctx.fillStyle = theme?.component?.includes("gray-700")
-            ? "#ffffff"
-            : "#333333";
+          ctx.fillStyle = isDarkMode ? "#ffffff" : "#333333";
           ctx.font = "10px Arial";
           ctx.textAlign = "center";
-          ctx.fillText(event.label, canvasX, 28);
+          ctx.fillText(event.label, px, 28);
         }
       }
     });
-  }, [series, currentTime, events, showMarkers, dataToCanvas, theme]);
+  }, [series, currentTime, events, showMarkers, isDarkMode]);
 
-  // Animation loop - restart when draw function changes
+  // Redraw after a render only if something that affects the picture changed
+  // (data, markers, theme, or the plot geometry/ranges).
+  const lastDrawRef = useRef({});
   useEffect(() => {
-    const animate = () => {
-      draw();
-      animationIdRef.current = requestAnimationFrame(animate);
-    };
+    const t = transformRef.current;
+    const geometry = t
+      ? `${t.plotWidth}|${t.plotHeight}|${timeRange[0]}|${timeRange[1]}|${populationRange[0]}|${populationRange[1]}`
+      : "";
+    const last = lastDrawRef.current;
+    if (last.draw === draw && last.geometry === geometry) return;
+    lastDrawRef.current = { draw, geometry };
+    draw();
+  });
 
-    // Start animation loop
-    animationIdRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (animationIdRef.current) {
-        cancelAnimationFrame(animationIdRef.current);
-      }
-    };
-  }, [draw]); // Restart animation when draw function changes
-
-  // Handle window resize - NO React dependencies
+  // Redraw on window resize / devicePixelRatio change (e.g. moving the window
+  // to a Retina screen or zooming the browser).
   useEffect(() => {
-    const handleResize = () => {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []); // Empty dependency array!
+    window.addEventListener("resize", draw);
+    return () => window.removeEventListener("resize", draw);
+  }, [draw]);
 
   // Legend component
   const Legend = () => {
     if (!showLegend || !series.some((s) => s.visible && s.name)) return null;
 
-    const isDarkMode = theme?.component?.includes("gray-700");
     const textColor = isDarkMode ? "text-white" : "text-gray-900";
     const bgColor = isDarkMode ? "bg-gray-800" : "bg-white";
 
@@ -318,27 +245,34 @@ const GridTimeSeries = ({
       yRange={populationRange}
       xTicks={xTicks}
       yTicks={yTicks}
+      xTickLabels={xTickLabels}
+      yTickLabels={yTickLabels}
       variant="time-series-static"
       theme={theme}
       tooltip={tooltip}
     >
-      <canvas
-        ref={canvasRef}
-        className="absolute"
-        style={{
-          left: 1,
-          bottom: 1,
-          width: "calc(100% - 2px)",
-          height: "calc(100% - 2px)",
-          pointerEvents: "none",
-        }}
-        width={600}
-        height={300}
-      />
+      {(t) => {
+        transformRef.current = t;
+        return (
+          <>
+            <canvas
+              ref={canvasRef}
+              className="absolute"
+              style={{
+                left: `${t.padding.left - CANVAS_MARGIN}px`,
+                bottom: `${t.padding.bottom - CANVAS_MARGIN}px`,
+                width: `${t.plotWidth + 2 * CANVAS_MARGIN}px`,
+                height: `${t.plotHeight + 2 * CANVAS_MARGIN}px`,
+                pointerEvents: "none",
+              }}
+            />
 
-      <Legend />
+            <Legend />
 
-      {children}
+            {typeof children === "function" ? children(t) : children}
+          </>
+        );
+      }}
     </GridGraph>
   );
 };
