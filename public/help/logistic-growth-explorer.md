@@ -12,18 +12,18 @@ The logistic growth equation describes population growth with an upper limit:
 
 **Solution**: P(t) = C·e^(b(t-t₀)) / (1 + e^(b(t-t₀)))
 
-This produces the characteristic S-shaped (sigmoid) curve that starts with slow growth, accelerates to maximum rate, then decelerates as the population approaches carrying capacity.
+This produces the characteristic S-shaped (sigmoid) curve. While P is small compared with C, the population grows almost exponentially, with rate b. Growth is fastest at t = t₀, when P = C/2. After that, growth slows as the population approaches the carrying capacity.
 
 ## Parameters
 
-### C (Carrying Capacity): 1-10000
+### C (Carrying Capacity): 1–10000
 The upper limit of population growth - the maximum sustainable population. The curve asymptotically approaches this value. Default: 100.
 
-### b (Growth Rate): 0-2
-Controls the steepness of the S-curve. Higher values produce faster transitions from low to high population. Default: 0.5.
+### b (Growth Rate): 0–1
+The birth rate (growth rate when the population is small). It controls the steepness of the S-curve: higher values give a faster rise from low to high population. Slider in steps of 0.01. Default: 0.5.
 
-### t₀ (Time Shift): 0-30
-The time at which the population reaches exactly half the carrying capacity (C/2). Shifts the curve left or right. Default: 10.
+### t₀ (Time Shift): 0–30
+The time at which the population reaches exactly half the carrying capacity (C/2); this is also when P is growing fastest. Changing t₀ shifts the curve left or right. The slider normally runs from 0 to 30; if you enter data with times outside that range, it widens to cover your data. Default: 10.
 
 ## Components
 
@@ -38,12 +38,12 @@ Shows:
 - **Gray squares** (when RSS shown): Visual representation of residuals
 
 ### RSS Display
-Shows the Residual Sum of Squares - the total squared distance from data points to the model curve. Lower values indicate better fit.
+Shows the Residual Sum of Squares: the sum, over your data points, of (data P − model P)². Lower values indicate a better fit. Values of 10⁸ or more are shown in scientific notation.
 
 ### Control Buttons
 - **Clear Data**: Remove all data points
 - **Show RSS**: Toggle visual residual squares
-- **Reset Params**: Return parameters to defaults
+- **Reset Params**: Return C, b and t₀ to their defaults (100, 0.5, 10)
 
 ### Equation Displays
 Three representations of the model:
@@ -59,19 +59,16 @@ Three representations of the model:
 
 3. **RSS minimization**: Watch the RSS value as you adjust parameters. Try to minimize it by finding the best fit.
 
-4. **Residual visualization**: Enable "Show RSS" to see the squared errors as gray boxes. Large boxes indicate poor fit at those points.
+4. **Residual visualization**: Enable "Show RSS" to see the squared errors as gray squares (each square's side is the vertical distance from the point to the curve). Large squares indicate poor fit at those points.
 
 5. **Growth phases**: The logistic curve has three phases:
-   - **Lag phase**: Slow growth when P << C
-   - **Exponential phase**: Rapid growth around t₀
-   - **Saturation phase**: Growth slows as P approaches C
+   - **Early (near-exponential) growth**: While P is much smaller than C, P' ≈ bP, so the population grows almost exponentially. The curve looks flat at first only because P itself is small.
+   - **Fastest growth at t₀**: The growth rate P' is largest when P = C/2, which happens at t = t₀. This is the steepest point (inflection point) of the S-curve.
+   - **Saturation**: Growth slows as P approaches C.
 
 ## Data Entry Tips
 
 - Enter data in the table cells directly
-- Use tab or enter to move between cells
+- Use Tab to move between cells
 - The graph automatically scales to fit your data
 - Empty rows are ignored
-
-## References
-

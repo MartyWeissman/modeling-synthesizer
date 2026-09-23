@@ -1,5 +1,10 @@
 // src/tools/GeneralizedLotkaVolterraTool.jsx
-// CLEAN VERSION: GLV layout + nullclines + DSC particle system
+// Generalized Lotka-Volterra model: phase portrait with vector field,
+// nullclines, classified equilibria, click trajectories and a grid-particle
+// flow (Start/Pause).
+//
+//   P' = αP − γP² + uPQ
+//   Q' = βQ − δQ² + vPQ
 
 import React, {
   useState,
@@ -19,12 +24,15 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas, clearCanvas } from "../utils/canvas";
+import { niceTicks } from "../utils/ticks";
+import { localPointer } from "../components/grid/pointer";
+import { classifyEquilibrium2D } from "../utils/stability";
 
-const GeneralizedLotkaVolterraTool = () => {
-  const { theme, currentTheme } = useTheme();
-
-  // UI State - parameters for Generalized Lotka-Volterra model
-  const [uiParams, setUiParams] = useState({
+// Example presets. P is on the horizontal axis, Q on the vertical axis.
+const EXAMPLE_PRESETS = {
+  Default: {
     alpha: 1.5,
     beta: -2.0,
     gamma: 0.0,
@@ -33,58 +41,155 @@ const GeneralizedLotkaVolterraTool = () => {
     v: 1.0,
     pmax: 5.0,
     qmax: 5.0,
+  },
+  // Classic predator-prey (γ = δ = 0): P is the predator (dies out alone,
+  // gains from meeting Q), Q is the prey (grows alone, loses from meeting P).
+  // The interior equilibrium (10, 10) is a center: orbits are closed loops.
+  "Predator-Prey": {
+    alpha: -0.3,
+    beta: 0.4,
+    gamma: 0.0,
+    delta: 0.0,
+    u: 0.03,
+    v: -0.04,
+    pmax: 20.0,
+    qmax: 20.0,
+  },
+  // Competition (u, v < 0). Bistable: (9, 0) and (0, 3.6) are both stable
+  // and the coexistence point (1.48, 0.94) is a saddle, so which species
+  // wins depends on the starting point. Pmax = 10 so (9, 0) is visible.
+  Competition: {
+    alpha: 0.9,
+    beta: 1.8,
+    gamma: 0.1,
+    delta: 0.5,
+    u: -0.8,
+    v: -0.9,
+    pmax: 10.0,
+    qmax: 5.0,
+  },
+  // Cooperation (u, v > 0): stable coexistence at (6, 4).
+  Cooperation: {
+    alpha: 0.2,
+    beta: 1.0,
+    gamma: 0.1,
+    delta: 0.7,
+    u: 0.1,
+    v: 0.3,
+    pmax: 10.0,
+    qmax: 10.0,
+  },
+};
+
+// Model time advanced per 1/60 s at speed 1 (the original per-frame step, so
+// the visual speed at 60 Hz is unchanged).
+const MODEL_TIME_PER_FRAME = 0.025;
+// Largest RK4 sub-step (model time units).
+const MAX_SUBSTEP = 0.025;
+const GRID_CYCLE_DURATION = 30.0; // model time before the grid is re-seeded
+const PARTICLE_GRID_SIZE = 50;
+const MAX_CLICK_PARTICLES = 100;
+const TIME_WINDOW = 20; // model time shown in the time-series plot
+// A click trajectory is considered finished when it has been (almost)
+// motionless for this much model time, or has run off to "infinity".
+const SETTLE_TIME = 3;
+const DIVERGE_FACTOR = 1e6;
+// Keep drawing this long (s) after the last motion so trails fade out.
+const FADE_OUT_SECONDS = 1.0;
+
+const glvRates = (p, q, { alpha, beta, gamma, delta, u, v }) => [
+  alpha * p - gamma * p * p + u * p * q,
+  beta * q - delta * q * q + v * p * q,
+];
+
+const rk4Step = (p, q, dt, params) => {
+  const k1 = glvRates(p, q, params);
+  const k2 = glvRates(p + (dt * k1[0]) / 2, q + (dt * k1[1]) / 2, params);
+  const k3 = glvRates(p + (dt * k2[0]) / 2, q + (dt * k2[1]) / 2, params);
+  const k4 = glvRates(p + dt * k3[0], q + dt * k3[1], params);
+  return {
+    p: p + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]),
+    q: q + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]),
+  };
+};
+
+/**
+ * Equilibria of the GLV model inside [0, pmax] × [0, qmax], each classified
+ * from its Jacobian. Returns [{ x, y, type, stable }].
+ *
+ * The P-nullclines are P = 0 and α − γP + uQ = 0; the Q-nullclines are
+ * Q = 0 and β − δQ + vP = 0. Equilibria are their pairwise intersections.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function glvEquilibria(params, pmax, qmax) {
+  const { alpha, beta, gamma, delta, u, v } = params;
+  const eps = 1e-9;
+  // Lines a·P + b·Q = c
+  const pLines = [
+    [1, 0, 0],
+    [-gamma, u, -alpha],
+  ];
+  const qLines = [
+    [0, 1, 0],
+    [v, -delta, -beta],
+  ];
+  const points = [];
+  for (const [a1, b1, c1] of pLines) {
+    for (const [a2, b2, c2] of qLines) {
+      if (Math.abs(a1) < eps && Math.abs(b1) < eps) continue;
+      if (Math.abs(a2) < eps && Math.abs(b2) < eps) continue;
+      const det = a1 * b2 - a2 * b1;
+      if (Math.abs(det) < eps) continue; // parallel (or identical) lines
+      // Clean up −0 and float noise so (0, 0) prints as 0.00
+      const x = (c1 * b2 - c2 * b1) / det + 0;
+      const y = (a1 * c2 - a2 * c1) / det + 0;
+      const tol = 1e-9 * Math.max(1, pmax, qmax);
+      if (x < -tol || y < -tol || x > pmax + tol || y > qmax + tol) continue;
+      const px = Math.abs(x) < tol ? 0 : x;
+      const py = Math.abs(y) < tol ? 0 : y;
+      if (
+        points.some(
+          (pt) => Math.abs(pt.x - px) < 1e-6 && Math.abs(pt.y - py) < 1e-6,
+        )
+      )
+        continue;
+      points.push({ x: px, y: py });
+    }
+  }
+  return points.map(({ x, y }) => {
+    // J = [[α − 2γP + uQ, uP], [vQ, β − 2δQ + vP]]
+    const J = [
+      [alpha - 2 * gamma * x + u * y, u * x],
+      [v * y, beta - 2 * delta * y + v * x],
+    ];
+    const c = classifyEquilibrium2D(J);
+    return { x, y, type: c.type, stable: c.stable };
+  });
+}
+
+// Short, student-facing label for an equilibrium type
+const typeLabel = (type) =>
+  type === "non-isolated (det = 0)" ? "degenerate (det = 0)" : type;
+
+// "a saddle", "an unstable node", ...
+const withArticle = (label) =>
+  (/^[aeiou]/i.test(label) ? "an " : "a ") + label;
+
+const GeneralizedLotkaVolterraTool = () => {
+  const { theme, currentTheme } = useTheme();
+
+  // UI State - parameters for Generalized Lotka-Volterra model
+  const [uiParams, setUiParams] = useState({
+    ...EXAMPLE_PRESETS.Default,
     speed: 1,
   });
 
   const [showNullclines, setShowNullclines] = useState(false);
   const [showVectorField, setShowVectorField] = useState(true);
-  const [isRunning, setIsRunning] = useState(false); // Start button state
-  const [trajectoryCount, setTrajectoryCount] = useState(0); // Track red particle count
+  const [isRunning, setIsRunning] = useState(false); // grid particles moving
+  const [gridState, setGridState] = useState("off"); // "off" | "running" | "paused"
+  const [trajectoryCount, setTrajectoryCount] = useState(0); // click trajectories
   const [selectedExample, setSelectedExample] = useState("Default");
-
-  // Example presets
-  const examplePresets = {
-    Default: {
-      alpha: 1.5,
-      beta: -2.0,
-      gamma: 0.0,
-      delta: 0.5,
-      u: -1.0,
-      v: 1.0,
-      pmax: 5.0,
-      qmax: 5.0,
-    },
-    "Predator-Prey": {
-      alpha: -0.3, // p parameter from SharkTuna
-      beta: 0.4, // q parameter from SharkTuna
-      gamma: 0.0,
-      delta: 0.0,
-      u: 0.03, // -beta from SharkTuna
-      v: -0.04, // delta from SharkTuna
-      pmax: 20.0,
-      qmax: 20.0,
-    },
-    Competition: {
-      alpha: 0.9,
-      beta: 1.8,
-      gamma: 0.1,
-      delta: 0.5,
-      u: -0.8,
-      v: -0.9,
-      pmax: 5.0,
-      qmax: 5.0,
-    },
-    Cooperation: {
-      alpha: 0.2,
-      beta: 1.0,
-      gamma: 0.1,
-      delta: 0.7,
-      u: 0.1,
-      v: 0.3,
-      pmax: 10.0,
-      qmax: 10.0,
-    },
-  };
 
   // Canvas refs
   const staticCanvasRef = useRef(null);
@@ -95,20 +200,16 @@ const GeneralizedLotkaVolterraTool = () => {
   const phaseTransformRef = useRef(null);
   const timeSeriesTransformRef = useRef(null);
 
-  // Particle system refs (EXACT copy from DSC)
-  const clickParticlesRef = useRef([]); // Red particles from clicks
-  const gridParticlesRef = useRef([]); // Blue particles from Start button
+  // Particle system refs
+  const clickParticlesRef = useRef([]); // green trajectories from clicks
+  const gridParticlesRef = useRef([]); // orange particles from Start
   const gridCycleTimeRef = useRef(0);
-  const GRID_CYCLE_DURATION = 30.0;
-  const PARTICLE_GRID_SIZE = 50;
-  const MAX_CLICK_PARTICLES = 100;
 
   // Animation state
   const animationStateRef = useRef({
-    animationId: null,
-    isRunning: false,
-    time: 0,
-    timeSeriesData: [],
+    isRunning: false, // grid particles advancing
+    idleTime: 0, // seconds since anything last moved
+    timeSeriesData: [], // samples of the first click trajectory
     params: { ...uiParams },
   });
 
@@ -123,509 +224,39 @@ const GeneralizedLotkaVolterraTool = () => {
   const qmin = 0;
   const qmax = uiParams.qmax;
 
-  // Dynamic tick marks based on axis ranges (5-10 ticks per axis)
-  const generateNiceTicks = useCallback((maxValue) => {
-    const targetTicks = 5;
-    const range = maxValue;
+  // Tick marks (about 5 per axis, computed by index so no float drift)
+  const pTicks = useMemo(() => niceTicks(0, pmax, 5), [pmax]);
+  const qTicks = useMemo(() => niceTicks(0, qmax, 5), [qmax]);
 
-    // Calculate raw step size
-    const rawStep = range / targetTicks;
-
-    // Find magnitude (power of 10)
-    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
-
-    // Normalize to 1-10 range
-    const normalized = rawStep / magnitude;
-
-    // Round to nice number (1, 2, 5, or 10)
-    let niceStep;
-    if (normalized <= 1) {
-      niceStep = 1 * magnitude;
-    } else if (normalized <= 2) {
-      niceStep = 2 * magnitude;
-    } else if (normalized <= 5) {
-      niceStep = 5 * magnitude;
-    } else {
-      niceStep = 10 * magnitude;
-    }
-
-    // Generate ticks
-    const ticks = [];
-    for (let i = 0; i <= maxValue; i += niceStep) {
-      ticks.push(i);
-    }
-
-    // Ensure max value is included if not already
-    if (ticks[ticks.length - 1] < maxValue) {
-      ticks.push(maxValue);
-    }
-
-    return ticks;
-  }, []);
-
-  const pTicks = useMemo(
-    () => generateNiceTicks(pmax),
-    [pmax, generateNiceTicks],
-  );
-  const qTicks = useMemo(
-    () => generateNiceTicks(qmax),
-    [qmax, generateNiceTicks],
+  // Equilibria (with type computed from the Jacobian)
+  const { alpha, beta, gamma, delta, u, v } = uiParams;
+  const equilibria = useMemo(
+    () => glvEquilibria({ alpha, beta, gamma, delta, u, v }, pmax, qmax),
+    [alpha, beta, gamma, delta, u, v, pmax, qmax],
   );
 
-  // Helper: Create line object for nullclines (aP + bQ = c)
-  const createLine = useCallback((a, b, c) => {
-    const epsilon = 1e-6;
+  const colors = useMemo(() => {
+    const dark = currentTheme === "dark";
     return {
-      a,
-      b,
-      c,
-      isDegenerate() {
-        return Math.abs(this.a) < epsilon && Math.abs(this.b) < epsilon;
-      },
-      intersectWith(other) {
-        const det = this.a * other.b - other.a * this.b;
-        if (Math.abs(det) < epsilon) return null;
-        return {
-          p: (this.c * other.b - other.c * this.b) / det,
-          q: (this.a * other.c - other.a * this.c) / det,
-        };
-      },
-      findViewportIntersections(pmax, qmax) {
-        const intersections = [];
-        if (Math.abs(this.b) > epsilon) {
-          const q = this.c / this.b;
-          if (q >= 0 && q <= qmax) intersections.push({ p: 0, q });
-        }
-        if (Math.abs(this.a) > epsilon) {
-          const p = this.c / this.a;
-          if (p >= 0 && p <= pmax) intersections.push({ p, q: 0 });
-        }
-        if (Math.abs(this.b) > epsilon) {
-          const q = (this.c - this.a * pmax) / this.b;
-          if (q >= 0 && q <= qmax) intersections.push({ p: pmax, q });
-        }
-        if (Math.abs(this.a) > epsilon) {
-          const p = (this.c - this.b * qmax) / this.a;
-          if (p >= 0 && p <= pmax) intersections.push({ p, q: qmax });
-        }
-        return intersections;
-      },
+      p: dark ? "#60a5fa" : "#3b82f6",
+      q: dark ? "#f87171" : "#dc2626",
+      equilibrium: dark ? "#c084fc" : "#7e22ce",
+      equilibriumHollow: dark ? "#1f2937" : "#ffffff",
     };
-  }, []);
+  }, [currentTheme]);
 
-  // Equilibrium points calculation with stability analysis
-  const equilibria = useMemo(() => {
-    const { alpha, beta, gamma, delta, u, v } = uiParams;
-    const pNullclines = [createLine(1, 0, 0), createLine(-gamma, u, -alpha)];
-    const qNullclines = [createLine(0, 1, 0), createLine(v, -delta, -beta)];
+  // Static elements (vector field, nullclines, equilibria)
+  const drawStaticElements = useCallback(() => {
+    const canvas = staticCanvasRef.current;
+    const transform = phaseTransformRef.current;
+    if (!canvas || !transform) return;
 
-    const points = [];
-    const eps = 1e-6;
-    pNullclines.forEach((pLine) => {
-      qNullclines.forEach((qLine) => {
-        if (!pLine.isDegenerate() && !qLine.isDegenerate()) {
-          const point = pLine.intersectWith(qLine);
-          if (
-            point &&
-            point.p >= 0 &&
-            point.q >= 0 &&
-            point.p <= pmax &&
-            point.q <= qmax
-          ) {
-            points.push({ x: point.p, y: point.q });
-          }
-        }
-      });
+    const { plotWidth, plotHeight, dataToPixel } = transform;
+    const { ctx } = setupCanvas(canvas, {
+      width: plotWidth,
+      height: plotHeight,
     });
-
-    const uniquePoints = points.filter(
-      (point, i, arr) =>
-        arr.findIndex(
-          (p) => Math.abs(p.x - point.x) < eps && Math.abs(p.y - point.y) < eps,
-        ) === i,
-    );
-
-    // Add stability classification for interior equilibria
-    return uniquePoints.map((point) => {
-      let type = null;
-
-      // Only classify interior equilibria (P* > 0, Q* > 0)
-      if (point.x > eps && point.y > eps) {
-        const P = point.x;
-        const Q = point.y;
-
-        // Jacobian matrix at equilibrium:
-        // J = [α - 2γP + uQ,  uP     ]
-        //     [vQ,            β - 2δQ + vP]
-        const j11 = alpha - 2 * gamma * P + u * Q;
-        const j12 = u * P;
-        const j21 = v * Q;
-        const j22 = beta - 2 * delta * Q + v * P;
-
-        // Eigenvalue analysis
-        const trace = j11 + j22;
-        const det = j11 * j22 - j12 * j21;
-        const discriminant = trace * trace - 4 * det;
-
-        if (Math.abs(det) < eps) {
-          type = "Degenerate";
-        } else if (discriminant > eps) {
-          // Real eigenvalues
-          if (det > 0) {
-            if (trace < -eps) {
-              type = "Stable Node";
-            } else if (trace > eps) {
-              type = "Unstable Node";
-            } else {
-              type = "Non-hyperbolic";
-            }
-          } else {
-            type = "Saddle";
-          }
-        } else if (discriminant < -eps) {
-          // Complex eigenvalues (spirals)
-          if (trace < -eps) {
-            type = "Stable Spiral";
-          } else if (trace > eps) {
-            type = "Unstable Spiral";
-          } else {
-            type = "Center";
-          }
-        } else {
-          // Discriminant ≈ 0
-          type = "Non-hyperbolic";
-        }
-      }
-
-      return { ...point, type };
-    });
-  }, [uiParams, createLine]);
-
-  // Static elements (vector field, nullclines, equilibria) - FROM GLV
-  const drawStaticElements = useCallback(
-    (canvas, ctx) => {
-      const transform = phaseTransformRef.current;
-      if (!transform) return;
-
-      const { plotWidth, plotHeight, dataToPixel } = transform;
-      const {
-        alpha,
-        beta,
-        gamma,
-        delta,
-        u,
-        v,
-        pmax: currentPmax,
-        qmax: currentQmax,
-      } = animationStateRef.current.params;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Map data coordinates to canvas pixels using transform
-      const mapXY = (p, q) => dataToPixel(p, q);
-
-      // Draw background grid when vector field is hidden
-      if (!showVectorField) {
-        ctx.strokeStyle =
-          currentTheme === "dark"
-            ? "rgba(100, 100, 100, 0.2)"
-            : "rgba(150, 150, 150, 0.2)";
-        ctx.lineWidth = 1;
-
-        // Vertical lines
-        const gridStepP =
-          currentPmax <= 5 ? 1.0 : currentPmax <= 10 ? 2.0 : 5.0;
-        for (let p = 0; p <= currentPmax; p += gridStepP) {
-          const pos = mapXY(p, 0);
-          ctx.beginPath();
-          ctx.moveTo(pos.x, 0);
-          ctx.lineTo(pos.x, plotHeight);
-          ctx.stroke();
-        }
-
-        // Horizontal lines
-        const gridStepQ =
-          currentQmax <= 5 ? 1.0 : currentQmax <= 10 ? 2.0 : 5.0;
-        for (let q = 0; q <= currentQmax; q += gridStepQ) {
-          const pos = mapXY(0, q);
-          ctx.beginPath();
-          ctx.moveTo(0, pos.y);
-          ctx.lineTo(plotWidth, pos.y);
-          ctx.stroke();
-        }
-      }
-
-      // Draw vector field
-      if (showVectorField) {
-        // Generate dynamic grid based on current axis ranges
-        const gridCoords = [];
-        const numPoints = 12;
-        const stepP = currentPmax / (numPoints + 1);
-        const stepQ = currentQmax / (numPoints + 1);
-        for (let i = 1; i <= numPoints; i++) {
-          gridCoords.push({ p: i * stepP, q: i * stepQ });
-        }
-        ctx.strokeStyle =
-          currentTheme === "dark"
-            ? "rgba(156, 163, 175, 0.7)"
-            : "rgba(107, 114, 128, 0.7)";
-        ctx.fillStyle =
-          currentTheme === "dark"
-            ? "rgba(156, 163, 175, 0.7)"
-            : "rgba(107, 114, 128, 0.7)";
-        ctx.lineWidth = 1;
-
-        for (let i = 0; i < gridCoords.length; i++) {
-          for (let j = 0; j < gridCoords.length; j++) {
-            const p = gridCoords[i].p;
-            const q = gridCoords[j].q;
-            if (p < 0 || q < 0 || p > currentPmax || q > currentQmax) continue;
-
-            const dpdt = alpha * p - gamma * p * p + u * p * q;
-            const dqdt = beta * q - delta * q * q + v * p * q;
-            const magnitude = Math.sqrt(dpdt * dpdt + dqdt * dqdt);
-            if (magnitude === 0) continue;
-
-            const normalizedDx = dpdt / magnitude;
-            const normalizedDy = dqdt / magnitude;
-            const pos = mapXY(p, q);
-            const arrowLength = 18;
-            // Note: canvas Y increases downward, so we subtract normalizedDy
-            const endX = pos.x + normalizedDx * arrowLength;
-            const endY = pos.y - normalizedDy * arrowLength;
-
-            ctx.beginPath();
-            ctx.moveTo(pos.x, pos.y);
-            ctx.lineTo(endX, endY);
-            ctx.stroke();
-
-            const angle = Math.atan2(endY - pos.y, endX - pos.x);
-            ctx.save();
-            ctx.translate(endX, endY);
-            ctx.rotate(angle);
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(-6, -2);
-            ctx.lineTo(-6, 2);
-            ctx.closePath();
-            ctx.fill();
-            ctx.restore();
-          }
-        }
-      }
-
-      // Draw nullclines
-      if (showNullclines) {
-        const pNullclines = [
-          createLine(1, 0, 0),
-          createLine(-gamma, u, -alpha),
-        ];
-        const qNullclines = [createLine(0, 1, 0), createLine(v, -delta, -beta)];
-
-        ctx.strokeStyle =
-          currentTheme === "dark"
-            ? "rgba(96, 165, 250, 0.8)"
-            : "rgba(59, 130, 246, 0.8)";
-        ctx.lineWidth = 2;
-        pNullclines.forEach((line) => {
-          if (!line.isDegenerate()) {
-            const points = line.findViewportIntersections(
-              currentPmax,
-              currentQmax,
-            );
-            if (points.length >= 2) {
-              points.sort((a, b) => a.p - b.p);
-              const startPos = mapXY(points[0].p, points[0].q);
-              ctx.beginPath();
-              ctx.moveTo(startPos.x, startPos.y);
-              for (let i = 1; i < points.length; i++) {
-                const pos = mapXY(points[i].p, points[i].q);
-                ctx.lineTo(pos.x, pos.y);
-              }
-              ctx.stroke();
-            }
-          }
-        });
-
-        ctx.strokeStyle =
-          currentTheme === "dark"
-            ? "rgba(248, 113, 113, 0.8)"
-            : "rgba(220, 38, 38, 0.8)";
-        ctx.lineWidth = 2;
-        qNullclines.forEach((line) => {
-          if (!line.isDegenerate()) {
-            const points = line.findViewportIntersections(
-              currentPmax,
-              currentQmax,
-            );
-            if (points.length >= 2) {
-              points.sort((a, b) => a.p - b.p);
-              const startPos = mapXY(points[0].p, points[0].q);
-              ctx.beginPath();
-              ctx.moveTo(startPos.x, startPos.y);
-              for (let i = 1; i < points.length; i++) {
-                const pos = mapXY(points[i].p, points[i].q);
-                ctx.lineTo(pos.x, pos.y);
-              }
-              ctx.stroke();
-            }
-          }
-        });
-      }
-
-      // Draw equilibrium points
-      equilibria.forEach((eq) => {
-        const pos = mapXY(eq.x, eq.y);
-        ctx.fillStyle = "#f59e0b";
-        ctx.strokeStyle = "#d97706";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 6, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = "white";
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 2.5, 0, 2 * Math.PI);
-        ctx.fill();
-      });
-    },
-    [currentTheme, showVectorField, showNullclines, equilibria, createLine],
-  );
-
-  // Dynamic elements (particles with trails) - EXACT copy from DSC
-  const drawDynamicElements = useCallback(
-    (canvas, ctx) => {
-      const transform = phaseTransformRef.current;
-      if (!transform) return;
-
-      const { dataToPixel } = transform;
-      const { pmax: currentPmax, qmax: currentQmax } =
-        animationStateRef.current.params;
-
-      // Map data coordinates to canvas pixels
-      const mapXY = (p, q) => dataToPixel(p, q);
-
-      // Wind-js trail fading
-      const prevComposite = ctx.globalCompositeOperation;
-      ctx.fillStyle =
-        currentTheme === "dark"
-          ? "rgba(0, 0, 0, 0.85)"
-          : "rgba(255, 255, 255, 0.91)";
-      ctx.globalCompositeOperation = "destination-in";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.globalCompositeOperation = prevComposite;
-
-      // Green click trajectories
-      const clickParticles = clickParticlesRef.current;
-      clickParticles.forEach((particle) => {
-        if (
-          particle.pt !== undefined &&
-          particle.qt !== undefined &&
-          particle.p >= pmin &&
-          particle.p <= currentPmax &&
-          particle.q >= qmin &&
-          particle.q <= currentQmax
-        ) {
-          const dp = particle.pt - particle.p;
-          const dq = particle.qt - particle.q;
-          const speed = Math.sqrt(dp * dp + dq * dq);
-          const intensity = Math.min(speed * 50, 1.0);
-          const opacity = 0.8 + intensity * 0.2;
-
-          const baseGreen =
-            currentTheme === "dark" ? [80, 200, 100] : [30, 180, 50];
-          const brightGreen =
-            currentTheme === "dark" ? [140, 255, 160] : [50, 240, 80];
-          const r = Math.round(
-            baseGreen[0] + intensity * (brightGreen[0] - baseGreen[0]),
-          );
-          const g = Math.round(
-            baseGreen[1] + intensity * (brightGreen[1] - baseGreen[1]),
-          );
-          const b = Math.round(
-            baseGreen[2] + intensity * (brightGreen[2] - baseGreen[2]),
-          );
-          const lineWidth = 1.0 + intensity * 0.5;
-
-          const pos = mapXY(particle.p, particle.q);
-          const posNext = mapXY(particle.pt, particle.qt);
-          ctx.beginPath();
-          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
-          ctx.lineWidth = lineWidth;
-          ctx.moveTo(pos.x, pos.y);
-          ctx.lineTo(posNext.x, posNext.y);
-          ctx.stroke();
-        }
-      });
-
-      // Green dots at current positions
-      clickParticles.forEach((particle) => {
-        if (
-          particle.p >= pmin &&
-          particle.p <= currentPmax &&
-          particle.q >= qmin &&
-          particle.q <= currentQmax
-        ) {
-          const pos = mapXY(particle.p, particle.q);
-          ctx.beginPath();
-          ctx.fillStyle =
-            currentTheme === "dark"
-              ? "rgba(100, 255, 120, 0.9)"
-              : "rgba(20, 200, 40, 0.9)";
-          ctx.arc(pos.x, pos.y, 1.5, 0, 2 * Math.PI);
-          ctx.fill();
-        }
-      });
-
-      // Orange grid particles
-      const gridParticles = gridParticlesRef.current;
-      gridParticles.forEach((particle) => {
-        if (
-          particle.pt !== undefined &&
-          particle.qt !== undefined &&
-          particle.p >= pmin &&
-          particle.p <= currentPmax &&
-          particle.q >= qmin &&
-          particle.q <= currentQmax
-        ) {
-          const dp = particle.pt - particle.p;
-          const dq = particle.qt - particle.q;
-          const speed = Math.sqrt(dp * dp + dq * dq);
-          const intensity = Math.min(speed * 50, 1.0);
-          const opacity = 0.8 + intensity * 0.2;
-
-          const baseOrange =
-            currentTheme === "dark" ? [200, 140, 80] : [220, 120, 40];
-          const brightOrange =
-            currentTheme === "dark" ? [255, 200, 120] : [255, 160, 60];
-          const r = Math.round(
-            baseOrange[0] + intensity * (brightOrange[0] - baseOrange[0]),
-          );
-          const g = Math.round(
-            baseOrange[1] + intensity * (brightOrange[1] - baseOrange[1]),
-          );
-          const b = Math.round(
-            baseOrange[2] + intensity * (brightOrange[2] - baseOrange[2]),
-          );
-          const lineWidth = 0.8 + intensity * 0.4;
-
-          const pos = mapXY(particle.p, particle.q);
-          const posNext = mapXY(particle.pt, particle.qt);
-          ctx.beginPath();
-          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
-          ctx.lineWidth = lineWidth;
-          ctx.moveTo(pos.x, pos.y);
-          ctx.lineTo(posNext.x, posNext.y);
-          ctx.stroke();
-        }
-      });
-    },
-    [currentTheme],
-  );
-
-  // Initialize grid particles - EXACT copy from DSC
-  const initializeGridParticles = useCallback(() => {
-    const gridSize = PARTICLE_GRID_SIZE;
+    const params = animationStateRef.current.params;
     const {
       alpha,
       beta,
@@ -633,10 +264,247 @@ const GeneralizedLotkaVolterraTool = () => {
       delta,
       u,
       v,
-      speed,
       pmax: currentPmax,
       qmax: currentQmax,
-    } = animationStateRef.current.params;
+    } = params;
+
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
+
+    // Map data coordinates to canvas pixels using transform
+    const mapXY = (p, q) => dataToPixel(p, q);
+
+    // Draw background grid (at the tick marks) when vector field is hidden
+    if (!showVectorField) {
+      ctx.strokeStyle =
+        currentTheme === "dark"
+          ? "rgba(100, 100, 100, 0.2)"
+          : "rgba(150, 150, 150, 0.2)";
+      ctx.lineWidth = 1;
+      niceTicks(0, currentPmax, 5).forEach((p) => {
+        const pos = mapXY(p, 0);
+        ctx.beginPath();
+        ctx.moveTo(pos.x, 0);
+        ctx.lineTo(pos.x, plotHeight);
+        ctx.stroke();
+      });
+      niceTicks(0, currentQmax, 5).forEach((q) => {
+        const pos = mapXY(0, q);
+        ctx.beginPath();
+        ctx.moveTo(0, pos.y);
+        ctx.lineTo(plotWidth, pos.y);
+        ctx.stroke();
+      });
+    }
+
+    // Draw vector field
+    if (showVectorField) {
+      const numPoints = 12;
+      const stepP = currentPmax / (numPoints + 1);
+      const stepQ = currentQmax / (numPoints + 1);
+      const arrowColor =
+        currentTheme === "dark"
+          ? "rgba(156, 163, 175, 0.7)"
+          : "rgba(107, 114, 128, 0.7)";
+      ctx.strokeStyle = arrowColor;
+      ctx.fillStyle = arrowColor;
+      ctx.lineWidth = 1;
+
+      for (let i = 1; i <= numPoints; i++) {
+        for (let j = 1; j <= numPoints; j++) {
+          const p = i * stepP;
+          const q = j * stepQ;
+          const [dpdt, dqdt] = glvRates(p, q, params);
+          const magnitude = Math.sqrt(dpdt * dpdt + dqdt * dqdt);
+          if (!(magnitude > 0) || !Number.isFinite(magnitude)) continue;
+
+          const normalizedDx = dpdt / magnitude;
+          const normalizedDy = dqdt / magnitude;
+          const pos = mapXY(p, q);
+          const arrowLength = 18;
+          // Note: canvas Y increases downward, so we subtract normalizedDy
+          const endX = pos.x + normalizedDx * arrowLength;
+          const endY = pos.y - normalizedDy * arrowLength;
+
+          ctx.beginPath();
+          ctx.moveTo(pos.x, pos.y);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+
+          const angle = Math.atan2(endY - pos.y, endX - pos.x);
+          ctx.save();
+          ctx.translate(endX, endY);
+          ctx.rotate(angle);
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(-6, -2);
+          ctx.lineTo(-6, 2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+    }
+
+    // Draw nullclines: lines a·P + b·Q = c clipped to the window
+    if (showNullclines) {
+      const eps = 1e-9;
+      const drawLine = ([a, b, c]) => {
+        if (Math.abs(a) < eps && Math.abs(b) < eps) return;
+        const pts = [];
+        if (Math.abs(b) > eps) {
+          const q0 = c / b; // at P = 0
+          const q1 = (c - a * currentPmax) / b; // at P = Pmax
+          if (q0 >= 0 && q0 <= currentQmax) pts.push({ p: 0, q: q0 });
+          if (q1 >= 0 && q1 <= currentQmax) pts.push({ p: currentPmax, q: q1 });
+        }
+        if (Math.abs(a) > eps) {
+          const p0 = c / a; // at Q = 0
+          const p1 = (c - b * currentQmax) / a; // at Q = Qmax
+          if (p0 >= 0 && p0 <= currentPmax) pts.push({ p: p0, q: 0 });
+          if (p1 >= 0 && p1 <= currentPmax) pts.push({ p: p1, q: currentQmax });
+        }
+        if (pts.length < 2) return;
+        pts.sort((m, n) => m.p - n.p || m.q - n.q);
+        const s = mapXY(pts[0].p, pts[0].q);
+        const e = mapXY(pts[pts.length - 1].p, pts[pts.length - 1].q);
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(e.x, e.y);
+        ctx.stroke();
+      };
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle =
+        currentTheme === "dark"
+          ? "rgba(96, 165, 250, 0.8)"
+          : "rgba(59, 130, 246, 0.8)";
+      drawLine([1, 0, 0]); // P = 0
+      drawLine([-gamma, u, -alpha]); // α − γP + uQ = 0
+
+      ctx.strokeStyle =
+        currentTheme === "dark"
+          ? "rgba(248, 113, 113, 0.8)"
+          : "rgba(220, 38, 38, 0.8)";
+      drawLine([0, 1, 0]); // Q = 0
+      drawLine([v, -delta, -beta]); // β − δQ + vP = 0
+    }
+
+    // Draw equilibrium points: filled = stable, hollow = not stable
+    equilibria.forEach((eq) => {
+      const pos = mapXY(eq.x, eq.y);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = colors.equilibrium;
+      ctx.fillStyle =
+        eq.stable === true ? colors.equilibrium : colors.equilibriumHollow;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 6, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+    });
+  }, [currentTheme, showVectorField, showNullclines, equilibria, colors]);
+
+  // Dynamic elements (particles with fading trails)
+  const drawDynamicElements = useCallback(
+    (dtSeconds) => {
+      const canvas = dynamicCanvasRef.current;
+      const transform = phaseTransformRef.current;
+      if (!canvas || !transform) return;
+
+      const { dataToPixel, plotWidth, plotHeight } = transform;
+      const { ctx } = setupCanvas(canvas, {
+        width: plotWidth,
+        height: plotHeight,
+      });
+      const mapXY = (p, q) => dataToPixel(p, q);
+      const frames = dtSeconds * 60; // frames' worth of time at 60 Hz
+
+      // Fade old trails (same fade per second at any refresh rate)
+      const keep = currentTheme === "dark" ? 0.85 : 0.91;
+      const prevComposite = ctx.globalCompositeOperation;
+      ctx.fillStyle = `rgba(0, 0, 0, ${Math.pow(keep, frames)})`;
+      ctx.globalCompositeOperation = "destination-in";
+      ctx.fillRect(0, 0, plotWidth, plotHeight);
+      ctx.globalCompositeOperation = prevComposite;
+
+      const frameId = animationStateRef.current.frame;
+      const drawSegment = (particle, base, bright, widthBase, widthGain) => {
+        // Only particles that moved during this frame leave a new segment
+        if (particle.frame !== frameId || particle.prevP === undefined) return;
+        const a = mapXY(particle.prevP, particle.prevQ);
+        const b = mapXY(particle.p, particle.q);
+        if (
+          ![a.x, a.y, b.x, b.y].every(Number.isFinite) ||
+          (a.x === b.x && a.y === b.y)
+        )
+          return;
+        // Colour by on-screen speed (pixels per 60 Hz frame)
+        const pixelSpeed = Math.hypot(b.x - a.x, b.y - a.y) / Math.max(frames, 1e-6);
+        const intensity = Math.min(pixelSpeed / 5, 1.0);
+        const opacity = 0.8 + intensity * 0.2;
+        const [r, g, bl] = base.map((c, k) =>
+          Math.round(c + intensity * (bright[k] - c)),
+        );
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${bl}, ${opacity})`;
+        ctx.lineWidth = widthBase + intensity * widthGain;
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      };
+
+      // Green click trajectories
+      const dark = currentTheme === "dark";
+      const clickParticles = clickParticlesRef.current;
+      clickParticles.forEach((particle) =>
+        drawSegment(
+          particle,
+          dark ? [80, 200, 100] : [30, 180, 50],
+          dark ? [140, 255, 160] : [50, 240, 80],
+          1.0,
+          0.5,
+        ),
+      );
+      ctx.fillStyle = dark ? "rgba(100, 255, 120, 0.9)" : "rgba(20, 200, 40, 0.9)";
+      clickParticles.forEach((particle) => {
+        if (!particle.diverged) {
+          const pos = mapXY(particle.p, particle.q);
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, 1.5, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      });
+
+      // Orange grid particles (drawn as dots while paused so they stay visible)
+      const gridParticles = gridParticlesRef.current;
+      const gridMoving = animationStateRef.current.isRunning;
+      if (gridMoving) {
+        gridParticles.forEach((particle) =>
+          drawSegment(
+            particle,
+            dark ? [200, 140, 80] : [220, 120, 40],
+            dark ? [255, 200, 120] : [255, 160, 60],
+            0.8,
+            0.4,
+          ),
+        );
+      } else if (gridParticles.length > 0) {
+        ctx.fillStyle = dark ? "rgba(230, 170, 100, 0.9)" : "rgba(220, 120, 40, 0.9)";
+        gridParticles.forEach((particle) => {
+          const pos = mapXY(particle.p, particle.q);
+          if (pos.x < -2 || pos.x > plotWidth + 2 || pos.y < -2 || pos.y > plotHeight + 2)
+            return;
+          ctx.fillRect(pos.x - 0.75, pos.y - 0.75, 1.5, 1.5);
+        });
+      }
+    },
+    [currentTheme],
+  );
+
+  // Initialize grid particles over the window plus a 40% margin
+  const initializeGridParticles = useCallback(() => {
+    const gridSize = PARTICLE_GRID_SIZE;
+    const { pmax: currentPmax, qmax: currentQmax } =
+      animationStateRef.current.params;
 
     const pRange = currentPmax - pmin;
     const qRange = currentQmax - qmin;
@@ -648,25 +516,11 @@ const GeneralizedLotkaVolterraTool = () => {
     const extendedQMax = currentQmax + qRange * extension;
 
     const particles = [];
-    const dt = 0.025 * speed;
-
     for (let i = 0; i < gridSize; i++) {
       for (let j = 0; j < gridSize; j++) {
-        const p =
-          extendedPMin + ((i + 0.5) * (extendedPMax - extendedPMin)) / gridSize;
-        const q =
-          extendedQMin + ((j + 0.5) * (extendedQMax - extendedQMin)) / gridSize;
-
-        const dpdt = alpha * p - gamma * p * p + u * p * q;
-        const dqdt = beta * q - delta * q * q + v * p * q;
-
         particles.push({
-          p,
-          q,
-          pt: p + dpdt * dt,
-          qt: q + dqdt * dt,
-          age: 0,
-          id: Date.now() + Math.random() + i * 1000 + j,
+          p: extendedPMin + ((i + 0.5) * (extendedPMax - extendedPMin)) / gridSize,
+          q: extendedQMin + ((j + 0.5) * (extendedQMax - extendedQMin)) / gridSize,
         });
       }
     }
@@ -675,292 +529,228 @@ const GeneralizedLotkaVolterraTool = () => {
     gridCycleTimeRef.current = 0;
   }, []);
 
-  // Draw time series (tracking red particles)
-  const drawTimeSeries = useCallback(
-    (canvas, ctx) => {
-      const transform = timeSeriesTransformRef.current;
-      if (!transform) return;
+  // Draw time series (tracking the first click trajectory)
+  const drawTimeSeries = useCallback(() => {
+    const canvas = timeSeriesCanvasRef.current;
+    const transform = timeSeriesTransformRef.current;
+    if (!canvas || !transform) return;
 
-      const { dataToPixel, plotWidth, plotHeight } = transform;
-      const state = animationStateRef.current;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const { dataToPixel, plotWidth, plotHeight } = transform;
+    const { ctx } = setupCanvas(canvas, {
+      width: plotWidth,
+      height: plotHeight,
+    });
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
 
-      if (state.timeSeriesData.length < 2) return;
+    const data = animationStateRef.current.timeSeriesData;
+    if (data.length < 2) return;
 
-      const timeWindow = 20;
-      const currentTime = state.time;
-      const minTime = Math.max(0, currentTime - timeWindow);
+    const currentTime = data[data.length - 1].time;
+    const minTime = Math.max(0, currentTime - TIME_WINDOW);
 
-      // Draw P population
-      ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
+    const drawSeries = (key, color, dash) => {
+      ctx.strokeStyle = color;
       ctx.lineWidth = 2;
+      ctx.setLineDash(dash);
       ctx.beginPath();
-      let firstPoint = true;
-
-      state.timeSeriesData.forEach((point) => {
-        if (point.time >= minTime && point.time <= minTime + timeWindow) {
-          // Map time to x position (0-20 window maps to 0-plotWidth)
-          const normalizedTime = (point.time - minTime) / timeWindow;
-          const pos = dataToPixel(normalizedTime * 20, point.pPop);
-          if (firstPoint) {
-            ctx.moveTo(pos.x, pos.y);
-            firstPoint = false;
-          } else {
-            ctx.lineTo(pos.x, pos.y);
-          }
+      let first = true;
+      data.forEach((point) => {
+        if (point.time < minTime) return;
+        const pos = dataToPixel(point.time - minTime, point[key]);
+        // Keep far-off values drawable (the canvas clips them)
+        const y = Math.max(-1e5, Math.min(1e5, pos.y));
+        if (first) {
+          ctx.moveTo(pos.x, y);
+          first = false;
+        } else {
+          ctx.lineTo(pos.x, y);
         }
       });
       ctx.stroke();
-
-      // Draw Q population
-      ctx.strokeStyle = currentTheme === "dark" ? "#f87171" : "#dc2626";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      firstPoint = true;
-
-      state.timeSeriesData.forEach((point) => {
-        if (point.time >= minTime && point.time <= minTime + timeWindow) {
-          const normalizedTime = (point.time - minTime) / timeWindow;
-          const pos = dataToPixel(normalizedTime * 20, point.qPop);
-          if (firstPoint) {
-            ctx.moveTo(pos.x, pos.y);
-            firstPoint = false;
-          } else {
-            ctx.lineTo(pos.x, pos.y);
-          }
-        }
-      });
-      ctx.stroke();
-    },
-    [currentTheme],
-  );
-
-  // RK4 integration
-  const rk4Step = useCallback((p, q, dt, alpha, beta, gamma, delta, u, v) => {
-    const computeDerivatives = (p, q) => {
-      const dpdt = alpha * p - gamma * p * p + u * p * q;
-      const dqdt = beta * q - delta * q * q + v * p * q;
-      return [dpdt, dqdt];
+      ctx.setLineDash([]);
     };
 
-    const k1 = computeDerivatives(p, q);
-    const k2 = computeDerivatives(p + (dt * k1[0]) / 2, q + (dt * k1[1]) / 2);
-    const k3 = computeDerivatives(p + (dt * k2[0]) / 2, q + (dt * k2[1]) / 2);
-    const k4 = computeDerivatives(p + dt * k3[0], q + dt * k3[1]);
+    drawSeries("pPop", colors.p, []);
+    drawSeries("qPop", colors.q, [6, 4]);
+  }, [colors]);
 
-    return {
-      p: p + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]),
-      q: q + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]),
-    };
-  }, []);
+  // Advance one particle by model time h (in n RK4 sub-steps). Returns the
+  // distance moved relative to the window size.
+  const advanceParticle = (particle, h, n, params, scale) => {
+    particle.frame = animationStateRef.current.frame;
+    particle.prevP = particle.p;
+    particle.prevQ = particle.q;
+    let { p, q } = particle;
+    const dt = h / n;
+    for (let k = 0; k < n; k++) {
+      const next = rk4Step(p, q, dt, params);
+      if (
+        !Number.isFinite(next.p) ||
+        !Number.isFinite(next.q) ||
+        Math.abs(next.p) > DIVERGE_FACTOR * scale ||
+        Math.abs(next.q) > DIVERGE_FACTOR * scale
+      ) {
+        particle.diverged = true;
+        break;
+      }
+      p = next.p;
+      q = next.q;
+    }
+    particle.p = p;
+    particle.q = q;
+  };
 
-  // Animation loop - EXACT copy from DSC
-  const animationLoop = useCallback(() => {
+  // One animation frame (single guarded loop: never runs twice, always uses
+  // the latest parameters/theme, advances by real elapsed time).
+  const { start: startLoop, stop: stopLoop } = useAnimationLoop((dtSeconds) => {
     const state = animationStateRef.current;
+    state.frame = (state.frame || 0) + 1;
+    const params = state.params;
     const clickParticles = clickParticlesRef.current;
     const gridParticles = gridParticlesRef.current;
+    const scale = Math.max(params.pmax, params.qmax, 1e-9);
 
-    // Continue if we have red particles OR blue particles are running
-    const shouldContinue = clickParticles.length > 0 || state.isRunning;
-    if (!shouldContinue) return;
+    // Model time for this frame (same visual speed at 60 Hz as before)
+    const h = MODEL_TIME_PER_FRAME * params.speed * dtSeconds * 60;
+    const n = Math.max(1, Math.ceil(h / MAX_SUBSTEP));
+    let moving = false;
 
-    const { alpha, beta, gamma, delta, u, v, speed } = state.params;
-    if (speed === 0) {
-      state.animationId = requestAnimationFrame(animationLoop);
-      return;
-    }
+    if (h > 0) {
+      // Click trajectories
+      clickParticles.forEach((particle) => {
+        if (particle.done) return;
+        advanceParticle(particle, h, n, params, scale);
+        particle.t += h;
+        if (particle.diverged) {
+          particle.done = true;
+          return;
+        }
+        const [dp, dq] = glvRates(particle.p, particle.q, params);
+        if (Math.hypot(dp, dq) < 1e-4 * scale) {
+          particle.stillTime += h;
+          if (particle.stillTime > SETTLE_TIME) particle.done = true;
+        } else {
+          particle.stillTime = 0;
+        }
+        moving = true;
+      });
 
-    const dt = 0.025 * speed;
-
-    // ALWAYS update red click particles
-    clickParticles.forEach((particle) => {
-      const newPos = rk4Step(
-        particle.p,
-        particle.q,
-        dt,
-        alpha,
-        beta,
-        gamma,
-        delta,
-        u,
-        v,
-      );
-      if (isFinite(newPos.p) && isFinite(newPos.q)) {
-        particle.pt = newPos.p;
-        particle.qt = newPos.q;
-      } else {
-        particle.pt = particle.p;
-        particle.qt = particle.q;
+      // Grid particles (only while Start is active)
+      if (state.isRunning && gridParticles.length > 0) {
+        gridCycleTimeRef.current += h;
+        if (gridCycleTimeRef.current >= GRID_CYCLE_DURATION) {
+          initializeGridParticles();
+        } else {
+          gridParticles.forEach((particle) => {
+            if (!particle.diverged) advanceParticle(particle, h, n, params, scale);
+          });
+        }
+        moving = true;
       }
-    });
 
-    // ONLY update blue grid particles when Start is pressed
-    if (state.isRunning && gridParticles.length > 0) {
-      gridCycleTimeRef.current += dt;
-      if (gridCycleTimeRef.current >= GRID_CYCLE_DURATION) {
-        initializeGridParticles();
-      } else {
-        gridParticles.forEach((particle) => {
-          const newPos = rk4Step(
-            particle.p,
-            particle.q,
-            dt,
-            alpha,
-            beta,
-            gamma,
-            delta,
-            u,
-            v,
-          );
-          if (isFinite(newPos.p) && isFinite(newPos.q)) {
-            particle.pt = newPos.p;
-            particle.qt = newPos.q;
-          } else {
-            particle.pt = particle.p;
-            particle.qt = particle.q;
-          }
-        });
+      // Time series of the first click trajectory (trimmed by time)
+      const first = clickParticles[0];
+      if (first && !first.done) {
+        const data = state.timeSeriesData;
+        data.push({ time: first.t, pPop: first.p, qPop: first.q });
+        const cutoff = first.t - TIME_WINDOW - 1;
+        let drop = 0;
+        while (drop < data.length && data[drop].time < cutoff) drop++;
+        if (drop > 0) data.splice(0, drop);
       }
     }
 
-    state.time += dt;
+    drawDynamicElements(dtSeconds);
+    drawTimeSeries();
 
-    // Update time series data (track first red particle)
-    const firstRedParticle = clickParticles[0];
-    if (firstRedParticle) {
-      const currentP = firstRedParticle.p || 0;
-      const currentQ = firstRedParticle.q || 0;
-
-      state.timeSeriesData = [
-        ...state.timeSeriesData.slice(-500),
-        {
-          time: state.time,
-          pPop: currentP,
-          qPop: currentQ,
-        },
-      ];
+    // Update the trajectory count shown in the status panel
+    const active = clickParticles.filter((pt) => !pt.done).length;
+    if (active !== state.lastActiveCount) {
+      state.lastActiveCount = active;
+      setTrajectoryCount(active);
     }
 
-    // Draw dynamic elements
-    const dynamicCanvas = dynamicCanvasRef.current;
-    if (dynamicCanvas) {
-      const ctx = dynamicCanvas.getContext("2d");
-      drawDynamicElements(dynamicCanvas, ctx);
+    // Auto-stop once nothing has moved for a moment (trails have faded)
+    if (moving) {
+      state.idleTime = 0;
+      return true;
     }
+    state.idleTime += dtSeconds;
+    return state.idleTime < FADE_OUT_SECONDS;
+  });
 
-    // Draw time series
-    const timeCanvas = timeSeriesCanvasRef.current;
-    if (timeCanvas) {
-      const ctx = timeCanvas.getContext("2d");
-      drawTimeSeries(timeCanvas, ctx);
-    }
+  const hasWork = useCallback(() => {
+    const state = animationStateRef.current;
+    return (
+      state.isRunning || clickParticlesRef.current.some((pt) => !pt.done)
+    );
+  }, []);
 
-    // Move particles to next positions AFTER drawing
-    clickParticles.forEach((particle) => {
-      if (particle.pt !== undefined && particle.qt !== undefined) {
-        particle.p = particle.pt;
-        particle.q = particle.qt;
-      }
-    });
+  const ensureLoop = useCallback(() => {
+    animationStateRef.current.idleTime = 0;
+    startLoop();
+  }, [startLoop]);
 
-    gridParticles.forEach((particle) => {
-      if (particle.pt !== undefined && particle.qt !== undefined) {
-        particle.p = particle.pt;
-        particle.q = particle.qt;
-      }
-    });
-
-    state.animationId = requestAnimationFrame(animationLoop);
-  }, [drawDynamicElements, drawTimeSeries, rk4Step, initializeGridParticles]);
-
-  // Add click particle - EXACT copy from DSC
+  // Add click particle
   const addClickParticle = useCallback(
     (p, q) => {
       const clickParticles = clickParticlesRef.current;
       if (clickParticles.length >= MAX_CLICK_PARTICLES) return;
-
-      clickParticles.push({
-        p,
-        q,
-        pt: p,
-        qt: q,
-        age: 0,
-        id: Date.now() + Math.random(),
-      });
-
-      setTrajectoryCount(clickParticles.length); // Update count for display
-
-      const state = animationStateRef.current;
-      if (!state.animationId) {
-        animationLoop();
+      clickParticles.push({ p, q, t: 0, stillTime: 0, done: false });
+      if (clickParticles.length === 1) {
+        animationStateRef.current.timeSeriesData = [
+          { time: 0, pPop: p, qPop: q },
+        ];
       }
+      ensureLoop();
     },
-    [animationLoop],
+    [ensureLoop],
   );
 
-  // Toggle animation (Start/Pause) - EXACT copy from DSC
+  // Start / Pause the grid particles. Pause freezes them in place; Start
+  // resumes from where they are (Reset clears them).
   const toggleAnimation = useCallback(
     (newIsRunning) => {
       const state = animationStateRef.current;
-
       if (newIsRunning) {
+        if (gridParticlesRef.current.length === 0) initializeGridParticles();
         state.isRunning = true;
         setIsRunning(true);
-        initializeGridParticles();
-        animationLoop();
+        setGridState("running");
+        ensureLoop();
       } else {
         state.isRunning = false;
-        if (state.animationId) {
-          cancelAnimationFrame(state.animationId);
-        }
         setIsRunning(false);
-        gridParticlesRef.current = [];
-        gridCycleTimeRef.current = 0;
+        setGridState(gridParticlesRef.current.length > 0 ? "paused" : "off");
+        // Keep the loop alive only if click trajectories are still moving;
+        // either way draw one more frame so paused particles show as dots.
+        ensureLoop();
       }
     },
-    [animationLoop, initializeGridParticles],
+    [ensureLoop, initializeGridParticles],
   );
 
-  // Reset simulation - EXACT copy from DSC
-  const resetSimulation = useCallback(() => {
+  const clearDynamicState = useCallback(() => {
     const state = animationStateRef.current;
+    stopLoop();
     state.isRunning = false;
-    if (state.animationId) {
-      cancelAnimationFrame(state.animationId);
-      state.animationId = null;
-    }
+    state.timeSeriesData = [];
+    state.lastActiveCount = 0;
     setIsRunning(false);
-
+    setGridState("off");
     clickParticlesRef.current = [];
     gridParticlesRef.current = [];
     gridCycleTimeRef.current = 0;
-    state.time = 0;
-    state.timeSeriesData = [];
-    setTrajectoryCount(0); // Reset trajectory count
+    setTrajectoryCount(0);
+    clearCanvas(dynamicCanvasRef.current);
+    clearCanvas(timeSeriesCanvasRef.current);
+  }, [stopLoop]);
 
-    if (staticCanvasRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
-    if (dynamicCanvasRef.current) {
-      const ctx = dynamicCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        dynamicCanvasRef.current.width,
-        dynamicCanvasRef.current.height,
-      );
-    }
-    if (timeSeriesCanvasRef.current) {
-      const ctx = timeSeriesCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        timeSeriesCanvasRef.current.width,
-        timeSeriesCanvasRef.current.height,
-      );
-    }
-  }, [drawStaticElements]);
+  // Reset simulation: clear all trajectories and particles
+  const resetSimulation = useCallback(() => {
+    clearDynamicState();
+    drawStaticElements();
+  }, [clearDynamicState, drawStaticElements]);
 
   // Handle canvas click
   const handleCanvasClick = useCallback(
@@ -973,13 +763,8 @@ const GeneralizedLotkaVolterraTool = () => {
       const { pmax: currentPmax, qmax: currentQmax } =
         animationStateRef.current.params;
 
-      const rect = canvas.getBoundingClientRect();
-      // Convert click position to canvas pixel coordinates
-      const canvasX = (event.clientX - rect.left) * (canvas.width / rect.width);
-      const canvasY =
-        (event.clientY - rect.top) * (canvas.height / rect.height);
-
-      // Check if click is within plot bounds
+      // CSS-pixel position (correct even when the tool is scaled down)
+      const { x: canvasX, y: canvasY } = localPointer(event, canvas);
       if (
         canvasX < 0 ||
         canvasX > plotWidth ||
@@ -988,9 +773,7 @@ const GeneralizedLotkaVolterraTool = () => {
       )
         return;
 
-      // Convert to data coordinates
       const dataPoint = pixelToData(canvasX, canvasY);
-
       if (
         dataPoint.x < 0 ||
         dataPoint.y < 0 ||
@@ -1012,75 +795,52 @@ const GeneralizedLotkaVolterraTool = () => {
   const handleExampleChange = useCallback(
     (exampleName) => {
       setSelectedExample(exampleName);
-      const preset = examplePresets[exampleName];
+      const preset = EXAMPLE_PRESETS[exampleName];
       if (preset) {
-        // Reset simulation first
-        const state = animationStateRef.current;
-        state.isRunning = false;
-        if (state.animationId) {
-          cancelAnimationFrame(state.animationId);
-          state.animationId = null;
-        }
-        setIsRunning(false);
-        clickParticlesRef.current = [];
-        gridParticlesRef.current = [];
-        gridCycleTimeRef.current = 0;
-        state.time = 0;
-        state.timeSeriesData = [];
-        setTrajectoryCount(0);
-
-        // Apply new parameters
-        setUiParams({ ...preset, speed: uiParams.speed });
-
-        // Clear canvases
-        if (dynamicCanvasRef.current) {
-          const ctx = dynamicCanvasRef.current.getContext("2d");
-          ctx.clearRect(
-            0,
-            0,
-            dynamicCanvasRef.current.width,
-            dynamicCanvasRef.current.height,
-          );
-        }
-        if (timeSeriesCanvasRef.current) {
-          const ctx = timeSeriesCanvasRef.current.getContext("2d");
-          ctx.clearRect(
-            0,
-            0,
-            timeSeriesCanvasRef.current.width,
-            timeSeriesCanvasRef.current.height,
-          );
-        }
+        clearDynamicState();
+        setUiParams((prev) => ({ ...preset, speed: prev.speed }));
       }
     },
-    [examplePresets, uiParams.speed],
+    [clearDynamicState],
   );
 
-  // Initial draw of static elements
+  // Redraw static elements when parameters, toggles or theme change
   useEffect(() => {
-    if (staticCanvasRef.current && phaseTransformRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
-  }, [drawStaticElements]);
-
-  // Redraw static elements when parameters change
-  useEffect(() => {
-    if (staticCanvasRef.current && phaseTransformRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
+    drawStaticElements();
   }, [uiParams, showNullclines, showVectorField, drawStaticElements]);
 
-  // Cleanup
+  // When the model changes, finished trajectories start moving again
+  // (toward the new equilibria) and the loop restarts if needed.
   useEffect(() => {
-    return () => {
-      const state = animationStateRef.current;
-      if (state.animationId) {
-        cancelAnimationFrame(state.animationId);
+    clickParticlesRef.current.forEach((pt) => {
+      if (!pt.diverged) {
+        pt.done = false;
+        pt.stillTime = 0;
       }
-    };
-  }, []);
+    });
+    if (hasWork()) ensureLoop();
+  }, [alpha, beta, gamma, delta, u, v, uiParams.speed, hasWork, ensureLoop]);
+
+  // When the axes change, old trails are at the wrong scale: clear them and
+  // re-seed the grid particles over the new window.
+  const firstRangeRef = useRef(true);
+  useEffect(() => {
+    if (firstRangeRef.current) {
+      firstRangeRef.current = false;
+      return;
+    }
+    clearCanvas(dynamicCanvasRef.current);
+    if (gridParticlesRef.current.length > 0) initializeGridParticles();
+    ensureLoop();
+  }, [pmax, qmax, initializeGridParticles, ensureLoop]);
+
+  // Redraw the time series when its axis or colours change
+  useEffect(() => {
+    drawTimeSeries();
+  }, [drawTimeSeries, pmax, qmax]);
+
+  const interiorEq = equilibria.find((eq) => eq.x > 0 && eq.y > 0);
+  const timeYMax = Math.max(pmax, qmax);
 
   return (
     <ToolContainer
@@ -1111,15 +871,11 @@ const GeneralizedLotkaVolterraTool = () => {
                 ref={staticCanvasRef}
                 className="pointer-events-none"
                 style={transform.plotStyle}
-                width={transform.plotWidth}
-                height={transform.plotHeight}
               />
               <canvas
                 ref={dynamicCanvasRef}
                 className="cursor-crosshair"
                 style={transform.plotStyle}
-                width={transform.plotWidth}
-                height={transform.plotHeight}
                 onClick={handleCanvasClick}
               />
             </>
@@ -1135,22 +891,17 @@ const GeneralizedLotkaVolterraTool = () => {
         h={2}
         xLabel="Time"
         yLabel="Population"
-        xRange={[0, 20]}
-        yRange={[0, Math.max(pmax, qmax)]}
+        xRange={[0, TIME_WINDOW]}
+        yRange={[0, timeYMax]}
         xTicks={[]}
-        yTicks={Math.max(pmax, qmax) === pmax ? pTicks : qTicks}
+        yTicks={timeYMax === pmax ? pTicks : qTicks}
         theme={theme}
-        tooltip="Population dynamics over time"
+        tooltip="Populations over time for the first clicked trajectory"
       >
         {(transform) => {
           timeSeriesTransformRef.current = transform;
           return (
-            <canvas
-              ref={timeSeriesCanvasRef}
-              style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
-            />
+            <canvas ref={timeSeriesCanvasRef} style={transform.plotStyle} />
           );
         }}
       </GridGraph>
@@ -1217,7 +968,7 @@ const GeneralizedLotkaVolterraTool = () => {
         max={5.0}
         step={0.001}
         variable="u"
-        title="Interaction coefficient (P effect on P)"
+        title="Interaction coefficient (effect of Q on P: the uPQ term in P′)"
         theme={theme}
         compact={true}
       />
@@ -1230,7 +981,7 @@ const GeneralizedLotkaVolterraTool = () => {
         max={5.0}
         step={0.001}
         variable="v"
-        title="Interaction coefficient (Q effect on Q)"
+        title="Interaction coefficient (effect of P on Q: the vPQ term in Q′)"
         theme={theme}
         compact={true}
       />
@@ -1274,7 +1025,7 @@ const GeneralizedLotkaVolterraTool = () => {
         theme={theme}
       />
 
-      {/* Start Button - to the right of speed slider */}
+      {/* Start/Pause Button (grid particles) */}
       <GridButton
         x={9}
         y={3}
@@ -1370,7 +1121,7 @@ const GeneralizedLotkaVolterraTool = () => {
             style={{
               fontWeight: "bold",
               marginBottom: "15px",
-              color: currentTheme === "dark" ? "#60a5fa" : "#3b82f6",
+              color: colors.p,
               fontSize: "1.1em",
             }}
           >
@@ -1385,7 +1136,7 @@ const GeneralizedLotkaVolterraTool = () => {
         </div>
       </GridDisplay>
 
-      {/* Equilibrium Display */}
+      {/* Equilibrium Display: every equilibrium in the window, with its type */}
       <GridDisplay
         x={7}
         y={2}
@@ -1393,33 +1144,33 @@ const GeneralizedLotkaVolterraTool = () => {
         h={1}
         variant="status"
         align="center"
-        fontSize="small"
+        fontSize="xs"
         theme={theme}
       >
-        <div style={{ textAlign: "center", lineHeight: "1.4" }}>
-          <div style={{ fontWeight: "bold", marginBottom: "6px" }}>
+        <div style={{ textAlign: "center", lineHeight: "1.2" }}>
+          <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
             Equilibrium Points
           </div>
           {equilibria.length > 0 ? (
             <div
               style={{
-                fontSize: "0.85em",
+                fontSize: equilibria.length > 2 ? "0.9em" : "1em",
                 display: "grid",
                 gridTemplateColumns: equilibria.length > 2 ? "1fr 1fr" : "1fr",
-                gap: "4px 8px",
+                gap: "0px 6px",
                 justifyItems: "center",
               }}
             >
               {equilibria.map((eq, idx) => (
-                <div key={idx}>
-                  ({eq.x.toFixed(2)}, {eq.y.toFixed(2)})
+                <div key={idx} style={{ whiteSpace: "nowrap" }}>
+                  ({eq.x.toFixed(2)}, {eq.y.toFixed(2)}){" "}
+                  {equilibria.length > 2 && <br />}
+                  <span style={{ opacity: 0.85 }}>{typeLabel(eq.type)}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ fontSize: "0.9em", opacity: 0.7 }}>
-              No equilibrium points
-            </div>
+            <div style={{ opacity: 0.7 }}>None in the window</div>
           )}
         </div>
       </GridDisplay>
@@ -1447,38 +1198,32 @@ const GeneralizedLotkaVolterraTool = () => {
               fontSize: "0.85em",
             }}
           >
-            <div>Particles: {isRunning ? "Active" : "Inactive"}</div>
+            <div>
+              Grid particles:{" "}
+              {gridState === "running"
+                ? "running"
+                : gridState === "paused"
+                  ? "paused"
+                  : "off"}
+            </div>
             <div>
               {trajectoryCount > 0
-                ? `${trajectoryCount} active ${trajectoryCount === 1 ? "trajectory" : "trajectories"}`
-                : "No trajectories"}
+                ? `${trajectoryCount} moving ${trajectoryCount === 1 ? "trajectory" : "trajectories"}`
+                : "No moving trajectories"}
             </div>
             <div>Speed: {uiParams.speed.toFixed(1)}x</div>
           </div>
-          {(() => {
-            const interiorEq = equilibria.find((eq) => eq.type !== null);
-            if (interiorEq) {
-              return (
-                <div style={{ marginTop: "6px", fontSize: "0.85em" }}>
-                  Equilibrium at ({interiorEq.x.toFixed(2)},{" "}
-                  {interiorEq.y.toFixed(2)}) is {interiorEq.type}.
-                </div>
-              );
-            }
-            return null;
-          })()}
+          {interiorEq && (
+            <div style={{ marginTop: "6px", fontSize: "0.85em" }}>
+              Equilibrium at ({interiorEq.x.toFixed(2)},{" "}
+              {interiorEq.y.toFixed(2)}) is{" "}
+              {withArticle(typeLabel(interiorEq.type))}.
+            </div>
+          )}
           <div style={{ marginTop: "6px", fontSize: "0.8em", opacity: 0.8 }}>
-            <span
-              style={{ color: currentTheme === "dark" ? "#60a5fa" : "#3b82f6" }}
-            >
-              Blue: Population P
-            </span>
+            <span style={{ color: colors.p }}>Blue: Population P</span>
             {" | "}
-            <span
-              style={{ color: currentTheme === "dark" ? "#f87171" : "#dc2626" }}
-            >
-              Red: Population Q
-            </span>
+            <span style={{ color: colors.q }}>Red (dashed): Population Q</span>
             {" | "}
             <span
               style={{ color: currentTheme === "dark" ? "#4ade80" : "#16a34a" }}
@@ -1490,6 +1235,10 @@ const GeneralizedLotkaVolterraTool = () => {
               style={{ color: currentTheme === "dark" ? "#fb923c" : "#ea580c" }}
             >
               Orange: Grid particles
+            </span>
+            {" | "}
+            <span style={{ color: colors.equilibrium }}>
+              Purple: Equilibria (filled = stable)
             </span>
           </div>
         </div>

@@ -13,6 +13,26 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
+import { setupCanvas } from "../utils/canvas";
+import { linearTicks, niceStep } from "../utils/ticks";
+
+// Default t₀ slider range; it widens to include the data's t-range.
+const T0_MIN_DEFAULT = 0;
+const T0_MAX_DEFAULT = 30;
+
+// Format the RSS so that it always fits its box: fixed-point with two
+// decimals below 10⁸, then scientific notation (e.g. 1.2346 × 10⁹).
+const SUPERSCRIPT = { "-": "⁻", 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
+const formatRSS = (value) => {
+  if (!Number.isFinite(value)) return "—";
+  if (Math.abs(value) < 1e8) return value.toFixed(2);
+  const [mantissa, exp] = value.toExponential(4).split("e");
+  const e = String(parseInt(exp, 10))
+    .split("")
+    .map((ch) => SUPERSCRIPT[ch] ?? ch)
+    .join("");
+  return `${mantissa} × 10${e}`;
+};
 
 const LogisticGrowthExplorerTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -155,8 +175,8 @@ const LogisticGrowthExplorerTool = () => {
     const transform = transformRef.current;
     if (!canvas || !transform) return;
 
-    const ctx = canvas.getContext("2d");
     const { plotWidth, plotHeight, dataToPixel } = transform;
+    const { ctx } = setupCanvas(canvas, { width: plotWidth, height: plotHeight });
     const { tRange, PRange } = calculateAxisRanges();
 
     // Clear canvas
@@ -263,91 +283,34 @@ const LogisticGrowthExplorerTool = () => {
 
   const { tRange, PRange } = calculateAxisRanges();
 
-  // Generate Y-axis ticks including carrying capacity C
-  const generateYTicks = useCallback(() => {
+  // Y-axis ticks (computed by index, no float drift), plus C if it isn't
+  // close to an existing tick
+  const yTicks = (() => {
     const [pMin, pMax] = PRange;
-    const range = pMax - pMin;
-    const step = Math.pow(10, Math.floor(Math.log10(range / 4)));
-    const niceStep =
-      step * (range / step / 4 > 3 ? 2 : range / step / 4 > 1.5 ? 1 : 0.5);
-
-    const ticks = [];
-    let tick = Math.ceil(pMin / niceStep) * niceStep;
-
-    while (tick <= pMax) {
-      ticks.push(tick);
-      tick += niceStep;
+    const step = niceStep(pMin, pMax, 5);
+    const ticks = linearTicks(pMin, pMax, step);
+    if (C >= pMin && C <= pMax && !ticks.some((t) => Math.abs(t - C) < step * 0.3)) {
+      ticks.push(C);
+      ticks.sort((m, n) => m - n);
     }
+    return ticks;
+  })();
 
-    // Add carrying capacity C if it's within range and not too close to existing ticks
-    if (C >= pMin && C <= pMax) {
-      const hasNearbyTick = ticks.some((t) => Math.abs(t - C) < niceStep * 0.3);
-      if (!hasNearbyTick) {
-        ticks.push(C);
-        ticks.sort((a, b) => a - b);
-      }
-    }
+  // X-axis (time) ticks
+  const xTicks = linearTicks(tRange[0], tRange[1], niceStep(tRange[0], tRange[1], 4));
 
-    // Format ticks to max 5 characters
-    return ticks.map((t) => {
-      const str = t.toString();
-      if (str.length <= 5) return t;
+  // t₀ slider range: 0–30, widened to include every data time
+  const dataTimes = tableData
+    .map((row) => parseFloat(row.t))
+    .filter((t) => Number.isFinite(t));
+  const t0Min = Math.min(T0_MIN_DEFAULT, ...dataTimes);
+  const t0Max = Math.max(T0_MAX_DEFAULT, ...dataTimes);
 
-      // Try toPrecision to get significant figures that fit
-      for (let precision = 4; precision >= 1; precision--) {
-        const formatted = parseFloat(t.toPrecision(precision));
-        const formattedStr = formatted.toString();
-        if (formattedStr.length <= 5) return formatted;
-      }
+  // Keep t₀ inside the slider's range if the range shrinks
+  useEffect(() => {
+    setT0((prev) => Math.min(t0Max, Math.max(t0Min, prev)));
+  }, [t0Min, t0Max]);
 
-      // Last resort: exponential notation
-      return parseFloat(t.toExponential(1));
-    });
-  }, [PRange, C]);
-
-  const yTicks = generateYTicks();
-
-  // Generate X-axis (time) ticks
-  const generateXTicks = useCallback(() => {
-    const [tMin, tMax] = tRange;
-    const range = tMax - tMin;
-
-    // Target about 4-5 ticks
-    const rawStep = range / 4;
-    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
-    const normalizedStep = rawStep / magnitude;
-
-    // Round to nice numbers
-    let niceStep;
-    if (normalizedStep <= 1) niceStep = magnitude;
-    else if (normalizedStep <= 2) niceStep = 2 * magnitude;
-    else if (normalizedStep <= 5) niceStep = 5 * magnitude;
-    else niceStep = 10 * magnitude;
-
-    const ticks = [];
-    let tick = Math.ceil(tMin / niceStep) * niceStep;
-
-    while (tick <= tMax) {
-      ticks.push(tick);
-      tick += niceStep;
-    }
-
-    // Format to max 5 characters
-    return ticks.map((t) => {
-      const str = t.toString();
-      if (str.length <= 5) return t;
-
-      for (let precision = 4; precision >= 1; precision--) {
-        const formatted = parseFloat(t.toPrecision(precision));
-        const formattedStr = formatted.toString();
-        if (formattedStr.length <= 5) return formatted;
-      }
-
-      return parseFloat(t.toExponential(1));
-    });
-  }, [tRange]);
-
-  const xTicks = generateXTicks();
 
   return (
     <ToolContainer
@@ -368,6 +331,7 @@ const LogisticGrowthExplorerTool = () => {
           { key: "P", label: "P", type: "number", editable: true },
         ]}
         title="Data Table"
+        maxRows={16}
         theme={theme}
       />
 
@@ -382,9 +346,17 @@ const LogisticGrowthExplorerTool = () => {
         fontSize="small"
         theme={theme}
       >
-        <div style={{ padding: "4px" }}>
+        <div style={{ padding: "4px", maxWidth: "100%", overflow: "hidden" }}>
           <div style={{ fontWeight: "bold", marginBottom: "2px" }}>RSS</div>
-          <div style={{ fontSize: "0.9em" }}>{rssValue.toFixed(2)}</div>
+          <div
+            style={{
+              fontSize: "0.9em",
+              whiteSpace: "nowrap",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {formatRSS(rssValue)}
+          </div>
         </div>
       </GridDisplay>
 
@@ -438,7 +410,7 @@ const LogisticGrowthExplorerTool = () => {
       >
         {(transform) => {
           transformRef.current = transform;
-          const { plotWidth, plotHeight, plotStyle } = transform;
+          const { plotStyle } = transform;
 
           return (
             <canvas
@@ -447,8 +419,6 @@ const LogisticGrowthExplorerTool = () => {
                 ...plotStyle,
                 pointerEvents: "none",
               }}
-              width={plotWidth}
-              height={plotHeight}
             />
           );
         }}
@@ -511,8 +481,11 @@ const LogisticGrowthExplorerTool = () => {
         y={2}
         w={2}
         h={1}
-        value={(t0 / 30) * 100}
-        onChange={(value) => setT0((value / 100) * 30)}
+        value={t0}
+        onChange={setT0}
+        min={t0Min}
+        max={t0Max}
+        step={niceStep(t0Min, t0Max, 300)}
         variant="unipolar"
         label={`t₀ = ${t0.toFixed(1)}`}
         theme={theme}
