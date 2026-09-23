@@ -739,6 +739,16 @@ const [param, setParam] = useState(1.0);  // Default value
 - **Staircases**: Default size (discrete value selectors)
 - **Info Displays**: `w={3}`, `h={2}` (detailed information panels)
 
+### Shared Component Behavior Notes
+- **GridButton**: honors `w`/`h` (a wide button renders as a pill). Buttons are keyboard-accessible (Tab, Enter/Space); toggles expose `aria-pressed`. Optional `ariaLabel`.
+- **GridDisplay `fontSize`**: `"xs"` (12px), `"small"`/`"sm"` (14px), `"medium"`/`"md"` (16px), `"large"`/`"lg"` (18px), `"xl"` (20px), a number (px), or `"auto"` (default, sized from the box). Check that text still fits when you pick a size.
+- **GridSliderHorizontal**: value range is -100..100 (`bipolar`) or 0..100 (`unipolar`) with integer steps, unless you pass `min`/`max` (and optionally `step`), in which case `value`/`onChange` use that range. Keyboard: arrows, PageUp/PageDown, Home/End; works with touch.
+- **GridInput**: typed values are committed on Enter or blur (Escape reverts); arrows step immediately. An integer `step` rounds the value to an integer; decimals shown come from both the range and the step.
+- **GridGraph / GridGraphDualY / GridTimeSeries**: numeric ticks are labeled with step-aware precision (`src/utils/ticks.js`); pass `xTickLabels`/`yTickLabels` (or `yTickLabelsRight`) for custom labels. GridGraph's axis labels default to `""`. GridTimeSeries also accepts `xTicks`/`yTicks`.
+- **GridWindow**: `tooltip` (or `title`) sets the hover text.
+- **Theme in shared components**: use `useThemeMode(theme)` from `src/components/grid/themeMode.js` (reads `currentTheme` from the ThemeProvider).
+- **ToolContainer scaling**: on windows narrower than the tool, ToolContainer scales the whole tool down with a CSS transform. Mouse positions from `event.clientX - rect.left` are then in screen pixels, not the canvas's CSS pixels: use `localPointer(event, canvas)` from `src/components/grid/pointer.js` for click/drag coordinates, and size canvases from their layout size (`offsetWidth`/`offsetHeight` or the GridGraph transform), not `getBoundingClientRect()`.
+
 ## Component Design Rules
 
 ### GridGraph Child Elements for Model Visualization
