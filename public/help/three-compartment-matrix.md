@@ -62,5 +62,5 @@ The panel to the right of the graph shows:
 - Use the Step button to watch the matrix multiplication one step at a time. Compare each new population vector with **M** times the previous one.
 - To make a compartment absorbing (individuals that enter never leave), set its diagonal entry to 1 and the other two entries in its column to 0.
 - Rename the compartments to match a biological scenario (for example "Stem", "Basal", "Luminal", or "S", "I", "M") and enter the transition probabilities.
-- Enter a Leslie matrix (fecundities in the top row, survival probabilities below the diagonal). For eggs, hoppers and adults with 2% and 5% survival and 1000 eggs per adult, the populations repeat every 3 steps.
+- Enter a Leslie matrix (fecundities in the top row, survival probabilities just below the diagonal) to model birth, death and aging. Some Leslie matrices make the populations oscillate instead of settling down.
 - Set one column sum above 1 and another below 1 and watch the total population (dashed line) grow or shrink.
