@@ -2,45 +2,37 @@
 
 ## Overview
 
-Simulates stochastic transitions of particles between two compartments using a discrete-time Markov process. Particles move with Brownian-like motion within their compartment and transition through flared tunnels along cubic Bézier curves, with transition probabilities set by the user. [VERIFY: appropriate as a model for membrane transport, pharmacokinetic compartment models, or other two-state systems]
+Particles (for example, water molecules) move between two compartments, A and B. The model is a discrete-time Markov chain: at each time step, every particle in A moves to B with probability P(A→B), and every particle in B moves to A with probability P(B→A), independently of the others. Over time the numbers in A and B settle into a random fluctuation around an equilibrium. The animation shows particles drifting around inside their compartments and flying through tunnels when they switch; the upper tunnel carries A→B moves and the lower tunnel carries B→A moves.
 
 ## Parameters
 
-**Compartment A Name:** Text input (max 8 characters), default "A". Sets the display name for compartment A, shown on the visualization and status legend.
+**Compartment A Name / Compartment B Name:** Text inputs (at most 8 characters), default "A" and "B". Labels for the compartments, used in the picture and the status box.
 
-**Compartment B Name:** Text input (max 8 characters), default "B". Sets the display name for compartment B, shown on the visualization and status legend.
+**Population A (N_A) / Population B (N_B):** Numeric inputs from 0 to 1000, default 500 each. The starting number of particles in each compartment. A new value is used the next time a run starts from scratch (press Reset, then Start).
 
-**Population A (N_A):** Numeric input adjusts between 0 and 200, default 50. Sets the initial number of particles in compartment A when the simulation starts.
+**P(A→B):** Slider from 0% to 40%, default 5%. The probability per time step that a particle in A moves to B. It can be changed during a run.
 
-**Population B (N_B):** Numeric input adjusts between 0 and 200, default 50. Sets the initial number of particles in compartment B when the simulation starts.
-
-**P(A→B):** Slider adjusts between 0.0% and 10.0%, default 5.0%. The probability per time step that a particle in compartment A will transition to compartment B. Can be adjusted during a running simulation.
-
-**P(B→A):** Slider adjusts between 0.0% and 10.0%, default 5.0%. The probability per time step that a particle in compartment B will transition to compartment A. Can be adjusted during a running simulation.
+**P(B→A):** Slider from 0% to 40%, default 5%. The probability per time step that a particle in B moves to A. It can be changed during a run.
 
 ## Components
 
-**Compartment Visualization:** A large canvas (7x4 grid cells) displaying two rounded-rectangle compartments (A in pink/red, B in blue) connected by two flared gradient tunnels. The upper tunnel carries A→B transitions and the lower tunnel carries B→A transitions. Each tunnel shows a directional arrow and its current transition probability. Particles appear as small colored dots: red in compartment A, blue in compartment B, and gold while transitioning through a tunnel. Live population counts are displayed above each compartment.
+**Compartment Visualization:** Compartment A (red) on the left and compartment B (blue) on the right, joined by two tunnels labeled with their transition probabilities. Particles are red in A, blue in B, and gold while they fly through a tunnel. The current counts are shown above the compartments.
 
-**Time Series Graph:** Displays population vs time (steps) over a rolling window of 100 data points. The red curve tracks compartment A population and the blue curve tracks compartment B population. Updates in real time as the simulation runs.
+**Time Series Graph:** The number of particles in A (solid red line) and B (dashed blue line) against time in steps, with one point for every step. The graph shows the last 200 steps and scrolls once the run passes step 200. The simulation runs at 4 steps per second.
 
-**Start Button:** Starts a new simulation with the current population and probability settings. If the simulation is paused, resumes from where it left off.
+**Start Button:** Starts a new run with the current populations and probabilities. If the run is paused, Start resumes it instead.
 
-**Pause Button:** Freezes the simulation in place, stopping all particle motion and time series updates. The visualization remains visible for static inspection. Press Start to resume.
+**Pause Button:** Freezes the run. Press Start to continue.
 
-**Reset Button:** Stops the simulation entirely, clears all particles from the visualization, clears the time series graph, and restores the display to its initial state.
+**Reset Button:** Stops the run and clears the particles and the graph.
 
-**Status Display:** Shows the current simulation state (Running, Paused, or Stopped), the current step count, and a color-coded legend showing each compartment's name and current population count.
+**Status Display:** Running, Paused, or Stopped; the current step; and the current count in each compartment.
 
 ## What to Observe
 
-- Press Start with default settings (50/50 population, 5%/5% probabilities) and observe the populations fluctuating around their initial values in the time series graph — this demonstrates stochastic equilibrium with equal transition rates.
-- Set P(A→B) to 10% and P(B→A) to 2%, then press Start to observe particles gradually accumulating in compartment B as the asymmetric rates drive the system toward a new steady state.
-- Set one compartment population to 0 and the other to 200, then Start to watch the system approach equilibrium from an extreme initial condition.
-- Use the Pause button to freeze the simulation and inspect the current particle positions and population counts, then press Start to resume.
-- Adjust the probability sliders while the simulation is running to observe how the system responds in real time to changing transition rates.
-- Change compartment names (e.g., "Cell" and "Blood") to label the model for a specific biological context. [VERIFY: naming suggestions appropriate for educational use]
-
-## References
-
-[To be added]
+- Press **Start** with the defaults (500 and 500, 5% and 5%). The counts fluctuate around 500 each: with equal transition probabilities the equilibrium is an even split.
+- Make the probabilities unequal, for example P(A→B) = 20% and P(B→A) = 10%, starting from 1000 particles in each compartment. The counts move quickly toward a new equilibrium and then fluctuate around it. At equilibrium, the number of particles moving A→B each step balances the number moving B→A.
+- Start with all the particles in one compartment (for example N_A = 1000, N_B = 0) and watch the approach to equilibrium.
+- Double both probabilities and compare: how does that change the equilibrium, and how fast it is reached?
+- Use **Pause** to freeze the picture and read off the counts, then **Start** to continue.
+- Rename the compartments to fit a biological setting, for example the two sides of a membrane.
