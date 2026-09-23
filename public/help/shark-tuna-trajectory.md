@@ -2,49 +2,50 @@
 
 ## Overview
 
-Models predator-prey dynamics using the Lotka-Volterra equations. Displays phase space trajectories, vector fields, equilibrium points, and population time series for interactive exploration of shark-tuna interactions.
+Models predator-prey dynamics with the Lotka-Volterra equations
+
+- S′ = −δS + pST
+- T′ = βT − qST
+
+where S is the number of sharks and T the number of tuna. The tool shows the vector field, the equilibrium points, trajectories you start by clicking, and a time series of the populations.
 
 ## Parameters
 
-**Predation Coefficient (p):** Horizontal slider adjusts between 0.0 and 0.1, default 0.03. Represents the rate at which shark-tuna encounters result in successful predation. [VERIFY: ecological interpretation]
+**Predation Coefficient (p):** Slider from 0 to 0.1, default 0.03. How much each shark-tuna interaction benefits the sharks: the interaction term +pST in the shark equation.
 
-**Consumption Rate (q):** Horizontal slider adjusts between 0.0 and 0.4, default 0.04. Represents the conversion efficiency of consumed tuna into shark population growth. [VERIFY: ecological interpretation]
+**Consumption Rate (q):** Slider from 0 to 0.4, default 0.04. How many tuna are lost to each shark-tuna interaction: the interaction term −qST in the tuna equation.
 
-**Tuna Growth Rate (β):** Horizontal slider adjusts between 0.0 and 2.0, default 0.6. Represents the intrinsic growth rate of the tuna population in the absence of predation. [VERIFY: ecological interpretation]
+**Tuna Growth Rate (β):** Slider from 0 to 2, default 0.6. Per-capita growth rate of the tuna when there are no sharks.
 
-**Shark Death Rate (δ):** Horizontal slider adjusts between 0.0 and 4.0, default 0.4. Represents the natural mortality rate of sharks in the absence of prey. [VERIFY: ecological interpretation]
+**Shark Death Rate (δ):** Slider from 0 to 1, default 0.4. Per-capita death rate of the sharks when there are no tuna.
 
-**Animation Speed:** Horizontal slider adjusts between 0.0x and 4.0x, default 2.0x. Controls the speed of trajectory animation.
+**Animation Speed:** Slider from 0x to 4x, default 2x. Controls how fast trajectories are drawn. At 0 the animation stops.
 
 ## Components
 
-**Phase Portrait Graph:** Displays Tuna Population (T, y-axis) versus Shark Population (S, x-axis) from 0 to 50 for both axes. Shows vector field (gray arrows indicating direction of population change), equilibrium points (blue dot for stable equilibrium, orange dot for saddle point), and animated trajectories. Click anywhere on the graph to start a trajectory from that initial population state.
+**Phase Portrait Graph:** Tuna Population (T, vertical axis) against Shark Population (S, horizontal axis), both from 0 to 50. Gray arrows (the vector field) show the direction of population change at each point. Click anywhere to start a trajectory from that starting population. A trajectory keeps being computed when it leaves the window, and comes back into view when the populations do; only the drawing is cut off at the edges.
 
-**Time Series Graph:** Displays population levels over time for both species. Shows the last 20 time units of simulation data. Orange line represents shark population, teal line represents tuna population. The x-axis range slides as the simulation progresses.
+**Equilibrium points:** Colored by type. The interior equilibrium (S*, T*) = (β/q, δ/p) is a **center** (purple dot): nearby trajectories go around it in closed orbits instead of approaching it or moving away. The origin (0, 0) is a **saddle** (orange dot).
 
-**Lotka-Volterra Model Display:** Info panel showing the differential equations for predator dynamics (dS/dt) and prey dynamics (dT/dt) using MathML equation rendering.
+**Time Series Graph:** Sharks (orange, solid) and tuna (teal, dashed) over the last 20 time units, for the most recently started trajectory. The time axis slides as the simulation runs.
 
-**Equilibrium Point Display:** Status panel showing the non-trivial equilibrium point coordinates: S* = β/q and T* = δ/p. Values update dynamically as parameters change.
+**Lotka-Volterra Model Display:** The two change equations.
 
-**Reset Button:** Momentary button that clears all trajectories and stops the animation, returning to initial state.
+**Equilibrium Point Display:** The interior equilibrium S* = β/q and T* = δ/p and its type. If p = 0 or q = 0 there is no interior equilibrium, and the display says so.
 
-**Kill 10 Tuna Button:** Momentary button that instantly removes 10 individuals from the tuna population of all active trajectories.
+**Reset Button:** Clears all trajectories and the time series, and stops the animation.
 
-**Kill 10 Sharks Button:** Momentary button that instantly removes 10 individuals from the shark population of all active trajectories.
+**Kill 10 Tuna Button:** Instantly removes 10 tuna from every trajectory that is running.
 
-**Simulation Status Display:** Info panel showing the number of active trajectories, current simulation time, and animation status (Running/Stopped). Includes instructions for adding trajectories.
+**Kill 10 Sharks Button:** Instantly removes 10 sharks from every trajectory that is running.
+
+**Simulation Status Display:** Number of active trajectories, current time, and whether the animation is running.
 
 ## What to Observe
 
-- Click on the phase portrait to add trajectory starting points. Each click creates a new colored trajectory that evolves according to the Lotka-Volterra equations.
-- Adjust **Predation Coefficient (p)** to observe how predation efficiency affects the equilibrium point position (T* = δ/p) and the size of population cycles.
-- Adjust **Tuna Growth Rate (β)** to observe how prey reproduction affects the equilibrium point position (S* = β/q) and cycle dynamics.
-- Set **Animation Speed** to 0 to pause trajectories and examine the current state, or increase to 4x for faster dynamics.
-- Click near the blue equilibrium point to observe small oscillations around the stable state. Click far from equilibrium to observe large population cycles.
-- Click **Kill 10 Tuna** during a simulation to observe how sudden prey population drops affect the predator-prey cycle in the time series graph.
-- Observe the vector field arrows to predict trajectory direction before clicking. Arrows show the instantaneous rate of change at each point in state space.
-- Watch the time series graph to see how the circular phase portrait trajectories correspond to periodic oscillations in population levels over time.
-
-## References
-
-[To be added]
+- Click on the phase portrait to add trajectories. Each click starts a new colored trajectory.
+- Trajectories are **closed orbits** around the equilibrium: the populations return to where they started and repeat. In the time series this shows up as regular oscillations, with tuna peaking before sharks.
+- Click near the equilibrium for small oscillations; click far from it for large ones. Large orbits can leave the window and come back.
+- Adjust **p** to move T* = δ/p, and **β** or **q** to move S* = β/q.
+- Click **Kill 10 Tuna** or **Kill 10 Sharks** at different points of an orbit. The trajectory jumps to a different closed orbit, which may be larger or smaller than the one it was on.
+- Use the vector field arrows to predict where a trajectory will go before you click.

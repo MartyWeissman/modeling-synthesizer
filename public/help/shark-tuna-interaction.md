@@ -1,54 +1,54 @@
-# Shark and Tuna Interaction Counter
+# Shark-Tuna Interactions
 
 ## Overview
 
-This tool simulates random spatial encounters between sharks and tuna in an ocean environment. By randomly placing predators and prey on a grid, it demonstrates how encounter rates depend on population densities - a foundational concept for understanding predator-prey dynamics and the law of mass action in ecology.
+This tool places sharks and tuna at random in a patch of ocean and counts how many tuna end up next to a shark. Repeating this with different numbers of sharks and tuna shows how the number of shark-tuna interactions depends on the two populations.
 
 ## How It Works
 
-Sharks and tuna are placed at random positions on a 20x20 grid. A tuna is considered "eaten" if it lands adjacent to a shark (within one grid unit in any direction, including diagonals). After placement, eaten tuna are marked with a red X.
+The ocean is a 20 × 20 grid of cells. Each shark and each tuna is put in its own randomly chosen cell (no two creatures share a cell). A tuna is counted as **eaten** if a shark is in one of the 8 neighboring cells (including diagonals). One second after placement, eaten tuna are marked with a red X.
 
-This simple spatial model illustrates that the number of predator-prey encounters scales with the product of population sizes - the basis for the interaction terms in Lotka-Volterra equations.
+Because the placement is random, running again with the same numbers usually gives a different count.
 
 ## Parameters
 
-### Number of Sharks (0-50)
-The number of shark predators to place on the grid. Default: 10.
+### Number of Sharks (0–50)
+The number of sharks placed. Default: 10.
 
-### Number of Tuna (0-200)
-The number of tuna prey to place on the grid. Default: 50.
+### Number of Tuna (0–200)
+The number of tuna placed. Default: 50.
 
 ## Components
 
 ### Ocean Window
-A visual display of the ocean grid showing:
-- **🦈 Shark emoji**: Predator locations
-- **🐟 Fish emoji**: Tuna locations
-- **❌ Red X**: Appears after 1 second to mark eaten tuna (those adjacent to sharks)
+- **🦈**: sharks
+- **🐟**: tuna
+- **❌**: eaten tuna (next to a shark), shown after one second
 
 ### Place Button
-Randomly places all sharks and tuna on the grid and calculates interactions. Each creature occupies a unique grid position.
+Places all sharks and tuna at random and counts the eaten tuna.
 
 ### Results Display
-Shows:
-- **Tuna Eaten**: Number of tuna that landed adjacent to a shark
-- **Surviving**: Number of tuna that avoided predation
+- **Tuna Eaten**: tuna that landed next to a shark
+- **Surviving**: tuna that did not
 
 ## What to Observe
 
-1. **Density dependence**: Run multiple trials with the same settings. Notice the variability in outcomes due to random placement.
+1. **Randomness**: Run several times with the same settings. The count varies from run to run, so average over several runs.
 
-2. **Scaling with population**: Double the number of sharks and observe how the number of eaten tuna changes. Does it double?
+2. **Fix one population, vary the other**: Keep the number of sharks fixed and try several numbers of tuna (and the other way round). When sharks are not too crowded, the number eaten grows roughly in proportion to each population.
 
-3. **Saturation effects**: With very high shark density, what happens? Can all tuna be eaten, or do sharks "compete" for the same prey?
+3. **The product ST**: The data are fit well by I ≈ kST, where I is the number of interactions and k is a constant. Estimate k from your runs.
 
-4. **Mass action approximation**: The expected number of encounters is approximately proportional to (sharks × tuna) / (grid area). Test this by varying both populations.
+4. **Crowding**: With many sharks, their neighborhoods overlap and a tuna next to two sharks is still eaten only once, so the count grows more slowly than kST.
 
-5. **Spatial clustering**: Sometimes sharks cluster in one region while tuna are elsewhere, leading to few interactions despite high populations.
+5. **Clustering**: Sometimes sharks happen to cluster in one region while tuna are elsewhere, giving few interactions despite large populations.
 
-## Connection to Differential Equations
+## Connection to the Lotka-Volterra Equations
 
-The interaction term in Lotka-Volterra equations (βST) assumes that encounter rate is proportional to the product of population sizes. This simulation shows why: each shark has a probability of encountering each tuna, so total encounters scale with both populations.
+In the Lotka-Volterra model
 
-## References
+- S′ = −δS + pST
+- T′ = βT − qST
 
+the interaction terms pST and −qST are proportional to the number of interactions I = kST. The coefficient p measures how much each interaction benefits the sharks, and q how many tuna each interaction removes. The same notation is used in the Shark-Tuna Trajectories tool.
