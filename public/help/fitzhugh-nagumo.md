@@ -2,96 +2,69 @@
 
 ## Overview
 
-The FitzHugh-Nagumo model is a simplified two-dimensional representation of neuronal excitability. [VERIFY: It was developed by Richard FitzHugh in 1961 as a reduction of the four-dimensional Hodgkin-Huxley model, and independently by Jin-ichi Nagumo as an electronic circuit.]
+The FitzHugh-Nagumo model is a simplified, two-variable model of a neuron's electrical activity. Richard FitzHugh introduced it in 1961 as a simplification of the four-variable Hodgkin-Huxley model (1952), and Jin-ichi Nagumo and colleagues built an equivalent electronic circuit in 1962. The change equations are
 
-The model captures the essential dynamics of action potential generation:
-- **X (Membrane Potential)**: Represents the fast voltage-like variable
-- **Y (Recovery Variable)**: Represents a slow recovery process (like potassium channel activation)
+- **X′ = X − X³/3 − Y + z**
+- **Y′ = u(X + a − bY)**
 
-The system exhibits excitability, limit cycles, and bistability depending on parameter values, making it a fundamental model for understanding neural dynamics.
+- **X** stands for the membrane potential (a fast variable).
+- **Y** stands for the state of the "recovery" ion channels (a slow variable).
+
+When a = 0, b = 0 and z = 0, this is the **van der Pol oscillator**. Depending on the parameters, the model shows a resting state, excitability (a spike in response to a large enough kick), repeated spiking (a limit cycle), or two stable resting states.
 
 ## Parameters
 
-### u (Time-scale Separation)
-- **Range**: 0.01 to 1.0
-- **Default**: 0.1
-- Controls the speed of the recovery variable relative to membrane potential
-- Small u means Y changes slowly compared to X, creating relaxation oscillations
-- [VERIFY: Typical biological values correspond to the ratio of membrane and ionic time constants]
+Type a value and press Enter (or click away), or use the arrows. Trajectories that are already running continue with the new values.
 
-### a (X-axis Shift)
-- **Range**: -2.0 to 2.0
-- **Default**: 0.7
-- Shifts the Y-nullcline horizontally
-- Affects the location and number of equilibrium points
-- Controls excitability threshold
+### u (time-scale separation)
+- **Range**: 0.01 to 1, **default** 0.1
+- How fast Y changes compared with X. Small u means Y is slow, so spikes have fast jumps and slow drifts (relaxation oscillations). u does not change the nullclines.
 
-### b (Y Feedback Coefficient)
-- **Range**: 0.0 to 2.0
-- **Default**: 0.8
-- Determines the slope of the Y-nullcline
-- Affects stability of equilibrium points
-- When b = 0, the Y-nullcline becomes vertical
+### a
+- **Range**: −2 to 2, **default** 0.7
+- Shifts the Y-nullcline (the red line X + a − bY = 0) left or right: it crosses Y = 0 at X = −a.
 
-### z (External Input Current)
-- **Range**: -1.0 to 1.0
-- **Default**: 0.0
-- Represents external stimulation applied to the neuron
-- Shifts the X-nullcline vertically
-- Can push the system from excitable to oscillatory regime
+### b
+- **Range**: 0 to 2, **default** 0.8
+- Sets the slope of the Y-nullcline, Y = (X + a)/b (slope 1/b). When b = 0 the line is vertical (X = −a).
+
+### z (external input current)
+- **Range**: −1 to 1, **default** 0
+- Stimulation applied to the neuron. It shifts the X-nullcline (the blue cubic) up or down.
 
 ### Animation Speed
-- **Range**: 0 to 4x
-- **Default**: 2x
-- Controls the rate of trajectory animation
+- **Range**: 0× to 4×, **default** 2×
+- Changes only how fast the animation plays (at 1×, about 3 units of model time per second), not the accuracy of the calculation. At 0× the animation pauses.
 
 ## Components
 
-### Phase Portrait (Main Graph)
-- **X-axis**: Membrane Potential (X) from -3 to 3
-- **Y-axis**: Recovery Variable (Y) from -3 to 3
-- **Vector field**: Gray arrows showing flow direction at each point
-- **Nullclines** (toggle): Blue cubic curve (X-nullcline), Red line (Y-nullcline)
-- **Equilibrium points**: Orange dots with white centers where nullclines intersect
-- **Trajectories**: Colored curves showing system evolution from click points
-- Click anywhere in the plot area to start a new trajectory
+### Phase portrait (main graph)
+- **X-axis**: membrane potential X, from −3 to 3. **Y-axis**: recovery variable Y, from −3 to 3.
+- Gray arrows show the direction of motion at each point.
+- **Click anywhere** to start a trajectory there. Each trajectory has its own color and leaves a trail about one spike cycle long. Trajectories keep moving even when they leave the window.
+- **Equilibrium points** are drawn where the nullclines cross, colored by type: green = stable, red = unstable, orange = saddle.
 
-### Time Series Plot (Bottom)
-- Shows X (blue) and Y (red) as functions of time
-- Scrolling 20-unit time window
-- Displays oscillatory behavior, action potentials, or convergence to equilibrium
+### Time series (bottom graph)
+- X (solid blue) and Y (dashed red) against time for the **first** trajectory you started, over the last 20 time units.
 
-### Preset Buttons
-- **Default**: Standard FitzHugh-Nagumo parameters (u=0.1, a=0.7, b=0.8, z=0)
-- **van der Pol**: Sets a=0, b=0 to obtain the van der Pol oscillator (a related relaxation oscillator)
+### Buttons
+- **Default**: sets u = 0.1, a = 0.7, b = 0.8, z = 0 and removes all trajectories.
+- **van der Pol**: sets u = 0.1, a = 0, b = 0, z = 0 and removes all trajectories.
+- **Show/Hide Nullclines**: the X-nullcline (blue cubic, Y = X − X³/3 + z) and the Y-nullcline (red line, X + a − bY = 0).
+- **Reset**: removes all trajectories and clears the graphs; parameters are kept.
 
-### Nullclines Toggle
-- Shows/hides the nullclines (curves where X'=0 and Y'=0)
-- Blue: X-nullcline (cubic curve Y = X - X³/3 + z)
-- Red: Y-nullcline (line X + a - bY = 0)
-- Equilibria occur where these curves intersect
+### Equilibrium box
+- Lists each equilibrium in the window with its type (stable/unstable node or spiral, saddle, ...), found from the Jacobian matrix. For this model, trace = 1 − X*² − ub and determinant = u(1 − b(1 − X*²)).
 
-### Status Display
-- Active trajectory count
-- Current simulation time
-- Current X and Y values for the most recent trajectory
-- Legend for time series colors
+### Status box
+- Number of trajectories, the model time, whether the animation is running, and the current X and Y of the first trajectory.
 
 ## What to Observe
 
-1. **Excitability**: With default parameters, the equilibrium is stable. Click near it - small perturbations return to rest, but larger perturbations trigger a full "action potential" excursion before returning.
-
-2. **Limit Cycles**: Increase z (external current) to around 0.4. The equilibrium becomes unstable and the system oscillates indefinitely - this represents repetitive firing.
-
-3. **Nullcline Geometry**: Enable nullclines to see why the system behaves as it does. The cubic X-nullcline creates the characteristic "all-or-none" response of neurons.
-
-4. **Relaxation Oscillations**: With small u (0.05-0.1), oscillations have distinct fast and slow phases - rapid jumps along the X direction, slow drift along the Y direction.
-
-5. **van der Pol Preset**: With a=0 and b=0, the model reduces to the van der Pol oscillator. All trajectories are drawn toward a single stable limit cycle regardless of starting point.
-
-6. **Bistability**: For certain parameter combinations, multiple stable states can coexist. Explore by adjusting a and b while watching the equilibrium count.
-
-7. **Phase-Time Correspondence**: Compare the phase portrait motion with the time series. Fast horizontal motion in phase space corresponds to rapid spikes in X(t).
-
-## References
-
+1. **Excitability**: at the default parameters the single equilibrium is stable. Start near it and the trajectory returns directly; start farther to the right and it makes a full spike (a big loop) before returning.
+2. **Repeated spiking**: raise z to about 0.4. The equilibrium becomes unstable and trajectories settle onto a limit cycle: the neuron fires again and again.
+3. **Nullclines**: turn them on to see how a and b move the red line, and how z moves the cubic.
+4. **Spike shape**: compare the time series for small u (for example 0.05) and larger u (for example 0.5).
+5. **van der Pol oscillator**: with a = b = z = 0 the only equilibrium (the origin) is unstable and every other trajectory approaches the same limit cycle. From there, change a or b and watch when the limit cycle disappears.
+6. **Two resting states (bistability)**: with u = 0.1, a = 0, b = 2, z = 0 there are three equilibria: two stable spirals at about (1.22, 0.61) and (−1.22, −0.61), and a saddle at the origin. Trajectories starting on different sides end at different equilibria.
+7. **Phase and time**: fast horizontal motion in the phase portrait shows up as steep jumps in X(t).
