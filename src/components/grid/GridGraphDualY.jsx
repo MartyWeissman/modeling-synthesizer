@@ -1,10 +1,16 @@
 // src/components/grid/GridGraphDualY.jsx
 
-import React, { useRef, useMemo } from "react";
+import React, { useMemo } from "react";
 import GridComponent from "./GridComponent";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
 import { getFontStyle } from "../../utils/typography";
 import { CELL_SIZE } from "../../themes";
+import { useThemeMode, noiseBackgroundSize } from "./themeMode";
+import {
+  formatTickLabels,
+  yTickLabelSpace,
+  xTickLabelWidth,
+} from "./tickLabels";
 
 const GridGraphDualY = React.memo(
   ({
@@ -37,12 +43,10 @@ const GridGraphDualY = React.memo(
     const [xMin, xMax] = xRange;
     const [yMinLeft, yMaxLeft] = yRangeLeft;
     const [yMinRight, yMaxRight] = yRangeRight;
-    const isDarkMode = theme.component.includes("gray-700");
-    const isUnicornMode = theme.text.includes("purple-800");
+    const { isDarkMode, isUnicornMode } = useThemeMode(theme);
     const currentTexture = isDarkMode
       ? DARK_NOISE_TEXTURE
       : LIGHT_NOISE_TEXTURE;
-    const canvasRef = useRef(null);
 
     // Theme-adaptive colors
     const graphBg = isDarkMode ? "#1f2937" : "#f9fafb";
@@ -57,20 +61,16 @@ const GridGraphDualY = React.memo(
     const graphHeight = totalHeight - padding * 2;
 
     // Calculate dynamic padding for dual Y-axes
-    const calculatePadding = () => {
-      const maxLeftTickLength = Math.max(
-        ...yTicksLeft.map((tick) => tick.toString().length),
-      );
-      // Use custom labels for right tick width calculation if provided
-      const rightTickStrings = yTickLabelsRight
-        ? yTickLabelsRight
-        : yTicksRight.map((tick) => tick.toString());
-      const maxRightTickLength = Math.max(
-        ...rightTickStrings.map((label) => label.toString().length),
-      );
+    // Displayed tick labels (shared step-aware formatter; custom right labels if given)
+    const xLabelStrings = formatTickLabels(xTicks);
+    const leftLabelStrings = formatTickLabels(yTicksLeft);
+    const rightLabelStrings = formatTickLabels(yTicksRight, yTickLabelsRight);
+    const leftTickWidth = yTickLabelSpace(leftLabelStrings);
+    const rightTickWidth = yTickLabelSpace(rightLabelStrings);
+    const leftLabelBoxWidth = Math.max(35, leftTickWidth - 6);
+    const rightLabelBoxWidth = Math.max(35, rightTickWidth - 6);
 
-      const leftTickWidth = Math.max(25, maxLeftTickLength * 6 + 10);
-      const rightTickWidth = Math.max(25, maxRightTickLength * 6 + 10);
+    const calculatePadding = () => {
       const yAxisLabelWidth = 20;
 
       return {
@@ -215,20 +215,23 @@ const GridGraphDualY = React.memo(
         );
 
         // Tick label
+        const xTickLabel = xLabelStrings[index];
+        const xLabelWidth = xTickLabelWidth(xTickLabel);
         ticks.push(
           <div
             key={`x-tick-label-${index}`}
             className={`absolute ${textColor}`}
             style={{
-              left: `${dynamicPadding.left + xPos - 15}px`,
+              left: `${dynamicPadding.left + xPos - xLabelWidth / 2}px`,
               bottom: `${dynamicPadding.bottom - 17}px`,
-              width: "30px",
+              width: `${xLabelWidth}px`,
+              whiteSpace: "nowrap",
               textAlign: "center",
               fontSize: "11px",
               ...getFontStyle("mono", "500"),
             }}
           >
-            {tickValue}
+            {xTickLabel}
           </div>,
         );
 
@@ -274,16 +277,17 @@ const GridGraphDualY = React.memo(
             key={`y-left-tick-label-${index}`}
             className="absolute"
             style={{
-              left: `${dynamicPadding.left - 41}px`,
+              left: `${dynamicPadding.left - 6 - leftLabelBoxWidth}px`,
               bottom: `${dynamicPadding.bottom + yPos - 7}px`,
-              width: "35px",
+              width: `${leftLabelBoxWidth}px`,
+              whiteSpace: "nowrap",
               textAlign: "right",
               fontSize: "11px",
               color: leftAxisColor,
               ...getFontStyle("mono", "500"),
             }}
           >
-            {tickValue}
+            {leftLabelStrings[index]}
           </div>,
         );
       });
@@ -308,10 +312,7 @@ const GridGraphDualY = React.memo(
         );
 
         // Tick label (colored) - use custom label if provided
-        const tickLabel =
-          yTickLabelsRight && yTickLabelsRight[index] !== undefined
-            ? yTickLabelsRight[index]
-            : tickValue;
+        const tickLabel = rightLabelStrings[index];
         ticks.push(
           <div
             key={`y-right-tick-label-${index}`}
@@ -319,7 +320,8 @@ const GridGraphDualY = React.memo(
             style={{
               left: `${dynamicPadding.left + axisWidth + 6}px`,
               bottom: `${dynamicPadding.bottom + yPos - 7}px`,
-              width: "35px",
+              width: `${rightLabelBoxWidth}px`,
+              whiteSpace: "nowrap",
               textAlign: "left",
               fontSize: "11px",
               color: rightAxisColor,
@@ -347,7 +349,7 @@ const GridGraphDualY = React.memo(
           background: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
-          backgroundSize: "cover, 64px 64px",
+          backgroundSize: noiseBackgroundSize(isUnicornMode),
           boxShadow: isUnicornMode
             ? `inset 0 1px 0 0 rgba(255,255,255,0.3), inset 1px 0 0 0 rgba(255,255,255,0.2), inset 0 -1px 0 0 rgba(236,72,153,0.1), inset -1px 0 0 0 rgba(236,72,153,0.1), 0 2px 8px rgba(236,72,153,0.2)`
             : `inset 0 1px 0 0 rgba(255,255,255,0.1), inset 1px 0 0 0 rgba(255,255,255,0.05), inset 0 -1px 0 0 rgba(0,0,0,0.1), inset -1px 0 0 0 rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.1)`,
@@ -371,21 +373,6 @@ const GridGraphDualY = React.memo(
               padding: `${dynamicPadding.top}px ${dynamicPadding.right}px ${dynamicPadding.bottom}px ${dynamicPadding.left}px`,
             }}
           >
-            {/* Canvas for plotting */}
-            <canvas
-              ref={canvasRef}
-              className="absolute"
-              style={{
-                left: `${dynamicPadding.left + 1}px`,
-                bottom: `${dynamicPadding.bottom + 1}px`,
-                width: `${axisWidth - 1}px`,
-                height: `${axisHeight - 1}px`,
-                pointerEvents: "none",
-              }}
-              width={axisWidth - 1}
-              height={axisHeight - 1}
-            />
-
             {/* X-axis */}
             <div
               className="absolute"
@@ -477,7 +464,7 @@ const GridGraphDualY = React.memo(
                 justifyContent: "center",
                 fontSize: "13px",
                 ...getFontStyle("mono", "500"),
-                color: theme.text?.includes("gray-100") ? "#ffffff" : "#000000",
+                color: isDarkMode ? "#ffffff" : "#000000",
               }}
             >
               {formatAxisLabel(xLabel, xUnit)}

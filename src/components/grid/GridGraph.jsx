@@ -1,10 +1,16 @@
 // src/components/grid/GridGraph.jsx
 
-import React, { useRef, useMemo } from "react";
+import React, { useMemo } from "react";
 import GridComponent from "./GridComponent";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
 import { getFontStyle } from "../../utils/typography";
 import { CELL_SIZE } from "../../themes";
+import { useThemeMode, noiseBackgroundSize } from "./themeMode";
+import {
+  formatTickLabels,
+  yTickLabelSpace,
+  xTickLabelWidth,
+} from "./tickLabels";
 
 const GridGraph = React.memo(
   ({
@@ -12,8 +18,8 @@ const GridGraph = React.memo(
     y,
     w,
     h,
-    xLabel = "tuna",
-    yLabel = "sharks",
+    xLabel = "",
+    yLabel = "",
     xUnit = "", // e.g., "hours", "seconds"
     yUnit = "", // e.g., "mg", "units"
     xLabelColor = null, // Optional custom color for x-axis label
@@ -32,12 +38,10 @@ const GridGraph = React.memo(
   }) => {
     const [xMin, xMax] = xRange;
     const [yMin, yMax] = yRange;
-    const isDarkMode = theme.component.includes("gray-700");
-    const isUnicornMode = theme.text.includes("purple-800");
+    const { isDarkMode, isUnicornMode } = useThemeMode(theme);
     const currentTexture = isDarkMode
       ? DARK_NOISE_TEXTURE
       : LIGHT_NOISE_TEXTURE;
-    const canvasRef = useRef(null);
 
     // Theme-adaptive colors
     const graphBg = isDarkMode ? "#1f2937" : "#f9fafb"; // Very dark gray / very light gray
@@ -51,16 +55,14 @@ const GridGraph = React.memo(
     const graphWidth = totalWidth - padding * 2;
     const graphHeight = totalHeight - padding * 2;
 
-    // Calculate dynamic padding based on tick labels
+    // Displayed tick labels (custom labels if given, else step-aware formatting)
+    const xLabelStrings = formatTickLabels(xTicks, xTickLabels);
+    const yLabelStrings = formatTickLabels(yTicks, yTickLabels);
+
+    // Calculate dynamic padding based on the displayed tick labels
+    const yTickWidth = yTickLabelSpace(yLabelStrings); // 6px per character + 10px margin
+    const yTickLabelBoxWidth = Math.max(35, yTickWidth - 6);
     const calculatePadding = () => {
-      // Y-axis padding — use actual label strings when yTickLabels is provided
-      const yLabelStrings = yTickLabels && yTickLabels.length > 0
-        ? yTickLabels.map((l) => String(l))
-        : yTicks.map((t) => t.toString());
-      const maxYTickLength = yLabelStrings.length > 0
-        ? Math.max(...yLabelStrings.map((l) => l.length))
-        : 1;
-      const yTickWidth = Math.max(25, maxYTickLength * 6 + 10); // 6px per character + 10px margin
       const yAxisLabelWidth = 20; // Additional space for rotated y-axis label
 
       // X-axis padding - needs space for tick labels + axis label
@@ -157,33 +159,6 @@ const GridGraph = React.memo(
       return label;
     };
 
-    // Format tick labels to 4 characters max
-    const formatTickLabel = (value) => {
-      // Handle exact integers
-      if (Number.isInteger(value)) {
-        const str = value.toString();
-        if (str.length <= 4) return str;
-        // For large integers, use scientific notation or abbreviation
-        if (value >= 10000) {
-          return value.toExponential(0);
-        }
-        return str.slice(0, 4);
-      }
-
-      // Handle decimals
-      const str = value.toString();
-      if (str.length <= 4) return str;
-
-      // Try fixed decimal places
-      for (let decimals = 2; decimals >= 0; decimals--) {
-        const fixed = value.toFixed(decimals);
-        if (fixed.length <= 4) return fixed;
-      }
-
-      // Fall back to exponential notation
-      return value.toExponential(0);
-    };
-
     // Convert data coordinates to pixel coordinates
     const dataToPixel = (value, range, pixelRange) => {
       const [dataMin, dataMax] = range;
@@ -218,17 +193,17 @@ const GridGraph = React.memo(
         );
 
         // Tick label
-        const xLabel = xTickLabels
-          ? xTickLabels[index]
-          : formatTickLabel(tickValue);
+        const xLabel = xLabelStrings[index];
+        const xLabelWidth = xTickLabelWidth(xLabel);
         ticks.push(
           <div
             key={`x-tick-label-${index}`}
             className={`absolute ${textColor}`}
             style={{
-              left: `${dynamicPadding.left + xPos - 15}px`,
+              left: `${dynamicPadding.left + xPos - xLabelWidth / 2}px`,
               bottom: `${dynamicPadding.bottom - 17}px`,
-              width: "30px",
+              width: `${xLabelWidth}px`,
+              whiteSpace: "nowrap",
               textAlign: "center",
               fontSize: "11px",
               ...getFontStyle("mono", "500"),
@@ -280,17 +255,16 @@ const GridGraph = React.memo(
         );
 
         // Tick label
-        const yLabel = yTickLabels
-          ? yTickLabels[index]
-          : formatTickLabel(tickValue);
+        const yLabel = yLabelStrings[index];
         ticks.push(
           <div
             key={`y-tick-label-${index}`}
             className={`absolute ${textColor}`}
             style={{
-              left: `${dynamicPadding.left - 41}px`,
+              left: `${dynamicPadding.left - 6 - yTickLabelBoxWidth}px`,
               bottom: `${dynamicPadding.bottom + yPos - 7}px`,
-              width: "35px",
+              width: `${yTickLabelBoxWidth}px`,
+              whiteSpace: "nowrap",
               textAlign: "right",
               fontSize: "11px",
               ...getFontStyle("mono", "500"),
@@ -338,7 +312,7 @@ const GridGraph = React.memo(
           background: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
-          backgroundSize: "cover, 64px 64px",
+          backgroundSize: noiseBackgroundSize(isUnicornMode),
           boxShadow: isUnicornMode
             ? `
               inset 0 1px 0 0 rgba(255,255,255,0.3),
@@ -376,21 +350,6 @@ const GridGraph = React.memo(
               padding: `${dynamicPadding.top}px ${dynamicPadding.right}px ${dynamicPadding.bottom}px ${dynamicPadding.left}px`,
             }}
           >
-            {/* Canvas for plotting - positioned within axes bounds */}
-            <canvas
-              ref={canvasRef}
-              className="absolute"
-              style={{
-                left: `${dynamicPadding.left + 1}px`, // Start just after y-axis
-                bottom: `${dynamicPadding.bottom + 1}px`, // Use bottom positioning like axis ticks
-                width: `${axisWidth - 1}px`, // End just before arrow
-                height: `${axisHeight - 1}px`, // End just above x-axis
-                pointerEvents: "none", // Let mouse events pass through to container
-              }}
-              width={axisWidth - 1} // Canvas internal width
-              height={axisHeight - 1} // Canvas internal height
-            />
-
             {/* X-axis (horizontal) */}
             <div
               className="absolute"
@@ -461,7 +420,7 @@ const GridGraph = React.memo(
                 ...getFontStyle("mono", "500"),
                 color:
                   xLabelColor ||
-                  (theme.text?.includes("gray-100") ? "#ffffff" : "#000000"),
+                  (isDarkMode ? "#ffffff" : "#000000"),
               }}
             >
               {formatAxisLabel(xLabel, xUnit)}
@@ -483,7 +442,7 @@ const GridGraph = React.memo(
                 ...getFontStyle("mono", "500"),
                 color:
                   yLabelColor ||
-                  (theme.text?.includes("gray-100") ? "#ffffff" : "#000000"),
+                  (isDarkMode ? "#ffffff" : "#000000"),
                 whiteSpace: "nowrap",
               }}
             >
