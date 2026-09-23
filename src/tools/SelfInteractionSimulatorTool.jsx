@@ -10,27 +10,36 @@ import {
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
 import { useSoundEffects } from "../hooks/useSoundEffects";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
 
-// Constants
+// Constants. The simulation lives in a fixed 400 × 400 "dish" (drawn scaled
+// to the canvas size), so hit counts do not depend on screen size.
+const SIM_SIZE = 400;
+const SIM_RADIUS = SIM_SIZE / 2;
 const PARTICLE_SIZE = 10;
-const VELOCITY = 2;
+const VELOCITY = 2; // dish pixels per 1/60 s (120 px/s), as before
 const DIRECTION_CHANGE_INTERVAL = 1000; // ms
+const RUN_SECONDS = 10; // lab manual: "each run should take 10 seconds"
+const FRAME_MS = 1000 / 60;
 
 // Particle Class
 class Particle {
-  constructor(id, canvasRadius) {
+  constructor(id, canvasRadius = SIM_RADIUS, rng = Math.random) {
     this.id = id;
     this.canvasRadius = canvasRadius;
+    this.rng = rng;
     this.initializePosition();
-    this.angle = Math.random() * 2 * Math.PI;
+    this.angle = rng() * 2 * Math.PI;
     this.updateVelocity();
-    this.lastDirectionChange = Math.random() * DIRECTION_CHANGE_INTERVAL; // Random offset 0-1000ms
+    // Time since the last direction change (random offset 0-1000 ms)
+    this.sinceTurn = rng() * DIRECTION_CHANGE_INTERVAL;
   }
 
   initializePosition() {
     const r =
-      Math.sqrt(Math.random()) * (this.canvasRadius - PARTICLE_SIZE / 2);
-    const theta = Math.random() * 2 * Math.PI;
+      Math.sqrt(this.rng()) * (this.canvasRadius - PARTICLE_SIZE / 2);
+    const theta = this.rng() * 2 * Math.PI;
     this.x = this.canvasRadius + r * Math.cos(theta);
     this.y = this.canvasRadius + r * Math.sin(theta);
   }
@@ -40,9 +49,10 @@ class Particle {
     this.vy = VELOCITY * Math.sin(this.angle);
   }
 
-  update(currentTime) {
-    this.x += this.vx;
-    this.y += this.vy;
+  // Advance by `frames` sixtieths of a second (frames <= 1).
+  update(frames) {
+    this.x += this.vx * frames;
+    this.y += this.vy * frames;
 
     const dx = this.x - this.canvasRadius;
     const dy = this.y - this.canvasRadius;
@@ -63,15 +73,16 @@ class Particle {
       this.y -= overlapDistance * ny;
     }
 
-    // Check if this particle should change direction
-    if (currentTime - this.lastDirectionChange > DIRECTION_CHANGE_INTERVAL) {
+    // Change direction about once a second
+    this.sinceTurn += frames * FRAME_MS;
+    if (this.sinceTurn > DIRECTION_CHANGE_INTERVAL) {
       this.changeDirection();
-      this.lastDirectionChange = currentTime;
+      this.sinceTurn = 0;
     }
   }
 
   changeDirection() {
-    const change = Math.random() < 0.5 ? Math.PI / 4 : -Math.PI / 4;
+    const change = this.rng() < 0.5 ? Math.PI / 4 : -Math.PI / 4;
     this.angle += change;
     this.updateVelocity();
   }
@@ -119,9 +130,10 @@ class Firework {
 
   update(deltaTime) {
     this.lifespan -= deltaTime;
+    const frames = deltaTime / FRAME_MS;
     this.particles.forEach((p) => {
-      p.x += p.vx;
-      p.y += p.vy;
+      p.x += p.vx * frames;
+      p.y += p.vy * frames;
       p.alpha = Math.max(0, p.alpha - deltaTime / 500);
     });
   }
@@ -136,278 +148,187 @@ class Firework {
   }
 }
 
+/** A fresh run with n particles: { n, particles, hitMatrix, hits, remaining }. */
+// eslint-disable-next-line react-refresh/only-export-components
+export function createRun(n, rng = Math.random) {
+  const particles = [];
+  for (let i = 0; i < n; i++) particles.push(new Particle(i, SIM_RADIUS, rng));
+  return {
+    n,
+    particles,
+    hitMatrix: Array.from({ length: n }, () => Array(n).fill(false)),
+    hits: 0,
+    remaining: RUN_SECONDS,
+  };
+}
+
+/**
+ * Advance a run by dtSeconds of real time, in sub-steps no longer than one
+ * 1/60 s frame (so a 120 Hz display gives the same motion and hit counts as
+ * a 60 Hz one). Calls onHit(x, y) for every new pair collision. Returns the
+ * number of new hits.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function stepRun(run, dtSeconds, onHit) {
+  const dt = Math.min(dtSeconds, run.remaining);
+  if (!(dt > 0)) return 0;
+  const n = Math.max(1, Math.ceil(dt * 60 - 1e-9));
+  const frames = (dt * 60) / n;
+  const { particles, hitMatrix } = run;
+  let newHits = 0;
+  for (let s = 0; s < n; s++) {
+    particles.forEach((particle) => particle.update(frames));
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        if (hitMatrix[i][j]) continue;
+        const dx = particles[i].x - particles[j].x;
+        const dy = particles[i].y - particles[j].y;
+        if (Math.sqrt(dx * dx + dy * dy) < PARTICLE_SIZE) {
+          hitMatrix[i][j] = true;
+          run.hits++;
+          newHits++;
+          onHit?.(
+            (particles[i].x + particles[j].x) / 2,
+            (particles[i].y + particles[j].y) / 2,
+          );
+        }
+      }
+    }
+  }
+  run.remaining = Math.max(0, run.remaining - dt);
+  if (run.remaining < 1e-9) run.remaining = 0;
+  return newHits;
+}
+
 const SelfInteractionSimulatorTool = () => {
   const { theme, currentTheme } = useTheme();
 
-  // Sound effects
-  const { volume, setVolume, isEnabled, setIsEnabled, collisionPing } =
-    useSoundEffects();
+  // Sound effects (on/off toggle)
+  const { setIsEnabled, collisionPing } = useSoundEffects();
 
   // State
   const [numParticles, setNumParticles] = useState(10);
-  const [isRunning, setIsRunning] = useState(false);
-  const [timer, setTimer] = useState(10.0);
+  // "ready" (not started) | "running" | "paused" | "finished"
+  const [status, setStatus] = useState("ready");
+  const [timer, setTimer] = useState(RUN_SECONDS);
   const [hits, setHits] = useState(0);
+  const [runN, setRunN] = useState(10); // N used by the current run
 
   // Refs for animation
   const canvasRef = useRef(null);
-  const particlesRef = useRef([]);
+  const runRef = useRef(null);
   const fireworksRef = useRef([]);
-  const hitMatrixRef = useRef([]);
-  const animationIdRef = useRef(null);
-  const lastTimeRef = useRef(null);
-  const timerRef = useRef(null);
-  const hitsCountRef = useRef(0);
-  const isRunningRef = useRef(false);
-  const timerValueRef = useRef(10.0);
-  const currentThemeRef = useRef(currentTheme);
+  const statusRef = useRef("ready");
 
-  // Sync currentTheme to ref
-  useEffect(() => {
-    currentThemeRef.current = currentTheme;
+  const setRunStatus = useCallback((s) => {
+    statusRef.current = s;
+    setStatus(s);
+  }, []);
+
+  // Draw the dish, particles and fireworks (dish coordinates scaled to the
+  // canvas's CSS size; sharp on HiDPI screens)
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setup = setupCanvas(canvas);
+    if (!setup) return;
+    const { ctx, width, height } = setup;
+    ctx.clearRect(0, 0, width, height);
+    ctx.save();
+    ctx.scale(width / SIM_SIZE, height / SIM_SIZE);
+    ctx.beginPath();
+    ctx.arc(SIM_RADIUS, SIM_RADIUS, SIM_RADIUS, 0, Math.PI * 2);
+    ctx.fillStyle = currentTheme === "dark" ? "#1f2937" : "#e6f3ff";
+    ctx.fill();
+    runRef.current?.particles.forEach((particle) => particle.draw(ctx));
+    fireworksRef.current.forEach((firework) => firework.draw(ctx));
+    ctx.restore();
   }, [currentTheme]);
 
-  // Initialize simulation
-  const initSimulation = useCallback(
-    (startTime) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const canvasRadius = canvas.width / 2;
-      particlesRef.current = [];
+  // Start a new (not yet running) run with n particles
+  const newRun = useCallback(
+    (n) => {
+      runRef.current = createRun(n);
       fireworksRef.current = [];
-      hitsCountRef.current = 0;
-
-      // Create particles with staggered initial direction change times
-      for (let i = 0; i < numParticles; i++) {
-        const particle = new Particle(i, canvasRadius);
-        // Set lastDirectionChange relative to startTime with random offset
-        particle.lastDirectionChange =
-          startTime - Math.random() * DIRECTION_CHANGE_INTERVAL;
-        particlesRef.current.push(particle);
-      }
-
-      // Initialize hit matrix
-      hitMatrixRef.current = Array(numParticles)
-        .fill()
-        .map(() => Array(numParticles).fill(false));
-
+      setRunN(n);
       setHits(0);
+      setTimer(RUN_SECONDS);
     },
-    [numParticles],
+    [],
   );
 
-  // Check collisions
-  const checkCollisions = useCallback(() => {
-    const particles = particlesRef.current;
-    const hitMatrix = hitMatrixRef.current;
-    const fireworks = fireworksRef.current;
+  // Animation loop: advances by real elapsed time
+  const { start: startLoop, stop: stopLoop } = useAnimationLoop((dtSeconds) => {
+    const run = runRef.current;
+    if (!run || statusRef.current !== "running") return false;
 
-    for (let i = 0; i < particles.length; i++) {
-      for (let j = i + 1; j < particles.length; j++) {
-        const dx = particles[i].x - particles[j].x;
-        const dy = particles[i].y - particles[j].y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance < PARTICLE_SIZE && !hitMatrix[i][j]) {
-          hitMatrix[i][j] = true;
-          hitsCountRef.current++;
-          const midX = (particles[i].x + particles[j].x) / 2;
-          const midY = (particles[i].y + particles[j].y) / 2;
-          fireworks.push(new Firework(midX, midY));
-          setHits(hitsCountRef.current);
-
-          // Play collision sound (rate-limited automatically)
-          collisionPing();
-        }
-      }
+    const newHits = stepRun(run, dtSeconds, (x, y) => {
+      fireworksRef.current.push(new Firework(x, y));
+    });
+    if (newHits > 0) {
+      setHits(run.hits);
+      collisionPing(); // rate-limited automatically
     }
-  }, [collisionPing]);
+    fireworksRef.current = fireworksRef.current.filter((firework) => {
+      firework.update(dtSeconds * 1000);
+      return firework.lifespan > 0;
+    });
+    draw();
 
-  // Animation loop
-  const animate = useCallback(
-    (timestamp) => {
-      // Check if we should continue using refs (no state dependency)
-      if (!isRunningRef.current || timerValueRef.current <= 0) {
-        isRunningRef.current = false;
-        setIsRunning(false);
-        return;
-      }
-
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const ctx = canvas.getContext("2d");
-      const canvasRadius = canvas.width / 2;
-      const deltaTime = timestamp - lastTimeRef.current;
-      lastTimeRef.current = timestamp;
-
-      // Clear and draw background circle
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.beginPath();
-      ctx.arc(canvasRadius, canvasRadius, canvasRadius, 0, Math.PI * 2);
-      ctx.fillStyle =
-        currentThemeRef.current === "dark" ? "#1f2937" : "#e6f3ff";
-      ctx.fill();
-
-      // Update and draw particles (each checks its own direction change timing)
-      particlesRef.current.forEach((particle) => {
-        particle.update(timestamp);
-        particle.draw(ctx);
-      });
-
-      // Update and draw fireworks
-      fireworksRef.current = fireworksRef.current.filter((firework) => {
-        firework.update(deltaTime);
-        firework.draw(ctx);
-        return firework.lifespan > 0;
-      });
-
-      // Check collisions
-      checkCollisions();
-
-      // Continue animation
-      animationIdRef.current = requestAnimationFrame(animate);
-    },
-    [checkCollisions],
-  );
+    // Timer display (tenths of a second)
+    setTimer(Math.round(run.remaining * 10) / 10);
+    if (run.remaining <= 0) {
+      setRunStatus("finished");
+      return false;
+    }
+    return true;
+  });
 
   // Control handlers
   const handleStart = useCallback(() => {
-    if (timerValueRef.current <= 0) {
-      timerValueRef.current = 10.0;
-      setTimer(10.0);
+    // After a finished run, Start begins a new 10-second run; otherwise it
+    // starts or resumes the current one.
+    if (statusRef.current === "finished" || !runRef.current) {
+      newRun(numParticles);
     }
-    isRunningRef.current = true;
-    setIsRunning(true);
-    const startTime = performance.now();
-    initSimulation(startTime);
-    lastTimeRef.current = startTime;
-    animationIdRef.current = requestAnimationFrame(animate);
-  }, [initSimulation, animate]);
+    setRunStatus("running");
+    startLoop();
+  }, [newRun, numParticles, setRunStatus, startLoop]);
 
   const handleStop = useCallback(() => {
-    isRunningRef.current = false;
-    setIsRunning(false);
-    if (animationIdRef.current) {
-      cancelAnimationFrame(animationIdRef.current);
-      animationIdRef.current = null;
-    }
-  }, []);
+    stopLoop();
+    if (statusRef.current === "running") setRunStatus("paused");
+  }, [setRunStatus, stopLoop]);
 
   const handleReset = useCallback(() => {
-    isRunningRef.current = false;
-    setIsRunning(false);
-    timerValueRef.current = 10.0;
-    setTimer(10.0);
-    setHits(0);
-    hitsCountRef.current = 0;
-    if (animationIdRef.current) {
-      cancelAnimationFrame(animationIdRef.current);
-      animationIdRef.current = null;
-    }
-    const startTime = performance.now();
-    initSimulation(startTime);
+    stopLoop();
+    newRun(numParticles);
+    setRunStatus("ready");
+    draw();
+  }, [draw, newRun, numParticles, setRunStatus, stopLoop]);
 
-    // Draw initial state
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext("2d");
-      const canvasRadius = canvas.width / 2;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.beginPath();
-      ctx.arc(canvasRadius, canvasRadius, canvasRadius, 0, Math.PI * 2);
-      ctx.fillStyle = currentTheme === "dark" ? "#1f2937" : "#e6f3ff";
-      ctx.fill();
-      particlesRef.current.forEach((particle) => particle.draw(ctx));
-    }
-  }, [initSimulation, currentTheme]);
-
-  // Timer countdown effect
+  // Initial run on mount
   useEffect(() => {
-    if (isRunning && timer > 0) {
-      const startTime = Date.now();
-      const startTimer = timer;
-
-      timerRef.current = setInterval(() => {
-        const elapsed = (Date.now() - startTime) / 1000;
-        const newTimer = startTimer - elapsed;
-
-        if (newTimer <= 0) {
-          timerValueRef.current = 0;
-          setTimer(0);
-          isRunningRef.current = false;
-          setIsRunning(false);
-          if (animationIdRef.current) {
-            cancelAnimationFrame(animationIdRef.current);
-            animationIdRef.current = null;
-          }
-        } else {
-          timerValueRef.current = newTimer;
-          setTimer(newTimer);
-        }
-      }, 100);
-
-      return () => {
-        if (timerRef.current) {
-          clearInterval(timerRef.current);
-        }
-      };
-    } else if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  }, [isRunning, timer]);
-
-  // Initialize canvas on mount
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      canvas.width = 400;
-      canvas.height = 400;
-      const startTime = performance.now();
-      initSimulation(startTime);
-
-      // Draw initial state
-      const ctx = canvas.getContext("2d");
-      const canvasRadius = canvas.width / 2;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.beginPath();
-      ctx.arc(canvasRadius, canvasRadius, canvasRadius, 0, Math.PI * 2);
-      ctx.fillStyle = currentTheme === "dark" ? "#1f2937" : "#e6f3ff";
-      ctx.fill();
-      particlesRef.current.forEach((particle) => particle.draw(ctx));
-    }
-  }, [initSimulation, currentTheme]);
-
-  // Redraw canvas when theme changes (while not animating)
-  useEffect(() => {
-    if (!isRunning) {
-      const canvas = canvasRef.current;
-      if (canvas && particlesRef.current.length > 0) {
-        const ctx = canvas.getContext("2d");
-        const canvasRadius = canvas.width / 2;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.beginPath();
-        ctx.arc(canvasRadius, canvasRadius, canvasRadius, 0, Math.PI * 2);
-        ctx.fillStyle = currentTheme === "dark" ? "#1f2937" : "#e6f3ff";
-        ctx.fill();
-        particlesRef.current.forEach((particle) => particle.draw(ctx));
-      }
-    }
-  }, [currentTheme, isRunning]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (animationIdRef.current) {
-        cancelAnimationFrame(animationIdRef.current);
-      }
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
+    newRun(10);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Changing N before a run has started shows the new particles right away.
+  // During a run (or while paused) the run keeps its N; the new N is used
+  // for the next run (Reset, or Start after the run ends).
+  useEffect(() => {
+    if (statusRef.current === "ready" && runRef.current?.n !== numParticles) {
+      newRun(numParticles);
+    }
+  }, [numParticles, newRun]);
+
+  // Redraw on theme change or new run (without touching the particles)
+  useEffect(() => {
+    draw();
+  }, [draw, runN, hits]);
+
+  const isRunning = status === "running";
+  const nPending = numParticles !== runN;
 
   return (
     <ToolContainer
@@ -509,8 +430,13 @@ const SelfInteractionSimulatorTool = () => {
         <div style={{ padding: "8px", fontSize: "14px", lineHeight: "1.6" }}>
           <div style={{ marginBottom: "4px" }}>
             <span style={{ fontWeight: "bold" }}>
-              N = {numParticles} Particles
+              N = {runN} Particles
             </span>
+            {nPending && (
+              <div style={{ fontSize: "12px", opacity: 0.8, lineHeight: "1.3" }}>
+                Next run: N = {numParticles}
+              </div>
+            )}
           </div>
           <div
             style={{
@@ -520,7 +446,9 @@ const SelfInteractionSimulatorTool = () => {
             }}
           >
             <span style={{ fontWeight: "bold" }}>Timer:</span>
-            <span>{timer.toFixed(1)}s</span>
+            <span>
+              {timer.toFixed(1)}s{status === "paused" ? " (paused)" : ""}
+            </span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <span style={{ fontWeight: "bold" }}>Hits:</span>
@@ -534,7 +462,6 @@ const SelfInteractionSimulatorTool = () => {
         x={6}
         y={3}
         theme={theme}
-        onVolumeChange={setVolume}
         onEnabledChange={setIsEnabled}
         title="Collision sound effects"
       />
