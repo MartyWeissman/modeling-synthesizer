@@ -2,78 +2,61 @@
 
 ## Overview
 
-The Muscle Tremor Simulator models physiological tremor caused by delayed feedback in the neuromuscular reflex arc. [VERIFY: Physiological tremor occurs in all humans at frequencies typically between 8-12 Hz and is influenced by the time delay in neural signal transmission.]
+The Muscle Tremor Simulator models tremor caused by a delay in the reflex loop that holds your elbow in place. If the elbow drifts from its set position, the sensory signal takes a time τ to turn into a motor signal that pulls the arm back. The model is the delay differential equation
 
-The model uses a delay differential equation:
-- **L'(t) = r(L_eq - L(t - τ))**
+- **L′ = r(20 − L(t − τ))**
 
-Where L is muscle length, L_eq is the equilibrium length (20 cm), r is the reflex magnitude, and τ is the neural time delay. The time delay creates the potential for oscillatory behavior - if the reflex responds to old information about muscle position, it can overshoot and create tremor.
+where L is the muscle length (cm), 20 cm is the set-point length, r is the reflex magnitude, and τ is the time delay. The rate of change now depends on the length τ milliseconds ago, so the reflex responds to old information and can overshoot, producing oscillations (tremor).
+
+Units: time is in milliseconds and r is per second (s⁻¹), so over one millisecond the length changes by (r/1000)·(20 − L(t − τ)) cm. The muscle length is kept between 10 cm and 30 cm, because muscles cannot get too long or too short.
 
 ## Parameters
 
-### Initial Length (L₀)
-- **Range**: 10 to 30 cm
+### Initial length (L₀)
+- **Range**: 10 to 30 cm (steps of 0.2 cm)
 - **Default**: 25 cm
-- Starting muscle length at t=0
-- Values above 20 cm start with the arm angled upward
-- Values below 20 cm start with the arm angled downward
+- The muscle length at t = 0 (and before it: the history the delay looks back to).
 
-### Reflex Magnitude (r)
-- **Range**: 0 to 100
+### Reflex magnitude (r)
+- **Range**: 0 to 100 s⁻¹
 - **Default**: 50
-- Controls the strength of the corrective reflex response
-- Higher values create faster corrections but may increase oscillation amplitude
-- [VERIFY: In real muscles, reflex gain can be modulated by the nervous system]
+- How strongly the reflex corrects a length error. Larger r gives faster corrections, but together with a delay it also makes overshooting more likely.
 
-### Time Delay (τ)
-- **Range**: 0 to 30 ms
+### Time delay (τ)
+- **Range**: 0 to 30 ms (steps of 1 ms)
 - **Default**: 10 ms
-- Neural transmission delay in the reflex arc
-- Longer delays increase the tendency for oscillation
-- [VERIFY: Typical human reflex delays are 20-50 ms for spinal reflexes]
+- The time the reflex loop takes to respond. Longer delays make oscillations more likely.
+
+The simulation reruns automatically whenever you move a slider.
 
 ## Components
 
-### Time Series Graph (Main Display)
-- **X-axis**: Time from 0 to 2000 ms (2 seconds)
-- **Y-axis**: Muscle length from 0 to 40 cm
-- **Green curve**: Muscle length trajectory over time
-- **Red dashed line**: Equilibrium length (L_eq = 20 cm)
-- **Green dot**: Initial condition (L₀)
-- **White/Black dot**: Current state at end of simulation
-- **Shaded regions**: Invalid muscle lengths (< 10 cm or > 30 cm)
+### Time series graph (left)
+- **X-axis**: time, 0 to 2000 ms (2 seconds)
+- **Y-axis**: muscle length, 0 to 40 cm
+- **Green curve**: muscle length L(t)
+- **Red dashed line**: the set point, L = 20 cm
+- **Green dot**: the initial length L₀
+- **Black (white in dark mode) dot**: the length at the end, t = 2000 ms
+- **Red dot**: the delayed length L(t − τ) at the end, i.e. the old value the reflex is reacting to at t = 2000 ms
+- **Shaded bands**: lengths outside 10–30 cm, which the muscle cannot reach
+- **Thin vertical line**: the current time while the forearm animation plays
 
-### Forearm Visualization (Right Panel)
-- Animated arm showing muscle length as elbow angle
-- Upper arm extends from top of panel
-- Forearm rotates around elbow joint
-- Horizontal position corresponds to L = 20 cm (equilibrium)
-- Red fingertip dot shows hand position
-- Play button animates the 2-second simulation in real time
+### Forearm (top right)
+- Shows the muscle length as an elbow angle. At L = 20 cm the forearm is horizontal. Longer muscle (L above 20) angles the forearm **downward**; shorter muscle (L below 20) angles it **upward**.
+- **Play** animates the 2-second simulation in real time (1 ms of model time per millisecond). The box next to the buttons shows the animation time.
+- **Reset** returns the forearm to its starting position.
 
-### Oscillation Analysis (Bottom Right)
-- **Period**: Time between oscillation peaks (in ms)
-- **Frequency**: Oscillations per second (in Hz)
-- Uses FFT analysis on the second half of simulation (1000-2000 ms)
-- Displays "No oscillations detected" for stable, non-oscillating solutions
+### Oscillation Analysis (bottom right)
+- Says whether the model gives **no oscillations** (L returns smoothly to 20 cm), **damped oscillations** (they die out), or **sustained oscillations** (they grow until the 10–30 cm limits stop them). This comes from the mathematical theory of this delay equation (it depends on both r and τ), not from eyeballing the graph.
+- **Period** and **Frequency** are measured from the simulated curve between 1000 and 2000 ms. If damped oscillations have already died out by then, no frequency is shown.
 
-### Control Buttons
-- **Play**: Start forearm animation synchronized with simulation
-- **Reset**: Return forearm to initial position
+At the defaults (r = 50, τ = 10 ms) the oscillations are damped: the length overshoots 20 cm a little and settles within about 100 ms.
 
 ## What to Observe
 
-1. **Stability vs. Oscillation**: With small time delays (τ ≈ 0), the system smoothly approaches equilibrium. As τ increases, oscillations emerge and can persist indefinitely.
-
-2. **Delay-Induced Instability**: Compare τ = 5 ms vs τ = 25 ms with the same reflex magnitude. Longer delays lead to larger amplitude oscillations because the reflex responds to outdated position information.
-
-3. **Reflex Gain Effects**: With fixed delay, increasing r speeds up the return to equilibrium but can also amplify oscillations. There's a trade-off between responsiveness and stability.
-
-4. **Physiological Tremor Frequencies**: Observe that oscillation frequencies typically fall in the 5-15 Hz range, similar to real physiological tremor. [VERIFY: Normal physiological tremor is typically 8-12 Hz]
-
-5. **Critical Parameter Combinations**: Find parameter combinations where the system transitions from stable to oscillatory. This illustrates how small changes in neural delay or reflex gain can dramatically affect motor control.
-
-6. **Forearm Animation**: Watch how the abstract time series translates to physical arm movement. Notice how tremor appears as rapid oscillation of the forearm.
-
-## References
-
+1. **Delay causes tremor**: with τ = 0 the length returns smoothly to 20 cm. Increase τ and watch the approach start to overshoot, then oscillate, then oscillate without dying out.
+2. **Critical values**: fix r and increase τ (or fix τ and increase r) until the analysis says "Sustained oscillations". Note the frequency just past that point.
+3. **Two routes to tremor**: a stronger reflex (larger r) and a slower reflex (larger τ) can both cause sustained tremor. Compare the frequencies you get each way: longer delays give slower tremors.
+4. **Frequencies**: the sustained tremors in this simulator are roughly 8–16 Hz, similar to normal physiological tremor (about 8–12 Hz). Pathological tremors are slower (about 3–6 Hz); in this model a slow tremor would need a long delay.
+5. **Forearm**: press Play to see what the curve means as movement of the arm.

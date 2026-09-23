@@ -9,10 +9,14 @@
     <mn>1</mn>
     <mo>−</mo>
     <mfrac>
-      <msub>
+      <mrow>
         <mi mathvariant="bold-italic">P</mi>
+        <mo stretchy="false">(</mo>
+        <mi>t</mi>
+        <mo>−</mo>
         <mi>τ</mi>
-      </msub>
+        <mo stretchy="false">)</mo>
+      </mrow>
       <mi>k</mi>
     </mfrac>
     <mo stretchy="true" symmetric="true" largeop="false" movablelimits="false">)</mo>

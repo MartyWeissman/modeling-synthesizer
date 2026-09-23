@@ -12,6 +12,15 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { setupCanvas } from "../utils/canvas";
+import { niceTicks } from "../utils/ticks";
+
+// The bifurcation diagram is always seeded with P = 0.5 (a point in the
+// basin of the attractor for every beta in 0-3), so it does not depend on
+// the P0 slider. Seeding with e.g. P0 = 1.4 would send many orbits to -inf.
+const BIFURCATION_SEED = 0.5;
+// Narrowest allowed beta window (a zero-width window gave NaN)
+const MIN_WINDOW = 0.01; // the inputs step by 0.01
 
 const DiscreteLogisticExplorerTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -21,7 +30,6 @@ const DiscreteLogisticExplorerTool = () => {
   const [beta, setBeta] = useState(2.0);
   const [betaMin, setBetaMin] = useState(0.0);
   const [betaMax, setBetaMax] = useState(3.0);
-  const [bifurcationVersion, setBifurcationVersion] = useState(0);
 
   // Canvas refs
   const timeSeriesCanvasRef = useRef(null);
@@ -32,8 +40,7 @@ const DiscreteLogisticExplorerTool = () => {
   const bifurcationTransformRef = useRef(null);
 
   // Bifurcation data cache and range
-  const bifurcationDataRef = useRef(null);
-  const bifurcationRangeRef = useRef({ min: 0.0, max: 3.0 });
+  const [bifurcation, setBifurcation] = useState(null); // { data, min, max }
   const [timeSeriesData, setTimeSeriesData] = useState([]);
 
   // Discrete logistic model: P_new = P + beta * P * (1 - P)
@@ -85,34 +92,42 @@ const DiscreteLogisticExplorerTool = () => {
         }
       }
 
-      bifurcationDataRef.current = data;
-      bifurcationRangeRef.current = { min: minBeta, max: maxBeta };
+      setBifurcation({ data, min: minBeta, max: maxBeta });
     },
     [iterateLogistic],
   );
 
-  // Recreate bifurcation diagram with current P0 and beta range
+  // Recreate bifurcation diagram for the chosen beta range
   const recreateBifurcation = useCallback(() => {
-    // Ensure betaMin < betaMax
-    const min = Math.max(0, Math.min(betaMin, betaMax));
-    const max = Math.min(3, Math.max(betaMin, betaMax));
+    // Ensure betaMin < betaMax (and a window of nonzero width)
+    let min = Math.max(0, Math.min(betaMin, betaMax));
+    let max = Math.min(3, Math.max(betaMin, betaMax));
+    if (max - min < MIN_WINDOW - 1e-9) {
+      max = Math.min(3, min + MIN_WINDOW);
+      min = max - MIN_WINDOW;
+    }
+    // Keep beta inside the new window
+    setBeta((b) => Math.max(min, Math.min(max, b)));
 
     // Update state to corrected values
     setBetaMin(min);
     setBetaMax(max);
 
-    generateBifurcationData(initialPopulation, min, max);
-    setBifurcationVersion((v) => v + 1); // Trigger redraw
-  }, [generateBifurcationData, initialPopulation, betaMin, betaMax]);
+    generateBifurcationData(BIFURCATION_SEED, min, max);
+  }, [generateBifurcationData, betaMin, betaMax]);
 
   // Draw time series
   const drawTimeSeries = useCallback(
-    (canvas, ctx) => {
+    () => {
+      const canvas = timeSeriesCanvasRef.current;
       const transform = timeSeriesTransformRef.current;
       if (!canvas || !transform || timeSeriesData.length === 0) return;
+      const setup = setupCanvas(canvas);
+      if (!setup) return;
+      const { ctx } = setup;
 
       const { dataToPixel } = transform;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, setup.width, setup.height);
 
       // Draw points and lines
       ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
@@ -145,12 +160,16 @@ const DiscreteLogisticExplorerTool = () => {
 
   // Draw bifurcation diagram
   const drawBifurcation = useCallback(
-    (canvas, ctx) => {
+    () => {
+      const canvas = bifurcationCanvasRef.current;
       const transform = bifurcationTransformRef.current;
-      if (!canvas || !transform || !bifurcationDataRef.current) return;
+      if (!canvas || !transform || !bifurcation) return;
+      const setup = setupCanvas(canvas);
+      if (!setup) return;
+      const { ctx, height: plotHeight } = setup;
 
-      const { dataToPixel, plotHeight } = transform;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const { dataToPixel } = transform;
+      ctx.clearRect(0, 0, setup.width, plotHeight);
 
       // Draw bifurcation points as single pixels with alpha for additive darkening
       ctx.fillStyle =
@@ -158,59 +177,53 @@ const DiscreteLogisticExplorerTool = () => {
           ? "rgba(255, 255, 255, 0.15)"
           : "rgba(0, 0, 0, 0.15)";
 
-      bifurcationDataRef.current.forEach((point) => {
+      bifurcation.data.forEach((point) => {
         const pixel = dataToPixel(point.beta, point.P);
         // Draw single pixel using fillRect for precise positioning
         ctx.fillRect(Math.round(pixel.x), Math.round(pixel.y), 1, 1);
       });
 
-      // Draw green triangular marker at current beta value
-      // Use the range that was used to generate the bifurcation data
-      const betaMin = bifurcationRangeRef.current.min;
-      const betaMax = bifurcationRangeRef.current.max;
-      const PMin = 0;
-      const PMax = 1.5;
-
-      // Get x position from dataToPixel using a y value in range
-      const topPixel = dataToPixel(beta, PMax);
-      const bottomPixel = dataToPixel(beta, PMin);
-      const currentBetaX = topPixel.x;
+      // Green marker at the current beta: a vertical line with triangles
+      // pointing in from the top and bottom edges (drawn inside the plot so
+      // they are not clipped)
+      const currentBetaX = dataToPixel(beta, 0).x;
 
       ctx.fillStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
       ctx.strokeStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
       ctx.lineWidth = 2;
 
-      // Draw triangular marker at bottom
       const triangleSize = 8;
-      const triangleY = bottomPixel.y;
 
+      // Bottom triangle, pointing up
       ctx.beginPath();
-      ctx.moveTo(currentBetaX, triangleY + 5);
-      ctx.lineTo(currentBetaX - triangleSize, triangleY + 5 + triangleSize);
-      ctx.lineTo(currentBetaX + triangleSize, triangleY + 5 + triangleSize);
+      ctx.moveTo(currentBetaX, plotHeight - triangleSize);
+      ctx.lineTo(currentBetaX - triangleSize, plotHeight);
+      ctx.lineTo(currentBetaX + triangleSize, plotHeight);
       ctx.closePath();
       ctx.fill();
 
-      // Draw triangular marker at top
+      // Top triangle, pointing down
       ctx.beginPath();
-      ctx.moveTo(currentBetaX, topPixel.y - 5);
-      ctx.lineTo(currentBetaX - triangleSize, topPixel.y - 5 - triangleSize);
-      ctx.lineTo(currentBetaX + triangleSize, topPixel.y - 5 - triangleSize);
+      ctx.moveTo(currentBetaX, triangleSize);
+      ctx.lineTo(currentBetaX - triangleSize, 0);
+      ctx.lineTo(currentBetaX + triangleSize, 0);
       ctx.closePath();
       ctx.fill();
 
-      // Draw vertical line connecting the markers
+      // Vertical line connecting the markers
+      ctx.globalAlpha = 0.6;
       ctx.beginPath();
-      ctx.moveTo(currentBetaX, topPixel.y - 5);
-      ctx.lineTo(currentBetaX, triangleY + 5);
+      ctx.moveTo(currentBetaX, triangleSize);
+      ctx.lineTo(currentBetaX, plotHeight - triangleSize);
       ctx.stroke();
+      ctx.globalAlpha = 1;
     },
-    [beta, currentTheme, bifurcationVersion],
+    [beta, currentTheme, bifurcation],
   );
 
   // Initialize bifurcation data on mount only
   useEffect(() => {
-    generateBifurcationData(0.5, 0.0, 3.0);
+    generateBifurcationData(BIFURCATION_SEED, 0.0, 3.0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -219,48 +232,17 @@ const DiscreteLogisticExplorerTool = () => {
     runSimulation();
   }, [runSimulation]);
 
-  // Initialize canvases
+  // Redraw when data, theme or window changes
   useEffect(() => {
-    // Set canvas sizes from transforms
-    if (timeSeriesCanvasRef.current && timeSeriesTransformRef.current) {
-      timeSeriesCanvasRef.current.width =
-        timeSeriesTransformRef.current.plotWidth;
-      timeSeriesCanvasRef.current.height =
-        timeSeriesTransformRef.current.plotHeight;
-    }
-    if (bifurcationCanvasRef.current && bifurcationTransformRef.current) {
-      bifurcationCanvasRef.current.width =
-        bifurcationTransformRef.current.plotWidth;
-      bifurcationCanvasRef.current.height =
-        bifurcationTransformRef.current.plotHeight;
-    }
-
-    // Draw initial data
-    if (timeSeriesCanvasRef.current && timeSeriesTransformRef.current) {
-      const ctx = timeSeriesCanvasRef.current.getContext("2d");
-      drawTimeSeries(timeSeriesCanvasRef.current, ctx);
-    }
-
-    if (bifurcationCanvasRef.current && bifurcationTransformRef.current) {
-      const ctx = bifurcationCanvasRef.current.getContext("2d");
-      drawBifurcation(bifurcationCanvasRef.current, ctx);
-    }
-  }, [drawTimeSeries, drawBifurcation]);
-
-  // Redraw when data or theme changes
-  useEffect(() => {
-    if (timeSeriesCanvasRef.current && timeSeriesTransformRef.current) {
-      const ctx = timeSeriesCanvasRef.current.getContext("2d");
-      drawTimeSeries(timeSeriesCanvasRef.current, ctx);
-    }
+    drawTimeSeries();
   }, [drawTimeSeries]);
 
   useEffect(() => {
-    if (bifurcationCanvasRef.current && bifurcationTransformRef.current) {
-      const ctx = bifurcationCanvasRef.current.getContext("2d");
-      drawBifurcation(bifurcationCanvasRef.current, ctx);
-    }
+    drawBifurcation();
   }, [drawBifurcation]);
+
+  // Range of the diagram currently shown
+  const bifRange = bifurcation ?? { min: 0, max: 3 };
 
   return (
     <ToolContainer
@@ -276,21 +258,15 @@ const DiscreteLogisticExplorerTool = () => {
         h={4}
         xLabel="β (Birth Rate)"
         yLabel="Population (P)"
-        xTicks={(() => {
-          const min = bifurcationRangeRef.current.min;
-          const max = bifurcationRangeRef.current.max;
-          const range = max - min;
-          const step = range <= 1 ? 0.1 : range <= 2 ? 0.25 : 0.5;
-          const ticks = [];
-          for (let t = Math.ceil(min / step) * step; t <= max; t += step) {
-            ticks.push(Math.round(t * 100) / 100);
-          }
-          return ticks;
-        })()}
+        xTicks={niceTicks(
+          bifRange.min,
+          bifRange.max,
+          6,
+        )}
         yTicks={[0, 0.5, 1.0, 1.5]}
         xRange={[
-          bifurcationRangeRef.current.min,
-          bifurcationRangeRef.current.max,
+          bifRange.min,
+          bifRange.max,
         ]}
         yRange={[0, 1.5]}
         leftAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
@@ -320,8 +296,6 @@ const DiscreteLogisticExplorerTool = () => {
                 ref={bifurcationCanvasRef}
                 className="absolute pointer-events-none"
                 style={transform.plotStyle}
-                width={transform.plotWidth}
-                height={transform.plotHeight}
               />
             </>
           );
@@ -351,8 +325,6 @@ const DiscreteLogisticExplorerTool = () => {
               ref={timeSeriesCanvasRef}
               className="absolute pointer-events-none"
               style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
@@ -453,8 +425,13 @@ const DiscreteLogisticExplorerTool = () => {
         y={3}
         w={3}
         h={1}
-        value={(initialPopulation / 1.5) * 100}
-        onChange={(value) => setInitialPopulation((value / 100) * 1.5)}
+        value={initialPopulation}
+        onChange={(value) =>
+          setInitialPopulation(Math.round(value * 100) / 100)
+        }
+        min={0}
+        max={1.5}
+        step={0.01}
         variant="unipolar"
         label={`Initial population: P₀ = ${initialPopulation.toFixed(2)}`}
         tooltip="Initial population (0 to 1.5)"
@@ -477,7 +454,7 @@ const DiscreteLogisticExplorerTool = () => {
             Discrete Logistic Model
           </div>
           <div style={{ fontSize: "0.9em", marginBottom: "8px" }}>
-            ΔP/Δt = βP(1 - P)
+            ΔP/Δt = βP(1 − P)
           </div>
           <div style={{ fontSize: "0.85em", lineHeight: "1.6" }}>
             <div>Initial Population: {initialPopulation.toFixed(2)}</div>

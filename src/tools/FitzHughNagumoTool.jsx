@@ -18,6 +18,62 @@ import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 import { localPointer } from "../components/grid/pointer";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
+import { classifyEquilibrium2D } from "../utils/stability";
+
+// Display ranges for X and Y
+const xmin = -3,
+  xmax = 3;
+const ymin = -3,
+  ymax = 3;
+
+// Integration step (model time units), fixed; the speed slider changes how
+// much model time passes per second, not the step size.
+const DT = 0.02;
+// Model time per real second at speed 1x. The original loop advanced
+// 0.05 x speed per frame at 60 frames/s = 3 x speed per second.
+const SIM_RATE = 3;
+// Time-series window (model time units)
+const TIME_WINDOW = 20;
+// Max points kept in a trail
+const MAX_TRAIL_POINTS = 2500;
+// Keep values finite when a trajectory runs far off-screen
+const CAP = 1e6;
+
+const TIME_SERIES_X_COLOR = { dark: "#60a5fa", light: "#3b82f6" };
+const TIME_SERIES_Y_COLOR = { dark: "#f87171", light: "#dc2626" };
+
+// Trail length (model time): about one limit cycle. The relaxation cycle's
+// period grows roughly like 1/u (about 33.5 at the default u = 0.1).
+const trailWindow = (u) => Math.max(20, Math.min(400, 4 / Math.max(u, 1e-3)));
+
+function fhnDerivs(x, y, { u, a, b, z }) {
+  return [-y + x - (x * x * x) / 3 + z, u * (x + a - b * y)];
+}
+
+function rk4Step(x, y, params, dt) {
+  const k1 = fhnDerivs(x, y, params);
+  const k2 = fhnDerivs(x + (dt * k1[0]) / 2, y + (dt * k1[1]) / 2, params);
+  const k3 = fhnDerivs(x + (dt * k2[0]) / 2, y + (dt * k2[1]) / 2, params);
+  const k4 = fhnDerivs(x + dt * k3[0], y + dt * k3[1], params);
+  const clamp = (v) => Math.max(-CAP, Math.min(CAP, v));
+  return [
+    clamp(x + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])),
+    clamp(y + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])),
+  ];
+}
+
+// Two decimals without "-0.00"
+const fmt2 = (v) => (Math.abs(v) < 0.005 ? 0 : v).toFixed(2);
+
+// Color for an equilibrium by stability
+const eqColors = (cls) => {
+  if (cls.type === "saddle") return { fill: "#f59e0b", stroke: "#d97706" };
+  if (cls.stable === true) return { fill: "#10b981", stroke: "#059669" };
+  if (cls.stable === false) return { fill: "#ef4444", stroke: "#b91c1c" };
+  return { fill: "#a855f7", stroke: "#7e22ce" }; // center / borderline
+};
 
 const FitzHughNagumoTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -33,6 +89,8 @@ const FitzHughNagumoTool = () => {
 
   const [isAnimating, setIsAnimating] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  // Snapshot of the first trajectory for the status box
+  const [statusInfo, setStatusInfo] = useState({ count: 0, x: null, y: null });
   const [showNullclines, setShowNullclines] = useState(false);
 
   // Canvas refs - separate static and dynamic layers for performance
@@ -48,28 +106,15 @@ const FitzHughNagumoTool = () => {
   const animationStateRef = useRef({
     trajectories: [],
     time: 0,
-    animationId: null,
-    isRunning: false,
+    stepAccumulator: 0,
     timeSeriesData: [],
     params: { ...uiParams },
-    showNullclines: showNullclines,
   });
 
   // Update animation parameters when UI changes
   useEffect(() => {
     animationStateRef.current.params = { ...uiParams };
   }, [uiParams]);
-
-  // Sync UI state to animation state
-  useEffect(() => {
-    animationStateRef.current.showNullclines = showNullclines;
-  }, [showNullclines]);
-
-  // Display constants for X and Y
-  const xmin = -3,
-    xmax = 3;
-  const ymin = -3,
-    ymax = 3;
 
   // Equilibrium points for FitzHugh-Nagumo model
   const equilibria = useMemo(() => {
@@ -161,20 +206,32 @@ const FitzHughNagumoTool = () => {
       }
     }
 
-    return points;
+    // Stability from the Jacobian [[1 - X^2, -1], [u, -u b]]:
+    // trace = 1 - X^2 - u b, det = u (1 - b (1 - X^2))
+    return points.map((pt) => ({
+      ...pt,
+      cls: classifyEquilibrium2D([
+        [1 - pt.x * pt.x, -1],
+        [u, -u * b],
+      ]),
+    }));
   }, [uiParams]);
 
   // Static elements drawing function - only redraws when parameters change
   const drawStaticElements = useCallback(
-    (canvas, ctx) => {
+    () => {
+      const canvas = staticCanvasRef.current;
       const transform = phaseTransformRef.current;
-      if (!transform) return;
+      if (!canvas || !transform) return;
+      const setup = setupCanvas(canvas);
+      if (!setup) return;
+      const { ctx } = setup;
 
-      const { dataToPixel, plotWidth, plotHeight } = transform;
+      const { dataToPixel } = transform;
       const { u, a, b, z } = animationStateRef.current.params;
 
       // Clear canvas
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, setup.width, setup.height);
 
       // Draw vector field
       const gridCoords = [
@@ -238,18 +295,14 @@ const FitzHughNagumoTool = () => {
         ctx.lineWidth = 3;
         ctx.beginPath();
 
-        let firstPoint = true;
-        for (let x = xmin; x <= xmax; x += 0.01) {
+        // Draw the whole cubic; the canvas clips what lies outside the plot
+        const nSamples = 600;
+        for (let i = 0; i <= nSamples; i++) {
+          const x = xmin + ((xmax - xmin) * i) / nSamples;
           const y = x - (x * x * x) / 3 + z;
-          if (y >= ymin && y <= ymax) {
-            const pixel = dataToPixel(x, y);
-            if (firstPoint) {
-              ctx.moveTo(pixel.x, pixel.y);
-              firstPoint = false;
-            } else {
-              ctx.lineTo(pixel.x, pixel.y);
-            }
-          }
+          const pixel = dataToPixel(x, y);
+          if (i === 0) ctx.moveTo(pixel.x, pixel.y);
+          else ctx.lineTo(pixel.x, pixel.y);
         }
         ctx.stroke();
 
@@ -324,9 +377,10 @@ const FitzHughNagumoTool = () => {
       // Draw equilibrium points
       equilibria.forEach((eq) => {
         const pixel = dataToPixel(eq.x, eq.y);
+        const colors = eqColors(eq.cls);
 
-        ctx.fillStyle = "#f59e0b";
-        ctx.strokeStyle = "#d97706";
+        ctx.fillStyle = colors.fill;
+        ctx.strokeStyle = colors.stroke;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(pixel.x, pixel.y, 6, 0, 2 * Math.PI);
@@ -343,12 +397,16 @@ const FitzHughNagumoTool = () => {
   );
 
   // Dynamic elements drawing function - redraws every frame
-  const drawDynamicElements = useCallback((canvas, ctx) => {
+  const drawDynamicElements = useCallback(() => {
+    const canvas = dynamicCanvasRef.current;
     const transform = phaseTransformRef.current;
     if (!canvas || !transform) return;
+    const setup = setupCanvas(canvas);
+    if (!setup) return;
+    const { ctx } = setup;
 
     const { dataToPixel } = transform;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, setup.width, setup.height);
 
     // Draw trajectories
     const colorHues = [120, 240, 60, 300, 180, 0];
@@ -368,12 +426,8 @@ const FitzHughNagumoTool = () => {
         ctx.stroke();
         ctx.globalAlpha = 1.0;
 
-        // Draw current position
-        if (
-          trajectory.isActive &&
-          trajectory.x !== undefined &&
-          trajectory.y !== undefined
-        ) {
+        // Draw current position (clipped by the canvas if off-screen)
+        {
           const pixel = dataToPixel(trajectory.x, trajectory.y);
           ctx.fillStyle = `hsl(${hue}, 70%, 40%)`;
           ctx.beginPath();
@@ -385,181 +439,144 @@ const FitzHughNagumoTool = () => {
   }, []);
 
   // Draw time series
-  const drawTimeSeries = useCallback(
-    (canvas, ctx) => {
-      const transform = timeSeriesTransformRef.current;
-      if (!transform) return;
-
-      const { plotWidth, plotHeight } = transform;
-      const state = animationStateRef.current;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      if (state.timeSeriesData.length < 2) return;
-
-      const timeWindow = 20;
-      const currentTime = state.time;
-      const minTime = Math.max(0, currentTime - timeWindow);
-      const maxTime = Math.max(timeWindow, currentTime);
-      const maxVal = Math.max(Math.abs(xmax), Math.abs(ymax));
-
-      // Local helper for sliding time window (axes change dynamically)
-      const toPixel = (t, val) => ({
-        x: ((t - minTime) / timeWindow) * plotWidth,
-        y: plotHeight - ((val + maxVal) / (2 * maxVal)) * plotHeight,
-      });
-
-      // Draw X (Membrane Potential)
-      ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      let firstPoint = true;
-
-      state.timeSeriesData.forEach((point) => {
-        if (point.time >= minTime && point.time <= maxTime) {
-          const pixel = toPixel(point.time, point.x);
-          if (firstPoint) {
-            ctx.moveTo(pixel.x, pixel.y);
-            firstPoint = false;
-          } else {
-            ctx.lineTo(pixel.x, pixel.y);
-          }
-        }
-      });
-      ctx.stroke();
-
-      // Draw Y (Recovery Variable)
-      ctx.strokeStyle = currentTheme === "dark" ? "#f87171" : "#dc2626";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      firstPoint = true;
-
-      state.timeSeriesData.forEach((point) => {
-        if (point.time >= minTime && point.time <= maxTime) {
-          const pixel = toPixel(point.time, point.y);
-          if (firstPoint) {
-            ctx.moveTo(pixel.x, pixel.y);
-            firstPoint = false;
-          } else {
-            ctx.lineTo(pixel.x, pixel.y);
-          }
-        }
-      });
-      ctx.stroke();
-    },
-    [currentTheme],
-  );
-
-  // Animation loop
-  const animationLoop = useCallback(() => {
+  const drawTimeSeries = useCallback(() => {
+    const canvas = timeSeriesCanvasRef.current;
+    const transform = timeSeriesTransformRef.current;
+    if (!canvas || !transform) return;
+    const setup = setupCanvas(canvas);
+    if (!setup) return;
+    const { ctx, width: plotWidth, height: plotHeight } = setup;
     const state = animationStateRef.current;
-    if (!state.isRunning) return;
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
 
-    const { u, a, b, z, speed } = state.params;
-    if (speed === 0) {
-      state.animationId = requestAnimationFrame(animationLoop);
-      return;
-    }
+    if (state.timeSeriesData.length < 2) return;
 
-    const dt = 0.05 * speed;
+    const minTime = Math.max(0, state.time - TIME_WINDOW);
+    const maxVal = Math.max(Math.abs(xmax), Math.abs(ymax));
 
-    // Update trajectories
-    state.trajectories = state.trajectories.map((traj) => {
-      if (!traj.isActive) return traj;
-
-      // FitzHugh-Nagumo differential equations
-      const computeDerivatives = (x, y) => {
-        const dxdt = -y + x - (x * x * x) / 3 + z;
-        const dydt = u * (x + a - b * y);
-        return [dxdt, dydt];
-      };
-
-      const [x_curr, y_curr] = [traj.x, traj.y];
-
-      // RK4 integration
-      const k1 = computeDerivatives(x_curr, y_curr);
-      const k2 = computeDerivatives(
-        x_curr + (dt * k1[0]) / 2,
-        y_curr + (dt * k1[1]) / 2,
-      );
-      const k3 = computeDerivatives(
-        x_curr + (dt * k2[0]) / 2,
-        y_curr + (dt * k2[1]) / 2,
-      );
-      const k4 = computeDerivatives(x_curr + dt * k3[0], y_curr + dt * k3[1]);
-
-      let newX = x_curr + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]);
-      let newY = y_curr + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]);
-
-      const isInBounds =
-        newX >= xmin && newX <= xmax && newY >= ymin && newY <= ymax;
-      const newTrail = [...traj.trail.slice(-150), { x: newX, y: newY }];
-
-      return {
-        ...traj,
-        x: newX,
-        y: newY,
-        trail: newTrail,
-        isActive: isInBounds,
-      };
+    // Local helper for sliding time window (axes change dynamically)
+    const toPixel = (t, val) => ({
+      x: ((t - minTime) / TIME_WINDOW) * plotWidth,
+      y: plotHeight - ((val + maxVal) / (2 * maxVal)) * plotHeight,
     });
 
-    state.time += dt;
+    const mode = currentTheme === "dark" ? "dark" : "light";
+    const drawSeries = (key, color, dash) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash(dash);
+      ctx.beginPath();
+      let first = true;
+      for (const point of state.timeSeriesData) {
+        if (point.time < minTime) continue;
+        const pixel = toPixel(point.time, point[key]);
+        if (first) {
+          ctx.moveTo(pixel.x, pixel.y);
+          first = false;
+        } else {
+          ctx.lineTo(pixel.x, pixel.y);
+        }
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+    drawSeries("x", TIME_SERIES_X_COLOR[mode], []); // X: solid
+    drawSeries("y", TIME_SERIES_Y_COLOR[mode], [6, 4]); // Y: dashed
+  }, [currentTheme]);
 
-    // Update React time state periodically
-    if (Math.floor(state.time * 10) !== Math.floor((state.time - dt) * 10)) {
-      setCurrentTime(state.time);
-    }
-
-    // Update time series data
-    const activeTraj = state.trajectories.find((t) => t.isActive);
-    if (activeTraj) {
-      const currentX = activeTraj.x || 0;
-      const currentY = activeTraj.y || 0;
-
-      state.timeSeriesData = [
-        ...state.timeSeriesData.slice(-500),
-        {
-          time: state.time,
-          x: currentX,
-          y: currentY,
-        },
-      ];
-    }
-
-    // Draw only dynamic elements
-    const dynamicCanvas = dynamicCanvasRef.current;
-    const timeCanvas = timeSeriesCanvasRef.current;
-
-    if (dynamicCanvas) {
-      const ctx = dynamicCanvas.getContext("2d");
-      drawDynamicElements(dynamicCanvas, ctx);
-    }
-
-    if (timeCanvas) {
-      const ctx = timeCanvas.getContext("2d");
-      drawTimeSeries(timeCanvas, ctx);
-    }
-
-    // Continue animation
-    state.animationId = requestAnimationFrame(animationLoop);
+  const drawAnimated = useCallback(() => {
+    drawDynamicElements();
+    drawTimeSeries();
   }, [drawDynamicElements, drawTimeSeries]);
 
-  // Control functions
-  const startAnimation = useCallback(() => {
-    if (animationStateRef.current.isRunning) return;
-    animationStateRef.current.isRunning = true;
-    setIsAnimating(true);
-    animationLoop();
-  }, [animationLoop]);
+  const publishStatus = () => {
+    const state = animationStateRef.current;
+    const first = state.trajectories[0];
+    setStatusInfo({
+      count: state.trajectories.length,
+      x: first ? first.x : null,
+      y: first ? first.y : null,
+    });
+  };
 
-  const stopAnimation = useCallback(() => {
-    animationStateRef.current.isRunning = false;
-    setIsAnimating(false);
-    if (animationStateRef.current.animationId) {
-      cancelAnimationFrame(animationStateRef.current.animationId);
-      animationStateRef.current.animationId = null;
+  // Advance every trajectory by one step
+  const stepOnce = () => {
+    const state = animationStateRef.current;
+    const params = state.params;
+    state.time += DT;
+    const window = trailWindow(params.u);
+    const minGap = window / MAX_TRAIL_POINTS;
+
+    for (const traj of state.trajectories) {
+      const [newX, newY] = rk4Step(traj.x, traj.y, params, DT);
+      traj.x = newX;
+      traj.y = newY;
+      const last = traj.trail[traj.trail.length - 1];
+      if (!last || state.time - last.t >= minGap) {
+        traj.trail.push({ t: state.time, x: newX, y: newY });
+      }
+      const cutoff = state.time - window;
+      if (traj.trail.length > 1 && traj.trail[0].t < cutoff) {
+        let n = 0;
+        while (n < traj.trail.length - 1 && traj.trail[n].t < cutoff) n++;
+        traj.trail.splice(0, n);
+      }
     }
-  }, []);
+
+    // Time series follows the first trajectory; keep only the time window
+    const first = state.trajectories[0];
+    if (first) {
+      state.timeSeriesData.push({ time: state.time, x: first.x, y: first.y });
+      const tsCutoff = state.time - TIME_WINDOW - 0.5;
+      if (state.timeSeriesData[0].time < tsCutoff) {
+        let n = 0;
+        while (
+          n < state.timeSeriesData.length - 1 &&
+          state.timeSeriesData[n].time < tsCutoff
+        )
+          n++;
+        state.timeSeriesData.splice(0, n);
+      }
+    }
+  };
+
+  // Animation loop: model time advances in proportion to real elapsed time
+  const loop = useAnimationLoop((dtSeconds) => {
+    const state = animationStateRef.current;
+    const { speed } = state.params;
+    if (state.trajectories.length === 0 || speed <= 0) {
+      drawAnimated();
+      setIsAnimating(false);
+      return false;
+    }
+    state.stepAccumulator += dtSeconds * SIM_RATE * speed;
+    const oldTime = state.time;
+    let steps = 0;
+    while (state.stepAccumulator >= DT && steps < 5000) {
+      stepOnce();
+      state.stepAccumulator -= DT;
+      steps++;
+    }
+    if (Math.floor(state.time * 10) !== Math.floor(oldTime * 10)) {
+      setCurrentTime(state.time);
+      publishStatus();
+    }
+    drawAnimated();
+    return true;
+  });
+  const { start: startLoop, stop: stopLoop } = loop;
+
+  const startAnimation = useCallback(() => {
+    setIsAnimating(true);
+    startLoop();
+  }, [startLoop]);
+
+  // Restart when the speed goes back above zero
+  useEffect(() => {
+    if (uiParams.speed > 0 && animationStateRef.current.trajectories.length) {
+      startAnimation();
+    }
+  }, [uiParams.speed, startAnimation]);
 
   // Canvas click handler
   const handleCanvasClick = useCallback(
@@ -585,122 +602,67 @@ const FitzHughNagumoTool = () => {
 
       if (dataX < xmin || dataY < ymin || dataX > xmax || dataY > ymax) return;
 
-      const colorHues = [120, 240, 60, 300, 180, 0];
-      const hue =
-        colorHues[
-          animationStateRef.current.trajectories.length % colorHues.length
-        ];
+      const state = animationStateRef.current;
+      if (state.trajectories.length === 0) {
+        state.time = 0;
+        state.stepAccumulator = 0;
+        state.timeSeriesData = [{ time: 0, x: dataX, y: dataY }];
+        setCurrentTime(0);
+      }
 
-      const newTrajectory = {
+      state.trajectories.push({
         id: Date.now() + Math.random(),
         x: dataX,
         y: dataY,
-        isActive: true,
-        color: `hsl(${hue}, 70%, 50%)`,
-        trail: [{ x: dataX, y: dataY }],
-      };
+        trail: [{ t: state.time, x: dataX, y: dataY }],
+      });
 
-      animationStateRef.current.trajectories.push(newTrajectory);
-
-      if (animationStateRef.current.trajectories.length === 1) {
-        animationStateRef.current.time = 0;
-        animationStateRef.current.timeSeriesData = [];
-      }
-
+      publishStatus();
+      drawAnimated();
       startAnimation();
     },
-    [startAnimation],
+    [startAnimation, drawAnimated],
   );
 
-  // Reset simulation
+  // Reset simulation: remove trajectories and clear both graphs
   const resetSimulation = useCallback(() => {
-    stopAnimation();
-    animationStateRef.current.trajectories = [];
-    animationStateRef.current.time = 0;
-    animationStateRef.current.timeSeriesData = [];
+    stopLoop();
+    setIsAnimating(false);
+    const state = animationStateRef.current;
+    state.trajectories = [];
+    state.time = 0;
+    state.stepAccumulator = 0;
+    state.timeSeriesData = [];
     setCurrentTime(0);
-
-    // Redraw static elements
-    if (staticCanvasRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
-
-    if (timeSeriesCanvasRef.current) {
-      const ctx = timeSeriesCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        timeSeriesCanvasRef.current.width,
-        timeSeriesCanvasRef.current.height,
-      );
-    }
-  }, [stopAnimation, drawStaticElements]);
+    setStatusInfo({ count: 0, x: null, y: null });
+    drawAnimated();
+  }, [stopLoop, drawAnimated]);
 
   const updateParam = useCallback((param, value) => {
     setUiParams((prev) => ({ ...prev, [param]: value }));
   }, []);
 
-  // Preset parameter functions
+  // Presets set the model parameters (keeping the animation speed) and
+  // clear old trajectories, which belong to the old parameters.
   const loadDefaultPreset = useCallback(() => {
-    setUiParams({
-      u: 0.1,
-      a: 0.7,
-      b: 0.8,
-      z: 0.0,
-      speed: 2,
-    });
-  }, []);
+    resetSimulation();
+    setUiParams((prev) => ({ ...prev, u: 0.1, a: 0.7, b: 0.8, z: 0.0 }));
+  }, [resetSimulation]);
 
   const loadVanDerPolPreset = useCallback(() => {
-    setUiParams({
-      u: 0.1,
-      a: 0.0,
-      b: 0.0,
-      z: 0.0,
-      speed: 2,
-    });
-  }, []);
+    resetSimulation();
+    setUiParams((prev) => ({ ...prev, u: 0.1, a: 0.0, b: 0.0, z: 0.0 }));
+  }, [resetSimulation]);
 
-  // Initialize canvases
+  // Redraw static elements when parameters or display options change
   useEffect(() => {
-    // Set canvas sizes from transforms
-    if (staticCanvasRef.current && phaseTransformRef.current) {
-      staticCanvasRef.current.width = phaseTransformRef.current.plotWidth;
-      staticCanvasRef.current.height = phaseTransformRef.current.plotHeight;
-    }
-    if (dynamicCanvasRef.current && phaseTransformRef.current) {
-      dynamicCanvasRef.current.width = phaseTransformRef.current.plotWidth;
-      dynamicCanvasRef.current.height = phaseTransformRef.current.plotHeight;
-    }
-    if (timeSeriesCanvasRef.current && timeSeriesTransformRef.current) {
-      timeSeriesCanvasRef.current.width =
-        timeSeriesTransformRef.current.plotWidth;
-      timeSeriesCanvasRef.current.height =
-        timeSeriesTransformRef.current.plotHeight;
-    }
-
-    // Draw initial static elements
-    if (staticCanvasRef.current && phaseTransformRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
-  }, [drawStaticElements]);
-
-  // Redraw static elements when parameters change
-  useEffect(() => {
-    if (staticCanvasRef.current && phaseTransformRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
+    drawStaticElements();
   }, [uiParams, showNullclines, drawStaticElements]);
 
-  // Cleanup on unmount
+  // Redraw animated layers (e.g. after a theme change)
   useEffect(() => {
-    return () => {
-      stopAnimation();
-    };
-  }, [stopAnimation]);
+    drawAnimated();
+  }, [drawAnimated]);
 
   return (
     <ToolContainer
@@ -732,16 +694,12 @@ const FitzHughNagumoTool = () => {
                 ref={staticCanvasRef}
                 className="absolute pointer-events-none"
                 style={transform.plotStyle}
-                width={transform.plotWidth}
-                height={transform.plotHeight}
               />
               {/* Dynamic foreground layer */}
               <canvas
                 ref={dynamicCanvasRef}
                 className="absolute cursor-crosshair"
                 style={transform.plotStyle}
-                width={transform.plotWidth}
-                height={transform.plotHeight}
                 onClick={handleCanvasClick}
               />
             </>
@@ -771,8 +729,6 @@ const FitzHughNagumoTool = () => {
               ref={timeSeriesCanvasRef}
               className="absolute"
               style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
@@ -959,7 +915,16 @@ const FitzHughNagumoTool = () => {
                 <div key={index} style={{ marginBottom: "4px" }}>
                   <div>
                     {equilibria.length > 1 && `${index + 1}. `}
-                    X* = {eq.x.toFixed(2)}, Y* = {eq.y.toFixed(2)}
+                    X* = {fmt2(eq.x)}, Y* = {fmt2(eq.y)}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.9em",
+                      color: eqColors(eq.cls).stroke,
+                      fontWeight: "bold",
+                    }}
+                  >
+                    {eq.cls.type}
                   </div>
                 </div>
               ))}
@@ -995,41 +960,32 @@ const FitzHughNagumoTool = () => {
               fontSize: "0.85em",
             }}
           >
-            <div>
-              Active Trajectories:{" "}
-              {
-                animationStateRef.current.trajectories.filter((t) => t.isActive)
-                  .length
-              }
-            </div>
+            <div>Trajectories: {statusInfo.count}</div>
             <div>Current Time: {currentTime.toFixed(1)}</div>
             <div>Animation: {isAnimating ? "Running" : "Stopped"}</div>
           </div>
           <div style={{ marginTop: "4px", fontSize: "0.85em" }}>
+            <div style={{ opacity: 0.8 }}>First trajectory (shown in the time series):</div>
             <div>
               Membrane Potential (X):{" "}
-              {animationStateRef.current.trajectories
-                .find((t) => t.isActive)
-                ?.x?.toFixed(2) || "0.00"}
+              {statusInfo.x === null ? "–" : fmt2(statusInfo.x)}
             </div>
             <div>
               Recovery Variable (Y):{" "}
-              {animationStateRef.current.trajectories
-                .find((t) => t.isActive)
-                ?.y?.toFixed(2) || "0.00"}
+              {statusInfo.y === null ? "–" : fmt2(statusInfo.y)}
             </div>
           </div>
           <div style={{ marginTop: "6px", fontSize: "0.8em", opacity: 0.8 }}>
             <span
               style={{ color: currentTheme === "dark" ? "#60a5fa" : "#3b82f6" }}
             >
-              Blue: X (Membrane)
+              Blue solid: X (Membrane)
             </span>{" "}
             |{" "}
             <span
               style={{ color: currentTheme === "dark" ? "#f87171" : "#dc2626" }}
             >
-              Red: Y (Recovery)
+              Red dashed: Y (Recovery)
             </span>
           </div>
         </div>

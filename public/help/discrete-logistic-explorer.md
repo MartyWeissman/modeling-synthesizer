@@ -2,87 +2,51 @@
 
 ## Overview
 
-The Discrete Logistic Model Explorer visualizes the dynamics of population growth in discrete time steps, featuring a bifurcation diagram that reveals how the system's behavior changes dramatically as the birth rate parameter increases.
+This explorer studies the discrete logistic model
 
-The model uses the discrete logistic equation:
-- **ΔP/Δt = βP(1 - P)**
+- **ΔP/Δt = βP(1 − P)**, with Δt = 1, so **P(t + 1) = P(t) + βP(t)(1 − P(t))**
 
-Where P is the population (normalized between 0 and 1), and β is the birth rate parameter. [VERIFY: This is sometimes called the discrete logistic map and is a foundational model in chaos theory, popularized by Robert May's 1976 Nature paper.]
+where P is the population measured as a fraction of the carrying capacity (so P = 1 is the carrying capacity) and β is the birth rate. Models like this became a classic example of chaos after Robert May's 1976 article in *Nature*, "Simple mathematical models with very complicated dynamics."
 
-As β increases, the system transitions from stable equilibrium → periodic oscillations → chaos, demonstrating period-doubling bifurcations.
+The model has two equilibria, P = 0 and P = 1. For every β > 0, P = 0 is unstable. P = 1 is stable when the birth rate is small enough. For larger β the long-term behavior goes through period doubling (2, 4, 8, ... values) into chaos.
 
 ## Parameters
 
-### Birth Rate (β)
-- **Range**: 0.0 to 3.0 (adjustable window)
-- **Default**: 2.0
-- Controls the rate of population growth
-- Low β (< 1): Population decays to zero
-- Medium β (1-2): Stable equilibrium at P = 1 - 1/β
-- Higher β (2-2.5): Period-2 oscillations
-- High β (> 2.5): Period-doubling cascade into chaos
-- [VERIFY: The onset of chaos occurs at approximately β ≈ 2.57]
+### Birth rate (β)
+- **Range**: the current view window (0 to 3 at first). **Default**: 2.0
+- The slider covers the β window of the bifurcation plot, so zooming in the window also gives finer control of β.
 
-### Initial Population (P₀)
-- **Range**: 0.0 to 1.5
-- **Default**: 0.1
-- Starting population for the time series simulation
-- Affects transient behavior but not long-term attractors
+### Initial population (P₀)
+- **Range**: 0 to 1.5 (steps of 0.01). **Default**: 0.1
+- The starting value for the time series. It does not change the bifurcation plot.
 
-### Beta Window Controls (βₘᵢₙ and βₘₐₓ)
-- **Range**: 0.0 to 3.0
-- **Default**: 0.0 to 3.0
-- Allows zooming into specific regions of the bifurcation diagram
-- Use "Set Window" button to regenerate the diagram with new range
+### View window (βmin and βmax)
+- **Range**: 0 to 3. **Default**: 0 to 3
+- Type the β range you want to see and press **Set Window** to redraw the bifurcation plot. The window must be at least 0.01 wide.
 
 ## Components
 
-### Bifurcation Diagram (Main Plot)
-- **X-axis**: Birth rate parameter β
-- **Y-axis**: Population P (steady-state values)
-- Shows long-term behavior after transients die out
-- Single line = stable equilibrium
-- Two branches = period-2 oscillation
-- Multiple branches = higher-period cycles
-- Dense cloud = chaotic behavior
-- **Green marker**: Current β value (vertical line with triangular indicators)
+### Bifurcation plot (top)
+- **X-axis**: birth rate β (the current window). **Y-axis**: population P, 0 to 1.5.
+- For each β, the plot shows the values P visits in the long run: it starts at P = 0.5, discards the first 150 steps, and plots the next 100.
+  - one curve: a stable equilibrium
+  - two branches: a 2-cycle (P alternates between two values); four branches: a 4-cycle, and so on
+  - a dense cloud: chaos
+- The green line with triangles marks the current β.
 
-### Time Series Plot (Bottom)
-- **X-axis**: Time steps (0 to 50)
-- **Y-axis**: Population P
-- Shows the actual trajectory from the initial condition
-- Blue dots connected by lines show discrete iterations
-- Reveals transient behavior before reaching steady state
+### Time series (bottom)
+- **X-axis**: time t = 0 to 50. **Y-axis**: population P, 0 to 1.5.
+- The blue dots are P(0) = P₀, P(1), P(2), ... for the current β and P₀, joined by lines.
 
-### Window Controls
-- **βₘᵢₙ input**: Set minimum β for bifurcation diagram
-- **βₘₐₓ input**: Set maximum β for bifurcation diagram  
-- **Set Window button**: Regenerate bifurcation diagram with current range
-
-### Parameter Sliders
-- **Birth rate slider**: Adjust β within the current window range
-- **Initial population slider**: Set P₀ for time series
-
-### Info Display
-- Shows the discrete logistic equation
-- Displays current parameter values
-- Shows the current β range
+### Info box
+- The equation, the current P₀ and β, and the current β window.
 
 ## What to Observe
 
-1. **Period-Doubling Route to Chaos**: Slowly increase β from 1.0 to 3.0. Watch the bifurcation diagram show successively more branches: 1 → 2 → 4 → 8 → ... → chaos. This is the famous period-doubling cascade.
-
-2. **Windows of Order in Chaos**: Within the chaotic region (β > 2.57), there are "windows" where periodic behavior reappears. Zoom in with the window controls to explore these islands of stability.
-
-3. **Sensitive Dependence**: In the chaotic region, try slightly different initial conditions. The time series will diverge rapidly - this is the hallmark of chaos.
-
-4. **Stable Equilibrium**: For β between 1 and 2, the population converges to a single stable value. The bifurcation diagram shows a single curve.
-
-5. **Period-2 Oscillations**: For β around 2.0-2.45, the population alternates between two values. The bifurcation diagram shows two distinct branches.
-
-6. **Transient vs Steady-State**: Compare the time series (which shows transients) with the bifurcation diagram (which only shows long-term behavior). Early time points may not match the attractor.
-
-7. **Zooming In**: Use the window controls to zoom into interesting regions. Try βₘᵢₙ = 2.4, βₘₐₓ = 2.6 to see the first few period doublings in detail.
-
-## References
-
+1. **Equilibrium**: for small β, P approaches the carrying capacity P = 1. For β < 1 the approach is steady; for somewhat larger β it overshoots and alternates above and below 1 while settling.
+2. **Period doubling**: at the first bifurcation point the equilibrium becomes unstable and a 2-cycle appears. At the second bifurcation point the 2-cycle splits into a 4-cycle, then 8, 16, ... ever faster. (Lab RC2 asks you to find these values of β: zoom in with the view window to pin them down.)
+3. **Onset of chaos**: the period doublings pile up at the onset of chaos. Beyond it, most values of β give chaos.
+4. **Windows of order**: inside the chaotic region there are narrow windows of periodic behavior, including a 3-cycle. Zoom in to find them.
+5. **Sensitive dependence**: in the chaotic region (for example β = 3.0), compare time series from nearby starting values such as P₀ = 0.30 and 0.31. They agree at first, then become completely different.
+6. **Transients**: the time series shows the early steps too, before P settles onto the pattern shown in the bifurcation plot.
+7. **Starting values that don't reach the attractor**: P₀ = 0 stays at 0 forever. If P₀ is above (1 + β)/β (for example above 1.33 when β = 3), the next value is negative and the population then runs off to −∞ (off the bottom of the graph). P₀ = (1 + β)/β exactly lands on 0. Almost every other starting value between 0 and (1 + β)/β ends up on the pattern in the bifurcation plot.
