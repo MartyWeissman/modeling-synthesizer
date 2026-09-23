@@ -21,6 +21,8 @@
 
 **Legend:** `[x]` done · ⏸ deferred, needs Marty's decision · 🧪 done, please test in the browser · each item has an ID like `#012`.
 
+**Progress (Sep 23, 2026):** Phase A (shared components, utilities, app shell, build, docs) and phase B (every tool + its help file) are done and committed to local `main`. 211 unit tests pass, lint is clean, and every tool loads without console errors in light and dark themes. Remaining: items marked ⏸ (your decisions — see §6) and ◐ partials. Nothing has been pushed.
+
 **Decisions (Sep 23, 2026):**
 - Work is committed to local `main`. Nothing is pushed; Marty pushes (which deploys) after testing.
 - **Constraint:** no change may break the Lab Manual (v3.0) instructions on the pages that refer to a tool.
@@ -456,7 +458,7 @@ These are the items where a student currently sees something **wrong**.
 
 ## 4. Repo hygiene & docs
 
-- [ ] `#228` **P2 Remove or move the stray root file `## User`.** It's a 437 KB pasted chat log. It's currently *untracked*, so not public, but it's easy to commit by accident.
+- [x] `#228` *(moved to _archive/chat-log-2026-02-19.md (excluded from git locally))* **P2 Remove or move the stray root file `## User`.** It's a 437 KB pasted chat log. It's currently *untracked*, so not public, but it's easy to commit by accident.
 - [x] `#229` **P2 Delete dead code.**
   - `src/App.jsx` and `App.css` (not imported; lint `no-undef`).
   - `src_backup/`, `src/tools/old/`, and the `*.backup` files.
