@@ -500,8 +500,6 @@ const LogisticGrowthExplorerTool = () => {
         h={1}
         value={b * 100}
         onChange={(value) => setB(value / 100)}
-        min={0}
-        max={200}
         variant="unipolar"
         label={`b = ${b.toFixed(2)}`}
         theme={theme}
