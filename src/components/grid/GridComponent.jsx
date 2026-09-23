@@ -22,6 +22,7 @@ const GridComponent = ({
   tabIndex,
   ariaPressed,
   ariaLabel,
+  ariaDisabled,
   style = {},
   theme
 }) => {
@@ -49,6 +50,7 @@ const GridComponent = ({
       tabIndex={tabIndex}
       aria-pressed={ariaPressed}
       aria-label={ariaLabel}
+      aria-disabled={ariaDisabled}
     >
       {children}
     </div>

@@ -26,6 +26,7 @@ const GridButton = React.memo(
     // Standard props
     tooltip,
     ariaLabel, // Optional accessible name (defaults to the visible text)
+    disabled = false, // Ignore presses and show a dimmed button
     theme,
   }) => {
     const [momentaryPressed, setMomentaryPressed] = useState(false);
@@ -41,6 +42,7 @@ const GridButton = React.memo(
 
     // Handle click based on button type
     const handleClick = () => {
+      if (disabled) return;
       if (type === "toggle") {
         onToggle?.(!active); // Toggle the state
       }
@@ -49,7 +51,7 @@ const GridButton = React.memo(
 
     // Handle pointer events (only for momentary buttons)
     const handleMouseDown = () => {
-      if (type === "momentary") {
+      if (!disabled && type === "momentary") {
         setMomentaryPressed(true);
       }
     };
@@ -64,7 +66,7 @@ const GridButton = React.memo(
     const handleKeyDown = (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        if (e.repeat) return;
+        if (e.repeat || disabled) return;
         if (type === "momentary") setMomentaryPressed(true);
         handleClick();
       }
@@ -131,7 +133,7 @@ const GridButton = React.memo(
         h={h}
         title={tooltip}
         theme={theme}
-        className="p-1.5 cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        className={`p-1.5 ${disabled ? "cursor-not-allowed" : "cursor-pointer"} select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp} // Release if mouse leaves
@@ -140,9 +142,11 @@ const GridButton = React.memo(
         tabIndex={0}
         ariaPressed={type === "toggle" ? !!active : undefined}
         ariaLabel={ariaLabel}
+        ariaDisabled={disabled || undefined}
         onKeyDown={handleKeyDown}
         onKeyUp={handleKeyUp}
         style={{
+          opacity: disabled ? 0.5 : 1,
           // Outer frame with texture
           backgroundImage: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.99) 0%, rgba(251,207,232,0.15) 50%, rgba(196,181,253,0.15) 100%), url(${currentTexture})`
