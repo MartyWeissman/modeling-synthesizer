@@ -10,6 +10,60 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
+import { zScore } from "./stochasticToolsMath";
+
+const GROW_SECONDS = 1.5; // length of the growth animation
+
+// Colors for tree rings
+const RING_COLORS = {
+  light: ["#D2B48C", "#C4A574", "#B8956A"],
+  dark: ["#8B7355", "#9C8A6E", "#A89880"],
+  unicorn: ["#DDA0DD", "#D8BFD8", "#E6E6FA"],
+};
+
+const barkColorFor = (currentTheme) => {
+  if (currentTheme === "unicorn") return "#9370DB";
+  if (currentTheme === "dark") return "#5D4037";
+  return "#8B4513";
+};
+
+const ringColorsFor = (currentTheme) => {
+  if (currentTheme === "unicorn") return RING_COLORS.unicorn;
+  if (currentTheme === "dark") return RING_COLORS.dark;
+  return RING_COLORS.light;
+};
+
+// Ring-boundary noise. Frequencies are whole numbers so each boundary is a
+// smooth closed curve (no kink at θ = 0). Amplitudes sum to 1, so
+// |noise(θ)| ≤ 1.
+const makeHarmonics = (minFreq, count) => {
+  const raw = Array.from({ length: count }, (_, i) => ({
+    weight: Math.random() / (i + 1), // higher frequencies get less weight
+    frequency: minFreq + i,
+    phase: Math.random() * Math.PI * 2,
+  }));
+  const total = raw.reduce((sum, h) => sum + h.weight, 0) || 1;
+  return raw.map((h) => ({ ...h, amplitude: h.weight / total }));
+};
+
+const evaluateNoise = (harmonics, theta) => {
+  let noise = 0;
+  for (const h of harmonics) {
+    noise += h.amplitude * Math.sin(h.frequency * theta + h.phase);
+  }
+  return noise;
+};
+
+// Offset (in mm) of the outer boundary of ring i at angle θ. It is at most a
+// quarter of the narrower of the two rings it separates, so consecutive
+// boundaries never cross and no ring can vanish, however thin.
+const boundaryOffset = (growths, noiseData, i, theta) => {
+  const next = i + 1 < growths.length ? growths[i + 1] : growths[i];
+  const limit = 0.25 * Math.min(growths[i], next);
+  return limit * evaluateNoise(noiseData.rings[i], theta);
+};
 
 const TreeRingSimulatorTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -22,60 +76,18 @@ const TreeRingSimulatorTool = () => {
 
   // Simulation results
   const [yearlyGrowths, setYearlyGrowths] = useState([]);
-  const [noiseSeeds, setNoiseSeeds] = useState([]); // Store noise for each ring
+  // Ring-boundary noise: a shared trunk shape plus one set per ring
+  const [noiseSeeds, setNoiseSeeds] = useState({ shape: [], rings: [] });
   const [totalGrowth, setTotalGrowth] = useState(null);
   const [statistics, setStatistics] = useState(null);
   const [isGrowing, setIsGrowing] = useState(false);
   const [animationProgress, setAnimationProgress] = useState(0);
+  const [inputError, setInputError] = useState(null);
 
   // Canvas refs
   const crossSectionCanvasRef = useRef(null);
   const zoomCanvasRef = useRef(null);
-  const animationRef = useRef(null);
-
-  // Colors for tree rings
-  const ringColors = {
-    light: ["#D2B48C", "#C4A574", "#B8956A"],
-    dark: ["#8B7355", "#9C8A6E", "#A89880"],
-    unicorn: ["#DDA0DD", "#D8BFD8", "#E6E6FA"],
-  };
-
-  const getBarkColor = () => {
-    if (currentTheme === "unicorn") return "#9370DB";
-    if (currentTheme === "dark") return "#5D4037";
-    return "#8B4513";
-  };
-
-  const getRingColors = () => {
-    if (currentTheme === "unicorn") return ringColors.unicorn;
-    if (currentTheme === "dark") return ringColors.dark;
-    return ringColors.light;
-  };
-
-  // Generate smooth periodic noise using multiple sine waves
-  const generateNoiseSeed = () => {
-    // Generate random coefficients for a smooth periodic function
-    const numHarmonics = 5;
-    const harmonics = [];
-    for (let i = 0; i < numHarmonics; i++) {
-      harmonics.push({
-        amplitude: (Math.random() * 0.3) / (i + 1), // Decreasing amplitude for higher frequencies
-        frequency: i + 1 + Math.random() * 0.5, // Roughly integer frequencies with some variation
-        phase: Math.random() * Math.PI * 2,
-      });
-    }
-    return harmonics;
-  };
-
-  // Evaluate noise at angle theta using stored harmonics
-  const evaluateNoise = (harmonics, theta, maxNoise) => {
-    let noise = 0;
-    for (const h of harmonics) {
-      noise += h.amplitude * Math.sin(h.frequency * theta + h.phase);
-    }
-    // Normalize to [-maxNoise, maxNoise]
-    return noise * maxNoise;
-  };
+  const animationElapsedRef = useRef(0);
 
   // Draw circular cross-section with organic ring shapes
   const drawCrossSection = useCallback(
@@ -83,8 +95,7 @@ const TreeRingSimulatorTool = () => {
       const canvas = crossSectionCanvasRef.current;
       if (!canvas) return;
 
-      const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
+      const { ctx, width, height } = setupCanvas(canvas);
       const centerX = width / 2;
       const centerY = height / 2;
 
@@ -100,72 +111,68 @@ const TreeRingSimulatorTool = () => {
       }
 
       const totalRadius = growths.reduce((sum, g) => sum + g, 0);
-      const maxRadius = Math.min(width, height) / 2 - 10;
-      const scaleFactor = maxRadius / totalRadius;
+      // Leave room for the boundary wobble, the shared shape, and the bark
+      const maxRadius = Math.min(width, height) / 2 - 12;
+      const scaleFactor = maxRadius / (totalRadius * 1.1);
 
-      const colors = getRingColors();
-      const barkColor = getBarkColor();
+      const colors = ringColorsFor(currentTheme);
+      const barkColor = barkColorFor(currentTheme);
       const ringsToShow = Math.ceil(growths.length * progress);
 
-      // Draw rings from outside in (so inner rings overlay outer)
-      // First calculate cumulative radii
       const cumulativeRadii = [0];
       for (let i = 0; i < growths.length; i++) {
         cumulativeRadii.push(cumulativeRadii[i] + growths[i]);
       }
 
-      // Draw bark (outermost)
-      const outerBarkRadius = cumulativeRadii[ringsToShow] * scaleFactor + 3;
-      ctx.fillStyle = barkColor;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, outerBarkRadius, 0, Math.PI * 2);
-      ctx.fill();
+      // Radius (px) of the outer boundary of ring i at angle θ; a shared,
+      // gentle trunk shape (1 + s(θ)) scales all rings together.
+      const boundaryRadius = (i, theta) =>
+        (cumulativeRadii[i + 1] + boundaryOffset(growths, noiseData, i, theta)) *
+        (1 + 0.05 * evaluateNoise(noiseData.shape, theta)) *
+        scaleFactor;
 
-      // Draw rings from outermost to innermost
-      for (let i = ringsToShow - 1; i >= 0; i--) {
-        const outerRadius = cumulativeRadii[i + 1] * scaleFactor;
-        const growth = growths[i];
-        const maxNoise = 0.5 * growth * scaleFactor;
-        const harmonics = noiseData[i];
-        const color = colors[i % colors.length];
-
-        // Draw filled ring with organic shape
-        ctx.fillStyle = color;
+      const numPoints = 120;
+      const traceBoundary = (i, extra = 0) => {
         ctx.beginPath();
-
-        const numPoints = 120;
         for (let j = 0; j <= numPoints; j++) {
           const theta = (j / numPoints) * Math.PI * 2;
-          const noise = evaluateNoise(harmonics, theta, maxNoise);
-          const r = outerRadius + noise;
+          const r = boundaryRadius(i, theta) + extra;
           const x = centerX + r * Math.cos(theta);
           const y = centerY + r * Math.sin(theta);
-          if (j === 0) {
-            ctx.moveTo(x, y);
-          } else {
-            ctx.lineTo(x, y);
-          }
+          if (j === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
         }
         ctx.closePath();
-        ctx.fill();
+      };
 
-        // Draw ring boundary line
+      // Bark (outermost), following the shape of the last visible ring
+      if (ringsToShow > 0) {
+        ctx.fillStyle = barkColor;
+        traceBoundary(ringsToShow - 1, 3);
+        ctx.fill();
+      }
+
+      // Rings from outermost to innermost (inner rings overlay outer)
+      for (let i = ringsToShow - 1; i >= 0; i--) {
+        ctx.fillStyle = colors[i % colors.length];
+        traceBoundary(i);
+        ctx.fill();
         ctx.strokeStyle = barkColor;
         ctx.lineWidth = 0.5;
         ctx.stroke();
       }
 
-      // Draw center point (pith)
+      // Center point (pith)
       ctx.fillStyle = barkColor;
       ctx.beginPath();
       ctx.arc(centerX, centerY, 2, 0, Math.PI * 2);
       ctx.fill();
 
-      // Draw zoom indicator rectangle (horizontal slice through right half only)
+      // Zoom indicator rectangle (horizontal slice through right half only)
       if (progress >= 1) {
         const indicatorColor = currentTheme === "dark" ? "#ff6b6b" : "#e63946";
         const indicatorHeight = 12;
-        const indicatorWidth = outerBarkRadius + 3; // Only right half
+        const indicatorWidth = boundaryRadius(growths.length - 1, 0) + 6;
 
         ctx.strokeStyle = indicatorColor;
         ctx.lineWidth = 2;
@@ -178,14 +185,13 @@ const TreeRingSimulatorTool = () => {
         );
         ctx.setLineDash([]);
 
-        // Draw radius label above the indicator
-        const totalRadiusValue = growths.reduce((sum, g) => sum + g, 0);
+        // Radius label above the indicator
         ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
         ctx.font = "bold 11px sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "bottom";
         ctx.fillText(
-          `Radius = ${totalRadiusValue.toFixed(1)} mm`,
+          `Radius = ${totalRadius.toFixed(1)} mm`,
           centerX + indicatorWidth / 2,
           centerY - indicatorHeight / 2 - 3,
         );
@@ -200,8 +206,7 @@ const TreeRingSimulatorTool = () => {
       const canvas = zoomCanvasRef.current;
       if (!canvas) return;
 
-      const ctx = canvas.getContext("2d");
-      const { width, height } = canvas;
+      const { ctx, width, height } = setupCanvas(canvas);
 
       ctx.clearRect(0, 0, width, height);
 
@@ -219,91 +224,99 @@ const TreeRingSimulatorTool = () => {
       }
 
       const totalWidth = growths.reduce((sum, g) => sum + g, 0);
-      const scaleFactor = (width - 40) / totalWidth;
+      const scaleFactor = (width - 50) / totalWidth;
 
       const centerY = height / 2;
-      const ringHeight = height - 40; // More padding for year labels
+      const ringHeight = height - 40; // Padding for year labels
+      const top = centerY - ringHeight / 2;
 
-      const colors = getRingColors();
-      const barkColor = getBarkColor();
+      const colors = ringColorsFor(currentTheme);
+      const barkColor = barkColorFor(currentTheme);
 
       const ringsToShow = Math.ceil(growths.length * progress);
-      let currentX = 20;
 
-      for (let i = 0; i < ringsToShow; i++) {
-        const ringWidth = growths[i] * scaleFactor;
-        const color = colors[i % colors.length];
+      const cumulative = [0];
+      for (let i = 0; i < growths.length; i++) {
+        cumulative.push(cumulative[i] + growths[i]);
+      }
 
-        // Add organic edge variation using the same noise
-        const harmonics = noiseData[i];
-        const maxNoise = 0.5 * growths[i] * scaleFactor;
-
-        // Draw ring with wavy right edge
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(currentX, centerY - ringHeight / 2);
-
-        // Right edge with noise
-        const numPoints = 40;
+      // The slice covers a small range of angles around θ = 0, so the
+      // boundaries are the same curves as in the cross-section, seen up close.
+      const numPoints = 40;
+      const edgePoints = (i) => {
+        const pts = [];
         for (let j = 0; j <= numPoints; j++) {
           const t = j / numPoints;
-          const y = centerY - ringHeight / 2 + t * ringHeight;
-          // Map y position to theta (vertical position maps to angle)
-          const theta = t * Math.PI;
-          const noise = evaluateNoise(harmonics, theta, maxNoise * 0.3);
-          const x = currentX + ringWidth + noise;
-          ctx.lineTo(x, y);
+          const y = top + t * ringHeight;
+          if (i < 0) {
+            pts.push({ x: 20, y });
+            continue;
+          }
+          const theta = (t - 0.5) * (Math.PI / 3);
+          const r = cumulative[i + 1] + boundaryOffset(growths, noiseData, i, theta);
+          pts.push({ x: 20 + r * scaleFactor, y });
         }
+        return pts;
+      };
 
-        ctx.lineTo(currentX, centerY + ringHeight / 2);
+      // Each ring fills exactly the region between its inner and outer
+      // boundaries, so rings neither overlap nor leave gaps.
+      let inner = edgePoints(-1);
+      for (let i = 0; i < ringsToShow; i++) {
+        const outer = edgePoints(i);
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.beginPath();
+        inner.forEach((pt, j) =>
+          j === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y),
+        );
+        for (let j = outer.length - 1; j >= 0; j--) {
+          ctx.lineTo(outer[j].x, outer[j].y);
+        }
         ctx.closePath();
         ctx.fill();
 
-        // Draw ring boundary
+        // Ring boundary
         ctx.strokeStyle = barkColor;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        for (let j = 0; j <= numPoints; j++) {
-          const t = j / numPoints;
-          const y = centerY - ringHeight / 2 + t * ringHeight;
-          const theta = t * Math.PI;
-          const noise = evaluateNoise(harmonics, theta, maxNoise * 0.3);
-          const x = currentX + ringWidth + noise;
-          if (j === 0) {
-            ctx.moveTo(x, y);
-          } else {
-            ctx.lineTo(x, y);
-          }
-        }
+        outer.forEach((pt, j) =>
+          j === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y),
+        );
         ctx.stroke();
 
-        currentX += ringWidth;
+        inner = outer;
       }
 
-      // Draw outer bark
+      // Outer bark, following the last visible boundary
       ctx.fillStyle = barkColor;
-      ctx.fillRect(currentX, centerY - ringHeight / 2, 5, ringHeight);
+      ctx.beginPath();
+      inner.forEach((pt, j) =>
+        j === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y),
+      );
+      for (let j = inner.length - 1; j >= 0; j--) {
+        ctx.lineTo(inner[j].x + 5, inner[j].y);
+      }
+      ctx.closePath();
+      ctx.fill();
 
-      // Draw year labels
+      // Year labels
       if (growths.length > 1 && progress >= 1) {
         ctx.fillStyle = currentTheme === "dark" ? "#ffffff" : "#000000";
         ctx.font = "11px sans-serif";
         ctx.textBaseline = "top";
 
-        // Year 1 - left aligned at left edge of first ring
         ctx.textAlign = "left";
         ctx.fillText("Year 1", 20, centerY + ringHeight / 2 + 4);
 
-        // Last year - right aligned at right edge of last ring
         ctx.textAlign = "right";
         ctx.fillText(
           `Year ${growths.length}`,
-          currentX,
+          20 + totalWidth * scaleFactor,
           centerY + ringHeight / 2 + 4,
         );
       }
 
-      // Draw zoom indicator border
+      // Zoom indicator border
       if (progress >= 1) {
         const indicatorColor = currentTheme === "dark" ? "#ff6b6b" : "#e63946";
         ctx.strokeStyle = indicatorColor;
@@ -316,44 +329,40 @@ const TreeRingSimulatorTool = () => {
     [currentTheme],
   );
 
-  // Combined draw function
-  const drawAll = useCallback(
-    (growths, noiseData, progress = 1) => {
-      drawCrossSection(growths, noiseData, progress);
-      drawZoomView(growths, noiseData, progress);
-    },
-    [drawCrossSection, drawZoomView],
-  );
-
-  // Initialize canvases
+  // Draw both views whenever the data, the animation progress, or the theme
+  // changes (the animation loop only updates the progress).
   useEffect(() => {
-    const initCanvas = (canvasRef) => {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    };
+    drawCrossSection(yearlyGrowths, noiseSeeds, animationProgress);
+    drawZoomView(yearlyGrowths, noiseSeeds, animationProgress);
+  }, [drawCrossSection, drawZoomView, yearlyGrowths, noiseSeeds, animationProgress]);
 
-    initCanvas(crossSectionCanvasRef);
-    initCanvas(zoomCanvasRef);
-    drawAll(yearlyGrowths, noiseSeeds, animationProgress);
-  }, [currentTheme, drawAll, yearlyGrowths, noiseSeeds, animationProgress]);
+  // Growth animation: rings appear over 1.5 s of real time
+  const growLoop = useAnimationLoop((dt) => {
+    animationElapsedRef.current += dt;
+    const progress = Math.min(animationElapsedRef.current / GROW_SECONDS, 1);
+    setAnimationProgress(progress);
+    if (progress >= 1) {
+      setIsGrowing(false);
+      return false;
+    }
+    return true;
+  });
 
   const runSimulation = useCallback(() => {
-    if (minGrowth >= maxGrowth) {
-      alert("Minimum growth must be less than maximum growth");
+    if (growLoop.isRunning()) return; // ignore clicks while growing
+
+    if (minGrowth > maxGrowth) {
+      setInputError("Min must not exceed Max");
       return;
     }
+    setInputError(null);
 
-    setIsGrowing(true);
-    setAnimationProgress(0);
+    const years = Math.max(1, Math.round(numYears));
 
-    // Generate random growths and noise seeds for each year
+    // Generate random growths and ring-boundary noise for each year
     const growths = [];
-    const noiseData = [];
-    for (let i = 0; i < numYears; i++) {
+    const rings = [];
+    for (let i = 0; i < years; i++) {
       let growth;
       if (distributionType === "Uniform") {
         // Uniform random in [min, max]
@@ -363,62 +372,36 @@ const TreeRingSimulatorTool = () => {
         growth = Math.random() < 0.5 ? minGrowth : maxGrowth;
       }
       growths.push(growth);
-      noiseData.push(generateNoiseSeed());
+      rings.push(makeHarmonics(2, 5));
     }
 
     setYearlyGrowths(growths);
-    setNoiseSeeds(noiseData);
+    setNoiseSeeds({ shape: makeHarmonics(1, 4), rings });
 
     const total = growths.reduce((sum, g) => sum + g, 0);
     setTotalGrowth(total);
 
     // Expected value is the same for both distributions: (min + max) / 2 per year
-    const expectedPerYear = (minGrowth + maxGrowth) / 2;
-    const expectedTotal = expectedPerYear * numYears;
+    const expectedTotal = ((minGrowth + maxGrowth) / 2) * years;
 
     // Variance depends on distribution type
-    let variancePerYear;
-    if (distributionType === "Uniform") {
-      // Uniform: variance = (max - min)^2 / 12
-      variancePerYear = Math.pow(maxGrowth - minGrowth, 2) / 12;
-    } else {
-      // Binary (Bernoulli-like): variance = (max - min)^2 / 4
-      variancePerYear = Math.pow(maxGrowth - minGrowth, 2) / 4;
-    }
-    const totalVariance = variancePerYear * numYears;
-    const stdDev = Math.sqrt(totalVariance);
+    const variancePerYear =
+      distributionType === "Uniform"
+        ? Math.pow(maxGrowth - minGrowth, 2) / 12 // Uniform: (max − min)²/12
+        : Math.pow(maxGrowth - minGrowth, 2) / 4; // Binary: (max − min)²/4
+    const stdDev = Math.sqrt(variancePerYear * years);
 
     setStatistics({
       expectedTotal,
       stdDev,
+      z: zScore(total, expectedTotal, stdDev),
     });
 
-    let frame = 0;
-    const totalFrames = 90; // 1.5 seconds
-
-    const animate = () => {
-      frame++;
-      const progress = Math.min(frame / totalFrames, 1);
-      setAnimationProgress(progress);
-      drawAll(growths, noiseData, progress);
-
-      if (frame < totalFrames) {
-        animationRef.current = requestAnimationFrame(animate);
-      } else {
-        setIsGrowing(false);
-      }
-    };
-
-    animationRef.current = requestAnimationFrame(animate);
-  }, [minGrowth, maxGrowth, numYears, distributionType, drawAll]);
-
-  useEffect(() => {
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, []);
+    animationElapsedRef.current = 0;
+    setAnimationProgress(0);
+    setIsGrowing(true);
+    growLoop.start();
+  }, [minGrowth, maxGrowth, numYears, distributionType, growLoop]);
 
   return (
     <ToolContainer
@@ -505,7 +488,17 @@ const TreeRingSimulatorTool = () => {
         align="center"
         theme={theme}
       >
-        {totalGrowth !== null && statistics ? (
+        {inputError ? (
+          <div
+            style={{
+              padding: "8px",
+              fontSize: "12px",
+              color: currentTheme === "dark" ? "#f87171" : "#dc2626",
+            }}
+          >
+            {inputError}
+          </div>
+        ) : totalGrowth !== null && statistics ? (
           <div
             style={{
               padding: "4px 8px",
@@ -516,7 +509,7 @@ const TreeRingSimulatorTool = () => {
               justifyContent: "center",
               alignItems: "center",
               width: "100%",
-              lineHeight: "1.4",
+              lineHeight: "1.3",
             }}
           >
             <div>
@@ -528,6 +521,12 @@ const TreeRingSimulatorTool = () => {
               <span>
                 {statistics.expectedTotal.toFixed(2)} ±{" "}
                 {statistics.stdDev.toFixed(2)} mm
+              </span>
+            </div>
+            <div title="z = (Total − Expected) / SD">
+              <span style={{ fontWeight: "bold" }}>z-score: </span>
+              <span>
+                {statistics.z === null ? "—" : statistics.z.toFixed(2)}
               </span>
             </div>
           </div>
@@ -546,7 +545,6 @@ const TreeRingSimulatorTool = () => {
         type="momentary"
         variant="function"
         onPress={runSimulation}
-        disabled={isGrowing}
         theme={theme}
       >
         <div style={{ textAlign: "center", lineHeight: "1.1" }}>

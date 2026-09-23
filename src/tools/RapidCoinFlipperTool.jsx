@@ -11,11 +11,21 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
+import { uniqueTicks } from "../utils/ticks";
+import {
+  coinWalkFunnel,
+  coinWalkYRange,
+  formatExpected,
+} from "./stochasticToolsMath";
 
-// Precomputed vertical scale values for 90 frames of coin flip animation (3 full rotations)
-const COIN_FLIP_SCALES = Array.from({ length: 90 }, (_, i) => {
-  // 3 full rotations over 90 frames = 3 * 2π radians (slower, 1.5 seconds)
-  const angle = (i / 90) * 3 * 2 * Math.PI;
+// Coin-flip animation: 3 full rotations in 1.5 seconds (90 frames at 60 Hz),
+// timed by real elapsed time so it takes 1.5 s at any refresh rate.
+const FLIP_ANIMATION_SECONDS = 1.5;
+const FLIP_ANIMATION_FRAMES = 90;
+const COIN_FLIP_SCALES = Array.from({ length: FLIP_ANIMATION_FRAMES }, (_, i) => {
+  const angle = (i / FLIP_ANIMATION_FRAMES) * 3 * 2 * Math.PI;
   return Math.abs(Math.cos(angle));
 });
 
@@ -35,12 +45,11 @@ const RapidCoinFlipperTool = () => {
   const [randomWalkData, setRandomWalkData] = useState([]);
   const [statistics, setStatistics] = useState(null);
   const [events, setEvents] = useState(null);
-  const [isFlipping, setIsFlipping] = useState(false);
 
-  // Animation state
+  // Animation state (results are revealed when the animation ends)
   const [isAnimating, setIsAnimating] = useState(false);
   const [animationFrame, setAnimationFrame] = useState(0);
-  const animationRef = useRef(null);
+  const animationElapsedRef = useRef(0);
 
   // Linked probability handler
   const handleProbHeadsChange = useCallback((value) => {
@@ -48,41 +57,31 @@ const RapidCoinFlipperTool = () => {
     setProbHeads(value / 100);
   }, []);
 
-  // Start coin flip animation
-  const startAnimation = useCallback(() => {
-    setIsAnimating(true);
-    setAnimationFrame(0);
-
-    let frame = 0;
-    const animate = () => {
-      frame++;
-      setAnimationFrame(frame);
-
-      if (frame < 90) {
-        animationRef.current = requestAnimationFrame(animate);
-      } else {
-        setIsAnimating(false);
-      }
-    };
-
-    animationRef.current = requestAnimationFrame(animate);
-  }, []);
-
-  // Cleanup animation on unmount
-  useEffect(() => {
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, []);
+  // Coin flip animation loop (single guarded loop; stops itself after 1.5 s)
+  const flipLoop = useAnimationLoop((dt) => {
+    animationElapsedRef.current += dt;
+    const frame = Math.floor(
+      (animationElapsedRef.current / FLIP_ANIMATION_SECONDS) *
+        FLIP_ANIMATION_FRAMES,
+    );
+    if (frame >= FLIP_ANIMATION_FRAMES) {
+      setIsAnimating(false);
+      return false;
+    }
+    setAnimationFrame(frame);
+    return true;
+  });
 
   // Run simulation
   const runSimulation = useCallback(() => {
-    setIsFlipping(true);
+    // Ignore clicks while the previous flip is still animating
+    if (flipLoop.isRunning()) return;
 
     // Start the coin flip animation
-    startAnimation();
+    animationElapsedRef.current = 0;
+    setAnimationFrame(0);
+    setIsAnimating(true);
+    flipLoop.start();
 
     // Generate random flips
     const flips = [];
@@ -114,6 +113,8 @@ const RapidCoinFlipperTool = () => {
     const stdDev = 2 * Math.sqrt(variance); // Factor of 2 for difference of two binomials
 
     setStatistics({
+      n: numFlips, // parameters used for this run (#158)
+      p: probHeads,
       numHeads,
       numTails,
       observedDiff,
@@ -168,124 +169,112 @@ const RapidCoinFlipperTool = () => {
       longestTStart, // 0-indexed
       longestTEnd: longestTStart >= 0 ? longestTStart + longestT - 1 : -1, // 0-indexed
     });
+  }, [probHeads, numFlips, flipLoop]);
 
-    setTimeout(() => setIsFlipping(false), 500);
-  }, [probHeads, numFlips, startAnimation]);
+  // Results are shown once the flip animation has finished
+  const showResults = statistics !== null && !isAnimating;
 
-  // Calculate dynamic y-range for random walk graph
-  const getYRange = useCallback(() => {
-    if (!statistics) {
-      // Before first simulation, use default range
-      return [-10, 10];
-    }
+  // The graph is drawn for the N and p used in the run (not the live inputs)
+  const plotN = statistics ? statistics.n : numFlips;
 
+  // Y-range: contains 0, the whole ±3σ funnel, and the walk itself
+  const yRange = statistics
+    ? coinWalkYRange(
+        statistics.n,
+        statistics.p,
+        randomWalkData.map((d) => d.diff),
+      )
+    : [-10, 10];
+
+  // Left y-axis ticks: 0 and the expected final difference (no duplicates)
+  const leftYTicks = statistics
+    ? uniqueTicks([0, Math.round(statistics.expectedDiff)].sort((a, b) => a - b))
+    : [0];
+
+  // Right y-axis: μ and μ ± 1σ, 2σ, 3σ at the final flip (where the funnel ends).
+  // When σ = 0 (Prob = 0 or 1) only μ is shown.
+  const rightYTickPairs = (() => {
+    if (!statistics) return [];
     const exp = statistics.expectedDiff;
     const std = statistics.stdDev;
-
-    // Find min/max of {0, exp - 3σ, exp + 3σ}
-    const candidates = [0, exp - 3 * std, exp + 3 * std];
-    const minVal = Math.min(...candidates);
-    const maxVal = Math.max(...candidates);
-
-    // Add 10% padding
-    const range = maxVal - minVal;
-    const padding = range * 0.1;
-
-    return [minVal - padding, maxVal + padding];
-  }, [statistics]);
-
-  // Calculate left y-axis ticks (0 and expected difference)
-  const getLeftYTicks = useCallback(() => {
-    if (!statistics) return [0];
-    return [0, Math.round(statistics.expectedDiff)].sort((a, b) => a - b);
-  }, [statistics]);
-
-  // Calculate right y-axis tick positions (expected ± 1σ, 2σ, 3σ)
-  const getRightYTicks = useCallback(() => {
-    if (!statistics) return [0];
-    const exp = statistics.expectedDiff;
-    const std = statistics.stdDev;
-    // Return the actual numeric positions for the ticks
+    if (!(std > 0)) return [{ value: exp, label: "μ" }];
     return [
-      exp - 3 * std,
-      exp - 2 * std,
-      exp - std,
-      exp,
-      exp + std,
-      exp + 2 * std,
-      exp + 3 * std,
+      { value: exp - 3 * std, label: "-3σ" },
+      { value: exp - 2 * std, label: "-2σ" },
+      { value: exp - std, label: "-1σ" },
+      { value: exp, label: "μ" },
+      { value: exp + std, label: "+1σ" },
+      { value: exp + 2 * std, label: "+2σ" },
+      { value: exp + 3 * std, label: "+3σ" },
     ];
-  }, [statistics]);
+  })();
 
-  // Format right y-axis tick labels (μ, ±1σ, ±2σ, ±3σ)
-  const getRightYTickLabels = useCallback(() => {
-    if (!statistics) return ["0"];
-    return ["-3σ", "-2σ", "-1σ", "μ", "+1σ", "+2σ", "+3σ"];
-  }, [statistics]);
+  // X ticks at quarters of N, without duplicates for small N
+  const xTicks = uniqueTicks([
+    0,
+    Math.floor(plotN / 4),
+    Math.floor(plotN / 2),
+    Math.floor((3 * plotN) / 4),
+    plotN,
+  ]);
 
   // Draw random walk on canvas
   const drawRandomWalk = useCallback(() => {
     const canvas = canvasRef.current;
     const transform = transformRef.current;
-    if (!canvas || !transform || randomWalkData.length === 0) return;
+    if (!canvas || !transform) return;
 
-    const ctx = canvas.getContext("2d");
     const { dataToPixelLeft, plotWidth, plotHeight } = transform;
+    const { ctx } = setupCanvas(canvas, {
+      width: plotWidth,
+      height: plotHeight,
+    });
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Nothing to draw before the first run or while the coins are flipping
+    if (!showResults || randomWalkData.length === 0) return;
 
-    // Draw sigma lines if we have statistics
-    if (statistics) {
-      const exp = statistics.expectedDiff;
-      const std = statistics.stdDev;
-
-      // Draw expectation line (gray)
-      ctx.strokeStyle = currentTheme === "dark" ? "#888888" : "#666666";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([5, 5]);
-      const expLeft = dataToPixelLeft(0, exp);
-      const expRight = dataToPixelLeft(numFlips, exp);
+    // Draw the expectation line and the ±kσ funnel for the run's N and p:
+    // n(2p−1) ± k·2√(np(1−p)) after n flips
+    const strokeCurve = (points) => {
       ctx.beginPath();
-      ctx.moveTo(expLeft.x, expLeft.y);
-      ctx.lineTo(expRight.x, expRight.y);
+      points.forEach((pt, i) => {
+        const pos = dataToPixelLeft(pt.n, pt.y);
+        if (i === 0) ctx.moveTo(pos.x, pos.y);
+        else ctx.lineTo(pos.x, pos.y);
+      });
       ctx.stroke();
+    };
 
-      // Draw positive sigma lines (faded green)
-      [1, 2, 3].forEach((sigma) => {
-        const opacity = 0.6 - sigma * 0.15; // Fade more for higher sigma
+    const { n: runN, p: runP } = statistics;
+
+    // Expectation line (gray)
+    ctx.strokeStyle = currentTheme === "dark" ? "#888888" : "#666666";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    strokeCurve(coinWalkFunnel(runN, runP, 0));
+
+    if (statistics.stdDev > 0) {
+      [1, 2, 3].forEach((k) => {
+        const opacity = 0.6 - k * 0.15; // Fade more for higher k
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        // +kσ (faded green)
         ctx.strokeStyle =
           currentTheme === "dark"
             ? `rgba(74, 222, 128, ${opacity})`
             : `rgba(34, 197, 94, ${opacity})`;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([3, 3]);
-        const left = dataToPixelLeft(0, exp + sigma * std);
-        const right = dataToPixelLeft(numFlips, exp + sigma * std);
-        ctx.beginPath();
-        ctx.moveTo(left.x, left.y);
-        ctx.lineTo(right.x, right.y);
-        ctx.stroke();
-      });
-
-      // Draw negative sigma lines (faded red)
-      [1, 2, 3].forEach((sigma) => {
-        const opacity = 0.6 - sigma * 0.15; // Fade more for higher sigma
+        strokeCurve(coinWalkFunnel(runN, runP, k));
+        // −kσ (faded red)
         ctx.strokeStyle =
           currentTheme === "dark"
             ? `rgba(248, 113, 113, ${opacity})`
             : `rgba(239, 68, 68, ${opacity})`;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([3, 3]);
-        const left = dataToPixelLeft(0, exp - sigma * std);
-        const right = dataToPixelLeft(numFlips, exp - sigma * std);
-        ctx.beginPath();
-        ctx.moveTo(left.x, left.y);
-        ctx.lineTo(right.x, right.y);
-        ctx.stroke();
+        strokeCurve(coinWalkFunnel(runN, runP, -k));
       });
-
-      ctx.setLineDash([]);
     }
+
+    ctx.setLineDash([]);
 
     // Draw random walk path
     ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
@@ -313,36 +302,13 @@ const RapidCoinFlipperTool = () => {
       ctx.arc(pos.x, pos.y, 4, 0, 2 * Math.PI);
       ctx.fill();
     }
-  }, [randomWalkData, numFlips, currentTheme, statistics]);
+  }, [randomWalkData, currentTheme, statistics, showResults]);
 
-  // Update canvas when data changes
+  // Redraw after every render: the plot area can change size when the
+  // tick labels change, and the draw is cheap (at most 200 points).
   useEffect(() => {
-    if (randomWalkData.length > 0) {
-      drawRandomWalk();
-    }
-  }, [randomWalkData, drawRandomWalk]);
-
-  // Format flip sequence for display (groups of 5, lines of 50)
-  const formatFlipSequence = useCallback(() => {
-    if (flipSequence.length === 0) return "";
-
-    let formatted = "";
-    for (let i = 0; i < flipSequence.length; i++) {
-      formatted += flipSequence[i];
-
-      // Space every 5 characters
-      if ((i + 1) % 5 === 0 && (i + 1) % 50 !== 0) {
-        formatted += " ";
-      }
-
-      // New line every 50 characters
-      if ((i + 1) % 50 === 0 && i + 1 < flipSequence.length) {
-        formatted += "\n";
-      }
-    }
-
-    return formatted;
-  }, [flipSequence]);
+    drawRandomWalk();
+  });
 
   const probTails = 1 - probHeads;
 
@@ -381,7 +347,7 @@ const RapidCoinFlipperTool = () => {
                 justifyContent: "center",
               }}
             >
-              {Array.from({ length: Math.min(numFlips, 200) }, (_, i) => {
+              {Array.from({ length: flipSequence.length }, (_, i) => {
                 const row = Math.floor(i / 25);
                 const posInRow = i % 25;
                 const groupOf5 = Math.floor(posInRow / 5);
@@ -531,10 +497,9 @@ const RapidCoinFlipperTool = () => {
         type="momentary"
         variant="function"
         onPress={runSimulation}
-        disabled={isFlipping}
         theme={theme}
       >
-        {isFlipping ? "..." : "Flip!"}
+        {isAnimating ? "..." : "Flip!"}
       </GridButton>
 
       {/* P(Heads) horizontal slider at (6,1) - 3x1 */}
@@ -572,19 +537,13 @@ const RapidCoinFlipperTool = () => {
         xLabel="Flip Number"
         yLabelLeft="Difference"
         yLabelRight=""
-        xRange={[0, numFlips]}
-        yRangeLeft={getYRange()}
-        yRangeRight={getYRange()}
-        xTicks={[
-          0,
-          Math.floor(numFlips / 4),
-          Math.floor(numFlips / 2),
-          Math.floor((3 * numFlips) / 4),
-          numFlips,
-        ]}
-        yTicksLeft={getLeftYTicks()}
-        yTicksRight={getRightYTicks()}
-        yTickLabelsRight={getRightYTickLabels()}
+        xRange={[0, plotN]}
+        yRangeLeft={yRange}
+        yRangeRight={yRange}
+        xTicks={xTicks}
+        yTicksLeft={leftYTicks}
+        yTicksRight={rightYTickPairs.map((t) => t.value)}
+        yTickLabelsRight={rightYTickPairs.map((t) => t.label)}
         leftAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
         rightAxisColor={currentTheme === "dark" ? "#ffffff" : "#000000"}
         theme={theme}
@@ -597,8 +556,6 @@ const RapidCoinFlipperTool = () => {
               ref={canvasRef}
               className="absolute pointer-events-none"
               style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
@@ -614,7 +571,7 @@ const RapidCoinFlipperTool = () => {
         align="center"
         theme={theme}
       >
-        {statistics ? (
+        {showResults ? (
           <div
             style={{
               padding: "8px 6px",
@@ -693,7 +650,7 @@ const RapidCoinFlipperTool = () => {
                     Heads
                   </td>
                   <td style={{ textAlign: "center", padding: "2px 4px" }}>
-                    {statistics.expectedHeads.toFixed(0)} ±{" "}
+                    {formatExpected(statistics.expectedHeads)} ±{" "}
                     {(statistics.stdDev / 2).toFixed(1)}
                   </td>
                   <td style={{ textAlign: "right", padding: "2px 4px" }}>
@@ -705,7 +662,7 @@ const RapidCoinFlipperTool = () => {
                     Tails
                   </td>
                   <td style={{ textAlign: "center", padding: "2px 4px" }}>
-                    {statistics.expectedTails.toFixed(0)} ±{" "}
+                    {formatExpected(statistics.expectedTails)} ±{" "}
                     {(statistics.stdDev / 2).toFixed(1)}
                   </td>
                   <td style={{ textAlign: "right", padding: "2px 4px" }}>
@@ -717,7 +674,7 @@ const RapidCoinFlipperTool = () => {
                     Difference
                   </td>
                   <td style={{ textAlign: "center", padding: "2px 4px" }}>
-                    {statistics.expectedDiff.toFixed(0)} ±{" "}
+                    {formatExpected(statistics.expectedDiff)} ±{" "}
                     {statistics.stdDev.toFixed(1)}
                   </td>
                   <td style={{ textAlign: "right", padding: "2px 4px" }}>
@@ -748,7 +705,7 @@ const RapidCoinFlipperTool = () => {
           <div
             style={{ padding: "12px", fontSize: "14px", textAlign: "center" }}
           >
-            Click "Flip!" to simulate
+            {isAnimating ? "Flipping..." : 'Click "Flip!" to simulate'}
           </div>
         )}
       </GridDisplay>
@@ -774,7 +731,7 @@ const RapidCoinFlipperTool = () => {
             justifyContent: "center",
           }}
         >
-          {events ? (
+          {events && !isAnimating ? (
             <div
               style={{
                 display: "flex",
@@ -832,7 +789,7 @@ const RapidCoinFlipperTool = () => {
             </div>
           ) : (
             <div style={{ opacity: 0.6 }}>
-              Events will appear after flipping
+              {isAnimating ? "Flipping..." : "Events will appear after flipping"}
             </div>
           )}
         </div>
