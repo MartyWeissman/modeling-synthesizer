@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from "react";
 import GridComponent from "./GridComponent";
+import { useThemeMode, noiseBackgroundSize } from "./themeMode";
 import { LIGHT_NOISE_TEXTURE, DARK_NOISE_TEXTURE } from "../../themes/textures";
 
 const GridSound = ({
@@ -20,8 +21,7 @@ const GridSound = ({
   const [isEnabled, setIsEnabled] = useState(initialEnabled);
 
   // Determine theme and texture
-  const isDarkMode = theme.component.includes("gray-700");
-  const isUnicornMode = theme.text.includes("purple-800");
+  const { isDarkMode, isUnicornMode } = useThemeMode(theme);
   const currentTexture = isDarkMode ? DARK_NOISE_TEXTURE : LIGHT_NOISE_TEXTURE;
 
   // Notify parent of changes
@@ -47,7 +47,7 @@ const GridSound = ({
         background: isUnicornMode
           ? `linear-gradient(135deg, rgba(255,255,255,0.99) 0%, rgba(251,207,232,0.15) 50%, rgba(196,181,253,0.15) 100%), url(${currentTexture})`
           : `url(${currentTexture})`,
-        backgroundSize: "cover, 64px 64px",
+        backgroundSize: noiseBackgroundSize(isUnicornMode),
         boxShadow: isUnicornMode
           ? `
             inset 0 1px 0 0 rgba(255,255,255,0.3),
@@ -74,7 +74,7 @@ const GridSound = ({
           background: isUnicornMode
             ? `linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(251,207,232,0.3) 50%, rgba(196,181,253,0.3) 100%), url(${currentTexture})`
             : `url(${currentTexture})`,
-          backgroundSize: "cover, 64px 64px",
+          backgroundSize: noiseBackgroundSize(isUnicornMode),
         }}
       >
         {/* Concave speaker (75% of component size) */}
@@ -168,7 +168,7 @@ const GridSound = ({
                 isUnicornMode
                 ? `linear-gradient(135deg, rgba(255,255,255,0.7) 0%, rgba(243,232,255,0.6) 100%), url(${currentTexture})`
                 : `url(${currentTexture})`,
-            backgroundSize: "cover, 64px 64px",
+            backgroundSize: noiseBackgroundSize(isEnabled || isUnicornMode),
             boxShadow: isEnabled
               ? // Glowing and pressed-in when ON
                 isDarkMode
