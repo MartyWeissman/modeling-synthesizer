@@ -2,74 +2,78 @@
 
 ## Overview
 
-This study aide helps you develop fluency in translating between two fundamental representations of dynamical systems: trajectory plots (phase portraits) and time series plots. Understanding the relationship between these views is essential for interpreting population dynamics and other two-variable systems.
+This study aide helps you translate between two ways of picturing a two-variable system: the trajectory in state space and the time series. Being able to go back and forth between these views is essential for understanding population dynamics and other two-variable models.
 
 ## How It Works
 
-The tool generates random two-species population scenarios with three trajectory types:
-- **Linear**: Populations change at constant rates (ascending or descending line)
-- **Circular**: Populations cycle in a closed loop (predator-prey oscillations)
-- **Spiral**: Populations oscillate with changing amplitude (damped or growing oscillations)
+Each time you click **New Plots**, the tool makes up a random two-species example, with one of three kinds of trajectory:
+- **Line**: Both populations change at constant rates, so the trajectory is a straight line.
+- **Circle**: The populations cycle, going once around a closed loop (like predator–prey oscillations).
+- **Spiral**: The populations oscillate with a growing or shrinking amplitude, going around twice.
+
+The direction is random too: a line can run left or right, and circles and spirals can turn clockwise or counterclockwise.
 
 ## The Two Representations
 
-### Trajectory Plot (Phase Portrait)
-Shows how two populations relate to each other at each moment in time.
-- **X-axis**: Population of species 1 (e.g., sharks)
-- **Y-axis**: Population of species 2 (e.g., tuna)
-- **Green curve**: Path traced by the system over time
-- **Dark dot**: Starting point (t=0)
+### Trajectory Plot (State Space)
+Shows how the two populations relate to each other at each moment.
+- **Horizontal axis**: Population of species 1 (e.g., sharks)
+- **Vertical axis**: Population of species 2 (e.g., tuna)
+- **Green curve**: The path of the system over time
+- **Dots**: The state at times t = 0, 1, 2, …, 10
+- **Ring**: The starting point (t = 0)
 
-Time is implicit - the curve shows the sequence of states, not when they occur.
+Time is not shown directly: the curve shows the order of the states, and the spacing of the dots shows the speed. Widely spaced dots mean the state is changing quickly; closely spaced dots mean it is changing slowly.
 
 ### Time Series Plot
-Shows how each population changes over time.
-- **X-axis**: Time (0-10 units)
-- **Y-axis**: Population size
-- **Blue line**: Species 1 population vs time
-- **Red line**: Species 2 population vs time
-- **Dots**: Starting points (t=0)
+Shows each population against time.
+- **Horizontal axis**: Time, from 0 to 10
+- **Vertical axis**: Population size
+- **Solid blue line**: Species 1
+- **Dashed red line**: Species 2
+- **Dots**: Values at t = 0, 1, 2, …, 10
+- **Rings**: Starting values (t = 0)
 
-The relationship between species is implicit - you see each individually.
+Here the relationship between the two species is not shown directly: you see each one separately.
 
 ## Practice Method
 
-1. Click "New Plots" to generate a random scenario
-2. Show both plots first to understand the relationship
-3. Hide one plot and try to sketch it from the other
-4. Reveal to check your answer
-5. Repeat with new problems
+1. Show both plots and work out how they are related.
+2. Click **New Plots**, then show only one of the plots.
+3. Sketch the other plot on paper.
+4. Click **Show** to check your answer.
+5. Repeat with new plots.
 
 ## Key Insights to Develop
 
 ### Trajectory → Time Series
-- **Horizontal movement**: Species 1 changing while species 2 is constant
-- **Vertical movement**: Species 2 changing while species 1 is constant
-- **Circular trajectory**: Both time series are sinusoidal with a phase shift
-- **Steep sections**: Rapid change in one or both populations
+- **Moving right**: Species 1 is increasing. **Moving left**: species 1 is decreasing.
+- **Moving up**: Species 2 is increasing. **Moving down**: species 2 is decreasing.
+- **Horizontal movement**: Species 1 is changing while species 2 stays constant.
+- **Vertical movement**: Species 2 is changing while species 1 stays constant.
+- **Circular trajectory**: Both time series are waves with the same period, shifted by about a quarter of a period.
+- **Spacing of the dots**: Far apart means the populations are changing quickly (steep time series); close together means slowly (flat time series).
 
 ### Time Series → Trajectory
-- **Both increasing/decreasing**: Trajectory moves diagonally
-- **One up, one down**: Trajectory moves horizontally or vertically
-- **Oscillations in sync**: Circular or spiral trajectory
-- **One constant, one changing**: Horizontal or vertical section
+- **Both increasing, or both decreasing**: The trajectory moves diagonally up-right or down-left.
+- **One increasing, the other decreasing**: The trajectory also moves diagonally, but up-left or down-right.
+- **One constant, one changing**: The trajectory moves horizontally or vertically.
+- **Oscillations exactly in step** (peaks at the same time): The trajectory goes back and forth along a line.
+- **Oscillations shifted by a quarter period**: The trajectory goes around a circle or ellipse.
 
 ## Pattern Recognition
 
-### Linear Trajectory (Diagonal Line)
-- Time series: Both are linear (straight lines)
-- If trajectory goes up-right: both populations increasing
-- If trajectory goes down-right: species 1 up, species 2 down
+### Line Trajectory
+- Time series: both are straight lines.
+- Trajectory going up and to the right: both populations increasing.
+- Trajectory going down and to the right: species 1 increasing, species 2 decreasing.
 
 ### Circular Trajectory
-- Time series: Both are sinusoidal (wave-like)
-- The peaks of one species correspond to middle values of the other
-- Classic predator-prey oscillation pattern
+- Time series: both are waves.
+- When one species is at its peak, the other is at its middle value.
+- The direction around the circle (clockwise or counterclockwise) tells you which species peaks first.
 
 ### Spiral Trajectory
-- Time series: Oscillations with changing amplitude
-- Outward spiral: growing oscillations
-- Inward spiral: damped oscillations approaching equilibrium
-
-## References
-
+- Time series: waves with a changing amplitude.
+- Outward spiral: growing oscillations.
+- Inward spiral: shrinking (damped) oscillations, approaching an equilibrium.

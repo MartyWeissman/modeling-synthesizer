@@ -7,9 +7,98 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { setupCanvas } from "../utils/canvas";
+
+const ANIMALS = [
+  "sharks",
+  "tuna",
+  "rabbits",
+  "foxes",
+  "lions",
+  "zebras",
+  "wolves",
+  "deer",
+  "owls",
+  "mice",
+  "hawks",
+  "sparrows",
+  "cats",
+];
+const T_MAX = 10; // time runs from 0 to 10
+const SAMPLES_PER_UNIT = 20; // smooth curves: 201 samples, every 20th at an integer time
+
+const getRandomElement = (array) =>
+  array[Math.floor(Math.random() * array.length)];
+const randomInRange = (min, max) => Math.random() * (max - min) + min;
+const randomSign = () => (Math.random() < 0.5 ? -1 : 1);
+
+/**
+ * A random trajectory: a straight line, a circle (one full turn), or a
+ * spiral (two turns, inward or outward), traversed in a random direction.
+ * Returns {animal1, animal2, points: [{t, x, y}], markers: [{t, x, y}]}
+ * where markers are the points at t = 0, 1, ..., 10.
+ */
+const generateTrajectory = () => {
+  const animal1 = getRandomElement(ANIMALS);
+  let animal2 = getRandomElement(ANIMALS);
+  while (animal2 === animal1) animal2 = getRandomElement(ANIMALS);
+
+  const type = Math.floor(Math.random() * 3); // 0: line, 1: circle, 2: spiral
+  let position; // s in [0, 1] -> {x, y}
+
+  if (type === 0) {
+    // Line: rising or falling, traversed left-to-right or right-to-left
+    const low = () => randomInRange(10, 30);
+    const high = () => randomInRange(70, 90);
+    const leftToRight = Math.random() < 0.5;
+    const rising = Math.random() < 0.5; // as seen left to right
+    let x0 = low();
+    let x1 = high();
+    let y0 = rising ? low() : high();
+    let y1 = rising ? high() : low();
+    if (!leftToRight) {
+      [x0, x1] = [x1, x0];
+      [y0, y1] = [y1, y0];
+    }
+    position = (s) => ({ x: x0 + (x1 - x0) * s, y: y0 + (y1 - y0) * s });
+  } else if (type === 1) {
+    // Circle: one full turn, clockwise or counterclockwise
+    const radius = randomInRange(25, 35);
+    const startAngle = randomInRange(0, 2 * Math.PI);
+    const direction = randomSign();
+    position = (s) => {
+      const angle = startAngle + direction * 2 * Math.PI * s;
+      return { x: 50 + radius * Math.cos(angle), y: 50 + radius * Math.sin(angle) };
+    };
+  } else {
+    // Spiral: two turns, inward or outward, clockwise or counterclockwise
+    const innerRadius = randomInRange(5, 15);
+    const outerRadius = randomInRange(35, 45);
+    const outward = Math.random() < 0.5;
+    const startAngle = randomInRange(0, 2 * Math.PI);
+    const direction = randomSign();
+    position = (s) => {
+      const radius = outward
+        ? innerRadius + (outerRadius - innerRadius) * s
+        : outerRadius - (outerRadius - innerRadius) * s;
+      const angle = startAngle + direction * 4 * Math.PI * s;
+      return { x: 50 + radius * Math.cos(angle), y: 50 + radius * Math.sin(angle) };
+    };
+  }
+
+  const n = T_MAX * SAMPLES_PER_UNIT;
+  const points = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / SAMPLES_PER_UNIT;
+    points.push({ t, ...position(t / T_MAX) });
+  }
+  const markers = points.filter((_, i) => i % SAMPLES_PER_UNIT === 0);
+  return { animal1, animal2, points, markers };
+};
 
 const TrajectoryTimeSeriesPracticeTool = () => {
   const { theme, currentTheme } = useTheme();
+  const dark = currentTheme === "dark";
 
   // Canvas refs
   const trajectoryCanvasRef = useRef(null);
@@ -17,257 +106,111 @@ const TrajectoryTimeSeriesPracticeTool = () => {
   const trajectoryTransformRef = useRef(null);
   const timeSeriesTransformRef = useRef(null);
 
-  // State for show/hide toggles
+  // State for show/hide toggles (the first problem is created right away)
   const [showTrajectory, setShowTrajectory] = useState(false);
   const [showTimeSeries, setShowTimeSeries] = useState(false);
-  const [currentProblem, setCurrentProblem] = useState(null);
+  const [currentProblem, setCurrentProblem] = useState(() =>
+    generateTrajectory(),
+  );
 
-  // Random helpers
-  const getRandomElement = (array) =>
-    array[Math.floor(Math.random() * array.length)];
-  const randomInRange = (min, max) => Math.random() * (max - min) + min;
+  // Colors: trajectory green; animal 1 blue (solid), animal 2 red (dashed);
+  // the start (t = 0) is a ring in the text color on every plot.
+  const trajectoryColor = dark ? "#22c55e" : "#16a34a";
+  const color1 = dark ? "#60a5fa" : "#2563eb";
+  const color2 = dark ? "#f87171" : "#dc2626";
+  const startColor = dark ? "#ffffff" : "#000000";
+  const DASH2 = [6, 4];
 
-  // Generate trajectory data
-  const generateTrajectory = useCallback(() => {
-    const animals = [
-      "sharks",
-      "tuna",
-      "rabbits",
-      "foxes",
-      "lions",
-      "zebras",
-      "wolves",
-      "deer",
-      "owls",
-      "mice",
-      "hawks",
-      "sparrows",
-      "cats",
-    ];
-
-    const animal1 = getRandomElement(animals);
-    let animal2 = getRandomElement(animals);
-    while (animal2 === animal1) {
-      animal2 = getRandomElement(animals);
-    }
-
-    const trajectoryType = Math.floor(Math.random() * 3); // 0: line, 1: circle, 2: spiral
-    const numPoints = 11; // 11 points for times t=0,1,2,...,10
-    const points = [];
-
-    if (trajectoryType === 0) {
-      // Ascending or descending line
-      const isAscending = Math.random() > 0.5;
-      const startX = randomInRange(10, 30);
-      const startY = isAscending
-        ? randomInRange(10, 30)
-        : randomInRange(70, 90);
-      const endX = randomInRange(70, 90);
-      const endY = isAscending ? randomInRange(70, 90) : randomInRange(10, 30);
-
-      for (let i = 0; i < numPoints; i++) {
-        const t = i / (numPoints - 1);
-        const x = startX + (endX - startX) * t + randomInRange(-2, 2);
-        const y = startY + (endY - startY) * t + randomInRange(-2, 2);
-        points.push({ x, y, t: i });
-      }
-    } else if (trajectoryType === 1) {
-      // Circle
-      const centerX = 50;
-      const centerY = 50;
-      const radius = randomInRange(25, 35);
-      const startAngle = randomInRange(0, 2 * Math.PI);
-
-      for (let i = 0; i < numPoints; i++) {
-        const angle = startAngle + (i / numPoints) * 2 * Math.PI;
-        const x = centerX + radius * Math.cos(angle) + randomInRange(-1, 1);
-        const y = centerY + radius * Math.sin(angle) + randomInRange(-1, 1);
-        points.push({ x, y, t: i });
-      }
-    } else {
-      // Spiral
-      const centerX = 50;
-      const centerY = 50;
-      const startRadius = randomInRange(5, 15);
-      const endRadius = randomInRange(35, 45);
-      const startAngle = randomInRange(0, 2 * Math.PI);
-      const spiralDirection = Math.random() > 0.5 ? 1 : -1; // inward or outward
-
-      for (let i = 0; i < numPoints; i++) {
-        const t = i / (numPoints - 1);
-        const radius =
-          spiralDirection > 0
-            ? startRadius + (endRadius - startRadius) * t
-            : endRadius - (endRadius - startRadius) * t;
-        const angle = startAngle + (i / numPoints) * 4 * Math.PI;
-        const x = centerX + radius * Math.cos(angle) + randomInRange(-1, 1);
-        const y = centerY + radius * Math.sin(angle) + randomInRange(-1, 1);
-        points.push({ x, y, t: i });
-      }
-    }
-
-    return { animal1, animal2, points };
-  }, []);
-
-  // Generate new problem
   const generateNewProblem = useCallback(() => {
-    // Reset reveals
     setShowTrajectory(false);
     setShowTimeSeries(false);
+    setCurrentProblem(generateTrajectory());
+  }, []);
 
-    const trajectory = generateTrajectory();
-    setCurrentProblem(trajectory);
-  }, [generateTrajectory]);
-
-  // Draw trajectory plot
-  const drawTrajectory = useCallback(() => {
-    const canvas = trajectoryCanvasRef.current;
-    const transform = trajectoryTransformRef.current;
-    if (!canvas || !transform || !currentProblem) return;
-
-    const ctx = canvas.getContext("2d");
-    const { dataToPixel } = transform;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (!showTrajectory) return;
-
-    // Draw trajectory in green
-    ctx.strokeStyle = currentTheme === "dark" ? "#22c55e" : "#16a34a";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-
-    currentProblem.points.forEach((point, index) => {
-      const pos = dataToPixel(point.x, point.y);
-
-      if (index === 0) {
-        ctx.moveTo(pos.x, pos.y);
-      } else {
-        ctx.lineTo(pos.x, pos.y);
-      }
-    });
-
-    ctx.stroke();
-
-    // Draw start point (darker green)
-    const startPoint = currentProblem.points[0];
-    const startPos = dataToPixel(startPoint.x, startPoint.y);
-    ctx.fillStyle = currentTheme === "dark" ? "#15803d" : "#14532d";
-    ctx.beginPath();
-    ctx.arc(startPos.x, startPos.y, 5, 0, 2 * Math.PI);
-    ctx.fill();
-  }, [currentProblem, showTrajectory, currentTheme]);
-
-  // Draw time series plot
-  const drawTimeSeries = useCallback(() => {
-    const canvas = timeSeriesCanvasRef.current;
-    const transform = timeSeriesTransformRef.current;
-    if (!canvas || !transform || !currentProblem) return;
-
-    const ctx = canvas.getContext("2d");
-    const { dataToPixel } = transform;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (!showTimeSeries) return;
-
-    // Draw both time series (x and y vs time)
-    const colors = [
-      currentTheme === "dark" ? "#60a5fa" : "#2563eb", // animal1 (x)
-      currentTheme === "dark" ? "#f87171" : "#dc2626", // animal2 (y)
-    ];
-
-    // Draw animal1 (x coordinate vs time)
-    ctx.strokeStyle = colors[0];
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-
-    currentProblem.points.forEach((point, index) => {
-      const pos = dataToPixel(point.t, point.x);
-
-      if (index === 0) {
-        ctx.moveTo(pos.x, pos.y);
-      } else {
-        ctx.lineTo(pos.x, pos.y);
-      }
-    });
-
-    ctx.stroke();
-
-    // Draw animal2 (y coordinate vs time)
-    ctx.strokeStyle = colors[1];
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-
-    currentProblem.points.forEach((point, index) => {
-      const pos = dataToPixel(point.t, point.y);
-
-      if (index === 0) {
-        ctx.moveTo(pos.x, pos.y);
-      } else {
-        ctx.lineTo(pos.x, pos.y);
-      }
-    });
-
-    ctx.stroke();
-
-    // Draw start markers at t=0 for both series
-    if (currentProblem.points.length > 0) {
-      const startPoint = currentProblem.points[0];
-
-      // Animal1 start marker (blue)
-      const pos1 = dataToPixel(0, startPoint.x);
-      ctx.fillStyle = colors[0];
+  // Small dots at integer times, and a ring at t = 0
+  const drawMarkers = (ctx, positions, color) => {
+    ctx.fillStyle = color;
+    positions.forEach((pos) => {
       ctx.beginPath();
-      ctx.arc(pos1.x, pos1.y, 5, 0, 2 * Math.PI);
+      ctx.arc(pos.x, pos.y, 3, 0, 2 * Math.PI);
       ctx.fill();
+    });
+    const start = positions[0];
+    ctx.strokeStyle = startColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(start.x, start.y, 6, 0, 2 * Math.PI);
+    ctx.stroke();
+  };
 
-      // Animal2 start marker (red)
-      const pos2 = dataToPixel(0, startPoint.y);
-      ctx.fillStyle = colors[1];
-      ctx.beginPath();
-      ctx.arc(pos2.x, pos2.y, 5, 0, 2 * Math.PI);
-      ctx.fill();
-    }
-  }, [currentProblem, showTimeSeries, currentTheme]);
+  const drawCurve = (ctx, pixels, color, dash = []) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash(dash);
+    ctx.beginPath();
+    pixels.forEach((pos, index) => {
+      if (index === 0) ctx.moveTo(pos.x, pos.y);
+      else ctx.lineTo(pos.x, pos.y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+  };
 
-  // Redraw when visibility or problem changes
+  const prepare = (canvasRef, transformRef) => {
+    const transform = transformRef.current;
+    if (!transform) return null;
+    const setup = setupCanvas(canvasRef.current, {
+      width: transform.plotWidth,
+      height: transform.plotHeight,
+    });
+    if (!setup) return null;
+    setup.ctx.clearRect(0, 0, setup.width, setup.height);
+    return { ctx: setup.ctx, dataToPixel: transform.dataToPixel };
+  };
+
+  // Draw both plots after every render (cheap; also follows size changes)
   useEffect(() => {
-    drawTrajectory();
-  }, [drawTrajectory]);
-
-  useEffect(() => {
-    drawTimeSeries();
-  }, [drawTimeSeries]);
-
-  // Generate initial problem on mount
-  React.useEffect(() => {
-    if (!currentProblem) {
-      generateNewProblem();
+    const traj = prepare(trajectoryCanvasRef, trajectoryTransformRef);
+    if (traj && showTrajectory) {
+      const { ctx, dataToPixel } = traj;
+      drawCurve(
+        ctx,
+        currentProblem.points.map((p) => dataToPixel(p.x, p.y)),
+        trajectoryColor,
+      );
+      drawMarkers(
+        ctx,
+        currentProblem.markers.map((p) => dataToPixel(p.x, p.y)),
+        trajectoryColor,
+      );
     }
-  }, [currentProblem, generateNewProblem]);
 
-  if (!currentProblem) {
-    return (
-      <ToolContainer
-        title="Trajectory & Time Series Practice"
-        canvasWidth={11}
-        canvasHeight={7}
-      >
-        <GridDisplay
-          x={0}
-          y={0}
-          w={6}
-          h={1}
-          variant="info"
-          fontSize="large"
-          theme={theme}
-        >
-          Loading...
-        </GridDisplay>
-      </ToolContainer>
-    );
-  }
+    const ts = prepare(timeSeriesCanvasRef, timeSeriesTransformRef);
+    if (ts && showTimeSeries) {
+      const { ctx, dataToPixel } = ts;
+      drawCurve(
+        ctx,
+        currentProblem.points.map((p) => dataToPixel(p.t, p.x)),
+        color1,
+      );
+      drawCurve(
+        ctx,
+        currentProblem.points.map((p) => dataToPixel(p.t, p.y)),
+        color2,
+        DASH2,
+      );
+      drawMarkers(
+        ctx,
+        currentProblem.markers.map((p) => dataToPixel(p.t, p.x)),
+        color1,
+      );
+      drawMarkers(
+        ctx,
+        currentProblem.markers.map((p) => dataToPixel(p.t, p.y)),
+        color2,
+      );
+    }
+  });
 
   return (
     <ToolContainer
@@ -287,11 +230,9 @@ const TrajectoryTimeSeriesPracticeTool = () => {
         theme={theme}
       >
         <div style={{ padding: "8px", fontSize: "16px" }}>
-          Click New Plots to get started. Show the plots, and figure out how
-          they are related to each other. When you are ready, click a new plot,
-          and show only one of the plots (the trajectory or the time series).
-          Try to figure out the other plot on a sheet of paper. Use the "Show"
-          button to check your answer, and repeat!
+          Show both plots and work out how they are related. Then click New
+          Plots, show only one plot, sketch the other on paper, and click Show
+          to check your answer. Dots mark t = 0, 1, …, 10; the ring marks t = 0.
         </div>
       </GridDisplay>
 
@@ -350,8 +291,8 @@ const TrajectoryTimeSeriesPracticeTool = () => {
         h={4}
         xLabel={currentProblem.animal1}
         yLabel={currentProblem.animal2}
-        xLabelColor={currentTheme === "dark" ? "#60a5fa" : "#2563eb"}
-        yLabelColor={currentTheme === "dark" ? "#f87171" : "#dc2626"}
+        xLabelColor={color1}
+        yLabelColor={color2}
         xRange={[0, 100]}
         yRange={[0, 100]}
         xTicks={[0, 25, 50, 75, 100]}
@@ -366,8 +307,6 @@ const TrajectoryTimeSeriesPracticeTool = () => {
               ref={trajectoryCanvasRef}
               className="absolute pointer-events-none"
               style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
@@ -387,37 +326,27 @@ const TrajectoryTimeSeriesPracticeTool = () => {
         <div style={{ padding: "4px", fontSize: "11px", lineHeight: "1.4" }}>
           <div style={{ fontWeight: "bold", marginBottom: "4px" }}>Legend</div>
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              marginBottom: "4px",
-            }}
+            style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}
           >
             <div
               style={{
                 width: "16px",
-                height: "2px",
-                backgroundColor:
-                  currentTheme === "dark" ? "#60a5fa" : "#2563eb",
+                borderTop: `2px solid ${color1}`,
                 marginRight: "4px",
+                flexShrink: 0,
               }}
             />
             <span>{currentProblem.animal1}</span>
           </div>
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              marginBottom: "6px",
-            }}
+            style={{ display: "flex", alignItems: "center", marginBottom: "6px" }}
           >
             <div
               style={{
                 width: "16px",
-                height: "2px",
-                backgroundColor:
-                  currentTheme === "dark" ? "#f87171" : "#dc2626",
+                borderTop: `2px dashed ${color2}`,
                 marginRight: "4px",
+                flexShrink: 0,
               }}
             />
             <span>{currentProblem.animal2}</span>
@@ -435,9 +364,9 @@ const TrajectoryTimeSeriesPracticeTool = () => {
                 width: "10px",
                 height: "10px",
                 borderRadius: "50%",
-                backgroundColor:
-                  currentTheme === "dark" ? "#6b7280" : "#9ca3af",
+                border: `2px solid ${startColor}`,
                 marginRight: "4px",
+                flexShrink: 0,
               }}
             />
             <span>Start</span>
@@ -496,8 +425,6 @@ const TrajectoryTimeSeriesPracticeTool = () => {
               ref={timeSeriesCanvasRef}
               className="absolute pointer-events-none"
               style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
