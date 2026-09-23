@@ -2,49 +2,46 @@
 
 ## Overview
 
-This tool simulates genetic drift—the random change in allele frequencies over generations in a finite population. Each generation, individuals reproduce to create a breeding pool, then random sampling reduces the population back to a fixed size. This stochastic process can lead to the fixation (100% frequency) or loss (0% frequency) of alleles over time, even without natural selection. [VERIFY: standard Wright-Fisher model variant]
+This tool simulates genetic drift: random change in the make-up of a population from one generation to the next, with no natural selection at all. The population contains two types (Type A and Type B, which you can rename, e.g. spotted and nonspotted banana slugs). Each generation, every individual has offspring to form a larger breeding pool, and then a fixed number N of survivors is chosen at random from that pool. Because the survivors are a random sample, the numbers of each type wander over time, and one type can be lost entirely. When only one type remains, that type has become **fixed**.
+
+This is a version of the Wright–Fisher model, a standard starting point for studying genetic drift.
 
 ## Parameters
 
-**Type A Name:** Text input for customizing the label of the first allele type, default "Type A". Maximum 12 characters.
+**Type A Name / Type B Name:** Text inputs for the labels of the two types (default "Type A" and "Type B", at most 12 characters).
 
-**Type B Name:** Text input for customizing the label of the second allele type, default "Type B". Maximum 12 characters.
+**Initial % Type A:** Slider from 0% to 100%, default 70%. The starting share of Type A.
 
-**Initial % Type A:** Slider adjusts between 0% and 100%, default 70%. Sets the starting frequency of Type A in the population.
+**Initial % Type B:** Slider from 0% to 100%, default 30%. Linked to the Type A slider, so the two always add to 100%.
 
-**Initial % Type B:** Slider adjusts between 0% and 100%, default 30%. Linked to Type A slider—the two always sum to 100%.
+**Population Size (N):** Numeric input from 10 to 1000, default 100, step 10. The number of individuals in every generation.
 
-**Population Size (N):** Numeric input adjusts between 10 and 1000, default 100, step 10. The number of individuals in the population each generation.
+**Per Capita Births (Births):** Numeric input from 0.1 to 10, default 1, step 0.1. Each individual has 1 + Births offspring on average, so the breeding pool has N × (1 + Births) individuals, and N survivors are drawn from it at random.
 
-**Per Capita Births:** Numeric input adjusts between 0.1 and 10, default 1, step 0.1. Controls the size of the intermediate breeding pool. Each individual produces (1 + Births) offspring before random sampling back to population size N. Higher values reduce drift intensity; lower values increase drift intensity. [VERIFY: relationship to effective population size]
+More births give **stronger** drift. With few births, the pool is only a little larger than N, so almost everyone survives and the make-up hardly changes. With many births, the N survivors are a small random sample of a big pool, so the make-up changes a lot. Roughly, the population drifts like an ideal Wright–Fisher population of size N × (1 + Births) / Births: about 11N at Births = 0.1, 2N at the default Births = 1, and 1.1N at Births = 10.
+
+When N × (1 + Births) is not a whole number, the pool is rounded at random in a way that favors neither type.
 
 ## Components
 
-**Main Graph:** Displays Population vs Generations as a stacked bar chart over 300 generations. Type A (blue) is shown on the bottom, Type B (orange/amber) on top. The Y-axis range adjusts to the current population size N. After the simulation completes, initial and final counts are displayed as white labels on the left and right edges of the chart.
+**Main Graph:** Population vs Generations, as a stacked bar chart with one bar per generation (0 to 300). Type A (blue) is on the bottom and Type B (orange) on top. The y-axis runs from 0 to the N used for the displayed run. When the run is finished, the initial counts are printed on the left edge of the chart and the final counts on the right edge (when there is room).
 
-**Legend Display:** Shows color swatches for Type A and Type B with their current names. Also displays simulation status: "Click Simulate to start", "Generation X/300" during animation, or "Complete (300 generations)" when finished.
+**Legend and status:** Color swatches with the current type names, and the status: "Click Simulate to start", "Generation X/300" while the run is drawn, then "Fixed at generation X" or "No fixation in 300 generations".
 
-**Statistics Display:** After simulation completes, shows a two-column summary:
-- Initial Type A count and Initial Type B count
-- Final Type A count and Final Type B count
-- If fixation occurred, displays "[Type name] fixed!" in the corresponding color
+**Statistics:** After a run, the initial and final counts of each type, and "[type name] fixed!" if one type was lost.
 
-**Simulate Button:** Starts a new simulation. The animation runs for approximately 5 seconds, showing drift progression across 300 generations. Disabled while a simulation is running.
+**Simulate Button:** Runs a new 300-generation simulation with the current settings and draws it over about 5 seconds. Disabled while a run is being drawn. Changing N afterwards does not change the displayed run; press Simulate again to use the new value.
 
 ## What to Observe
 
-- Click **Simulate** multiple times with the same parameters to see how different random outcomes lead to different final frequencies—this is the essence of genetic drift.
+- Click **Simulate** several times with the same settings. Each run is different: this randomness is genetic drift.
 
-- Adjust **Population Size (N)** to observe drift intensity: smaller populations (N=10-50) show rapid, dramatic frequency changes and frequent fixation; larger populations (N=500-1000) show slower, more gradual changes.
+- Estimate how often fixation happens by counting over many runs. Not every run reaches fixation within the 300 generations shown: some runs still have both types at the end. (Given enough generations, one type would eventually be lost in every run.)
 
-- Set **Initial % Type A** to 50% to observe that even with equal starting frequencies, one allele will eventually fix due to random drift alone.
+- Change **Population Size (N)**. Small populations (N = 10–50) show rapid, dramatic changes; large populations (N = 500–1000) change slowly.
 
-- Adjust **Per Capita Births** to control drift strength: lower values (0.1-0.5) create stronger drift with more erratic frequency changes; higher values (5-10) create weaker drift with smoother trajectories.
+- Change the **Initial %** and see how it affects which type becomes fixed, and how often.
 
-- Use the **Type A/B Name** inputs to label alleles with meaningful names (e.g., "Allele A" and "Allele a", or "Blue" and "Brown") for educational demonstrations.
+- Change **Per Capita Births**. Low values (0.1–0.5) give smooth bars and rare fixation; high values (5–10) give jumpy bars and fast fixation.
 
-- Watch for **fixation events** where one type reaches 100% and the other reaches 0%—this is more likely with small populations or extreme initial frequencies.
-
-## References
-
-[To be added]
+- Watch the status line for the **generation at which fixation happened**. Compare it across runs and population sizes.
