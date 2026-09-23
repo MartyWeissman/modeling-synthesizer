@@ -13,7 +13,7 @@ import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 import { setupCanvas } from "../utils/canvas";
-import { niceTicks } from "../utils/ticks";
+import { niceStep, linearTicks } from "../utils/ticks";
 
 // Default y-axis (mg). If the caffeine amount goes higher (large or stacked
 // doses with a slow metabolic rate), the axis extends to fit the curve.
@@ -124,11 +124,9 @@ const CaffeineMetabolismTool = () => {
   let yMax = DEFAULT_Y_MAX;
   let yTicks = DEFAULT_Y_TICKS;
   if (dataMax > DEFAULT_Y_MAX) {
-    yTicks = niceTicks(0, dataMax * 1.05, 5);
-    const step = yTicks.length > 1 ? yTicks[1] - yTicks[0] : 100;
-    yMax = Math.max(dataMax * 1.05, yTicks[yTicks.length - 1]);
-    yMax = Math.ceil(yMax / step) * step;
-    yTicks = yTicks.filter((t) => t >= 0 && t <= yMax);
+    const step = niceStep(0, dataMax * 1.05, 5);
+    yMax = Math.ceil((dataMax * 1.05) / step) * step;
+    yTicks = linearTicks(0, yMax, step);
   }
 
   // Draw the time series on the graph canvas
