@@ -18,24 +18,60 @@ import ToolContainer from "../components/ui/ToolContainer";
 import Equation from "../components/Equation";
 import { useTheme } from "../hooks/useTheme";
 import { localPointer } from "../components/grid/pointer";
+import { useAnimationLoop } from "../hooks/useAnimationLoop";
+import { setupCanvas } from "../utils/canvas";
+import { linearTicks } from "../utils/ticks";
+import {
+  hollingTannerRHS,
+  hollingTannerRate,
+  hollingTannerCoexistence,
+  advanceState,
+  equilibriumColors,
+} from "./predatorPreyModels";
+
+// Display window for Shark (S) and Tuna (T) populations
+const SMIN = 0;
+const SMAX = 6;
+const TMIN = 0;
+const TMAX = 6;
+
+// Model time advanced per real second at speed 1. The original loop stepped
+// 0.05·speed per frame; at 60 frames/s that is 3·speed per second, so the
+// visual speed at 60 Hz is unchanged, but it no longer depends on frame rate.
+const MODEL_TIME_PER_SECOND = 3;
+const TIME_SERIES_WINDOW = 20; // time units shown in the time series
+const TRAIL_WINDOW = 200; // time units of trail kept in the phase portrait
+const MAX_TRAIL_POINTS = 5000;
+const SETTLED_SPEED = 1e-6; // |(S', T')| below this counts as at rest
+const TRAJECTORY_HUES = [120, 240, 60, 300, 180, 0]; // green first
+
+// Keep canvas coordinates sane for points far outside the window.
+const clampPx = (v) => Math.max(-1e4, Math.min(1e4, v));
+
+const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const HollingTannerTool = () => {
   const { theme, currentTheme } = useTheme();
+  const isDark = currentTheme === "dark";
+  const sharkColor = isDark ? "#60a5fa" : "#3b82f6";
+  const tunaColor = isDark ? "#f87171" : "#dc2626";
 
-  // UI State - parameters for Holling-Tanner model
+  // UI State - parameters for Holling-Tanner model (lab-manual defaults)
   const [uiParams, setUiParams] = useState({
-    alpha: 0.1, // α - Shark population growth rate
-    beta: 1.0, // β - Tuna population growth rate
-    c: 0.5, // c - Predation rate
+    alpha: 0.1, // α - Shark intrinsic growth rate
+    beta: 1.0, // β - Tuna intrinsic growth rate
+    c: 0.5, // c - Maximum tuna-eating rate per shark
     h: 1.0, // h - Half-saturation constant
     m: 7.0, // m - Tuna carrying capacity
-    q: 1.0, // q - Shark carrying capacity
+    q: 1.0, // q - Sharks supported per tuna (shark carrying capacity is qT)
     speed: 2, // Animation speed
   });
 
   const [isAnimating, setIsAnimating] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [showNullclines, setShowNullclines] = useState(false);
+  const [, setStatusTick] = useState(0); // forces a status refresh
 
   // Canvas refs - separate static and dynamic layers for performance
   const staticCanvasRef = useRef(null);
@@ -45,461 +81,327 @@ const HollingTannerTool = () => {
   // Transform refs for coordinate conversion
   const phaseTransformRef = useRef(null);
   const timeSeriesTransformRef = useRef(null);
+  const timeSeriesRangeRef = useRef([0, TIME_SERIES_WINDOW]);
 
   // Animation state - pure refs, never cause React re-renders
   const animationStateRef = useRef({
     trajectories: [],
     time: 0,
-    animationId: null,
-    isRunning: false, // Start only when user clicks
-    timeSeriesData: [],
+    lastUiUpdate: 0,
     params: { ...uiParams },
-    showNullclines: showNullclines,
   });
 
-  // Update animation parameters when UI changes
   useEffect(() => {
     animationStateRef.current.params = { ...uiParams };
   }, [uiParams]);
 
-  // Sync UI state to animation state
-  useEffect(() => {
-    animationStateRef.current.showNullclines = showNullclines;
-  }, [showNullclines]);
-
-  // Display constants for Shark (S) and Tuna (T) populations
-  const smin = 0,
-    smax = 6;
-  const tmin = 0,
-    tmax = 6;
-
-  // Equilibrium points for Holling-Tanner model
-  const equilibria = useMemo(() => {
-    const { alpha, beta, c, h, m, q } = uiParams;
-    const points = [];
-
-    // Equilibrium 1: (0, 0) - extinction
-    points.push({ x: 0, y: 0, stability: "stable" });
-
-    // Equilibrium 2: (0, m) - predator extinction, prey at carrying capacity
-    if (m > 0 && m <= tmax) {
-      points.push({ x: 0, y: m, stability: "stable" });
-    }
-
-    // Coexistence equilibrium - intersection of non-trivial nullclines
-    if (alpha > 0 && beta > 0 && c > 0 && h > 0 && m > 0 && q > 0) {
-      // Find intersection of S = qT and S = β(1 - T/m)(h+T)/c
-      // Set equal: qT = β(1 - T/m)(h+T)/c
-      // Solve: cqT = β(1 - T/m)(h+T)
-      // This gives: βT²/m - βT(1 - h/m) - βh + cqT = 0
-      const a = beta / m;
-      const b = -beta * (1 - h / m) + c * q;
-      const cCoeff = -beta * h;
-
-      const discriminant = b * b - 4 * a * cCoeff;
-
-      if (discriminant >= 0) {
-        const t1 = (-b + Math.sqrt(discriminant)) / (2 * a);
-        const t2 = (-b - Math.sqrt(discriminant)) / (2 * a);
-
-        // Choose the positive, reasonable root
-        const tEq =
-          t1 > 0 && t1 <= tmax ? t1 : t2 > 0 && t2 <= tmax ? t2 : null;
-
-        if (tEq && tEq > 0) {
-          const sEq = q * tEq;
-          if (sEq > 0 && sEq <= smax && tEq <= tmax) {
-            points.push({ x: sEq, y: tEq, stability: "unstable" });
-          }
-        }
-      }
-    }
-
-    return points;
-  }, [uiParams]);
-
-  // Static elements drawing function - only redraws when parameters change
-  const drawStaticElements = useCallback(
-    (canvas, ctx) => {
-      const transform = phaseTransformRef.current;
-      if (!transform) return;
-
-      const { plotWidth, plotHeight, dataToPixel } = transform;
-      const { alpha, beta, c, h, m, q } = animationStateRef.current.params;
-
-      // Clear canvas
-      ctx.clearRect(0, 0, plotWidth, plotHeight);
-
-      // Draw vector field
-      const gridCoords = [
-        0.2, 0.6, 1.0, 1.4, 1.8, 2.2, 2.6, 3.0, 3.4, 3.8, 4.2, 4.6, 5.0, 5.4,
-        5.8,
-      ];
-      ctx.strokeStyle =
-        currentTheme === "dark"
-          ? "rgba(156, 163, 175, 0.7)"
-          : "rgba(107, 114, 128, 0.7)";
-      ctx.fillStyle =
-        currentTheme === "dark"
-          ? "rgba(156, 163, 175, 0.7)"
-          : "rgba(107, 114, 128, 0.7)";
-      ctx.lineWidth = 1;
-
-      for (let i = 0; i < gridCoords.length; i++) {
-        for (let j = 0; j < gridCoords.length; j++) {
-          const s = gridCoords[i];
-          const t = gridCoords[j];
-
-          if (s < 0 || t < 0) continue;
-
-          // Holling-Tanner equations
-          const dsdt = alpha * s * (1 - s / (q * t));
-          const dtdt = beta * t * (1 - t / m) - (c * s * t) / (h + t);
-          const magnitude = Math.sqrt(dsdt * dsdt + dtdt * dtdt);
-
-          if (magnitude === 0) continue;
-
-          const normalizedDx = dsdt / magnitude;
-          const normalizedDy = dtdt / magnitude;
-
-          const pos = dataToPixel(s, t);
-          const arrowLength = 18;
-          const endX = pos.x + normalizedDx * arrowLength;
-          const endY = pos.y - normalizedDy * arrowLength;
-
-          ctx.beginPath();
-          ctx.moveTo(pos.x, pos.y);
-          ctx.lineTo(endX, endY);
-          ctx.stroke();
-
-          // Arrowhead
-          const angle = Math.atan2(endY - pos.y, endX - pos.x);
-          ctx.save();
-          ctx.translate(endX, endY);
-          ctx.rotate(angle);
-          ctx.beginPath();
-          ctx.moveTo(0, 0);
-          ctx.lineTo(-6, -2);
-          ctx.lineTo(-6, 2);
-          ctx.closePath();
-          ctx.fill();
-          ctx.restore();
-        }
-      }
-
-      // Draw nullclines if enabled
-      if (showNullclines) {
-        // S-nullcline: αS(1 - S/qT) = 0 => S = 0 or S = qT
-        // Non-trivial S-nullcline: S = qT (straight line)
-        ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-
-        // Draw line S = qT from origin to boundary
-        for (let t = 0; t <= tmax; t += 0.01) {
-          const s = q * t;
-          if (s >= smin && s <= smax) {
-            const pos = dataToPixel(s, t);
-            if (t === 0) ctx.moveTo(pos.x, pos.y);
-            else ctx.lineTo(pos.x, pos.y);
-          }
-        }
-        ctx.stroke();
-
-        // T-nullcline: βT(1 - T/m) = cST/(h+T) = 0 => T = 0 or non-trivial parabola
-        // Non-trivial T-nullcline forms a sideways parabola
-        ctx.strokeStyle = currentTheme === "dark" ? "#f87171" : "#dc2626";
-        ctx.lineWidth = 3;
-
-        // Non-trivial T-nullcline: βT(1 - T/m) = cST/(h+T)
-        // Solve for S as a function of T: S = β(1 - T/m)(h+T)/c
-        ctx.beginPath();
-        let firstPoint = true;
-        for (let t = 0.01; t <= tmax; t += 0.05) {
-          // For each T, compute: S = β(1 - T/m)(h+T)/c
-          const s = (beta * (1 - t / m) * (h + t)) / c;
-
-          if (s > 0 && s <= smax) {
-            const pos = dataToPixel(s, t);
-            if (firstPoint) {
-              ctx.moveTo(pos.x, pos.y);
-              firstPoint = false;
-            } else {
-              ctx.lineTo(pos.x, pos.y);
-            }
-          }
-        }
-        ctx.stroke();
-      }
-
-      // Draw equilibrium point at intersection of non-trivial nullclines
-      if (alpha > 0 && beta > 0 && c > 0 && h > 0 && m > 0 && q > 0) {
-        const a = beta / m;
-        const b = -beta * (1 - h / m) + c * q;
-        const cCoeff = -beta * h;
-
-        const discriminant = b * b - 4 * a * cCoeff;
-
-        if (discriminant >= 0) {
-          const t1 = (-b + Math.sqrt(discriminant)) / (2 * a);
-          const t2 = (-b - Math.sqrt(discriminant)) / (2 * a);
-
-          // Choose the positive, reasonable root
-          const tEq =
-            t1 > 0 && t1 <= tmax ? t1 : t2 > 0 && t2 <= tmax ? t2 : null;
-
-          if (tEq && tEq > 0) {
-            const sEq = q * tEq;
-
-            if (sEq > 0 && sEq <= smax && tEq <= tmax) {
-              const pos = dataToPixel(sEq, tEq);
-
-              ctx.fillStyle = "#f59e0b"; // Unstable focus for oscillations
-              ctx.strokeStyle = "#d97706";
-              ctx.lineWidth = 2;
-              ctx.beginPath();
-              ctx.arc(pos.x, pos.y, 6, 0, 2 * Math.PI);
-              ctx.fill();
-              ctx.stroke();
-
-              ctx.fillStyle = "white";
-              ctx.beginPath();
-              ctx.arc(pos.x, pos.y, 2.5, 0, 2 * Math.PI);
-              ctx.fill();
-            }
-          }
-        }
-      }
-    },
-    [currentTheme, showNullclines],
+  // Coexistence equilibrium, classified from the Jacobian
+  const coexistence = useMemo(
+    () => hollingTannerCoexistence(uiParams),
+    [uiParams],
   );
+  const coexistenceInWindow =
+    coexistence !== null &&
+    coexistence.x >= SMIN &&
+    coexistence.x <= SMAX &&
+    coexistence.y >= TMIN &&
+    coexistence.y <= TMAX;
 
-  // Dynamic elements drawing function - redraws every frame
-  const drawDynamicElements = useCallback((canvas, ctx) => {
+  // Static layer: vector field, nullclines, equilibrium
+  const drawStaticElements = useCallback(() => {
+    const canvas = staticCanvasRef.current;
     const transform = phaseTransformRef.current;
     if (!canvas || !transform) return;
 
     const { plotWidth, plotHeight, dataToPixel } = transform;
+    const { ctx } = setupCanvas(canvas, {
+      width: plotWidth,
+      height: plotHeight,
+    });
+    const { beta, c, h, m, q } = uiParams;
+    const f = hollingTannerRHS(uiParams);
+
     ctx.clearRect(0, 0, plotWidth, plotHeight);
 
-    // Draw trajectories
-    const colorHues = [120, 240, 60, 300, 180, 0]; // Green first, then others
-    animationStateRef.current.trajectories.forEach((trajectory, trajIndex) => {
-      if (trajectory.trail && trajectory.trail.length > 1) {
-        const hue = colorHues[trajIndex % colorHues.length];
-        ctx.strokeStyle = `hsl(${hue}, 70%, 50%)`;
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.8;
+    // Vector field
+    const gridCoords = [
+      0.2, 0.6, 1.0, 1.4, 1.8, 2.2, 2.6, 3.0, 3.4, 3.8, 4.2, 4.6, 5.0, 5.4,
+      5.8,
+    ];
+    const arrowColor = isDark
+      ? "rgba(156, 163, 175, 0.7)"
+      : "rgba(107, 114, 128, 0.7)";
+    ctx.strokeStyle = arrowColor;
+    ctx.fillStyle = arrowColor;
+    ctx.lineWidth = 1;
+
+    for (const s of gridCoords) {
+      for (const t of gridCoords) {
+        const [dsdt, dtdt] = f(s, t);
+        const magnitude = Math.hypot(dsdt, dtdt);
+        if (magnitude === 0 || !Number.isFinite(magnitude)) continue;
+
+        const pos = dataToPixel(s, t);
+        const arrowLength = 18;
+        const endX = pos.x + (dsdt / magnitude) * arrowLength;
+        const endY = pos.y - (dtdt / magnitude) * arrowLength;
 
         ctx.beginPath();
-        trajectory.trail.forEach((point, index) => {
+        ctx.moveTo(pos.x, pos.y);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+
+        const angle = Math.atan2(endY - pos.y, endX - pos.x);
+        ctx.save();
+        ctx.translate(endX, endY);
+        ctx.rotate(angle);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(-6, -2);
+        ctx.lineTo(-6, 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // Nullclines (dashed, so they are not confused with trajectories)
+    if (showNullclines) {
+      ctx.save();
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 5]);
+
+      // S-nullcline: S = 0 or S = qT (a line through the origin)
+      ctx.strokeStyle = sharkColor;
+      ctx.beginPath();
+      const p0 = dataToPixel(0, 0);
+      const p1 = dataToPixel(q * TMAX, TMAX);
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(clampPx(p1.x), clampPx(p1.y));
+      ctx.stroke();
+
+      // T-nullcline: T = 0 or S = β(1 − T/m)(h + T)/c (a parabola in T)
+      ctx.strokeStyle = tunaColor;
+      ctx.beginPath();
+      const tEnd = Math.min(m, TMAX);
+      const n = 300;
+      for (let i = 0; i <= n; i++) {
+        const t = (i / n) * tEnd;
+        const s = (beta * (1 - t / m) * (h + t)) / c;
+        const pos = dataToPixel(s, t);
+        if (i === 0) ctx.moveTo(clampPx(pos.x), clampPx(pos.y));
+        else ctx.lineTo(clampPx(pos.x), clampPx(pos.y));
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Coexistence equilibrium, colored by its type
+    if (coexistence && coexistenceInWindow) {
+      const pos = dataToPixel(coexistence.x, coexistence.y);
+      const colors = equilibriumColors(coexistence);
+      ctx.fillStyle = colors.fill;
+      ctx.strokeStyle = colors.stroke;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 6, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 2.5, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }, [
+    uiParams,
+    isDark,
+    showNullclines,
+    sharkColor,
+    tunaColor,
+    coexistence,
+    coexistenceInWindow,
+  ]);
+
+  // Dynamic layer: trajectories
+  const drawDynamicElements = useCallback(() => {
+    const canvas = dynamicCanvasRef.current;
+    const transform = phaseTransformRef.current;
+    if (!canvas || !transform) return;
+
+    const { plotWidth, plotHeight, dataToPixel } = transform;
+    const { ctx } = setupCanvas(canvas, {
+      width: plotWidth,
+      height: plotHeight,
+    });
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
+
+    animationStateRef.current.trajectories.forEach((traj) => {
+      if (traj.trail.length > 1) {
+        ctx.strokeStyle = `hsl(${traj.hue}, 70%, 50%)`;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        traj.trail.forEach((point, index) => {
           const pos = dataToPixel(point.x, point.y);
-          if (index === 0) ctx.moveTo(pos.x, pos.y);
-          else ctx.lineTo(pos.x, pos.y);
+          if (index === 0) ctx.moveTo(clampPx(pos.x), clampPx(pos.y));
+          else ctx.lineTo(clampPx(pos.x), clampPx(pos.y));
         });
         ctx.stroke();
         ctx.globalAlpha = 1.0;
+      }
 
-        // Draw current position
-        if (
-          trajectory.isActive &&
-          trajectory.s !== undefined &&
-          trajectory.t !== undefined
-        ) {
-          const pos = dataToPixel(trajectory.s, trajectory.t);
-
-          ctx.fillStyle = `hsl(${hue}, 70%, 40%)`;
-          ctx.beginPath();
-          ctx.arc(pos.x, pos.y, 4, 0, 2 * Math.PI);
-          ctx.fill();
-        }
+      // Current position (only drawn when inside the window)
+      if (traj.s <= SMAX && traj.t <= TMAX) {
+        const pos = dataToPixel(traj.s, traj.t);
+        ctx.fillStyle = `hsl(${traj.hue}, 70%, 40%)`;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 4, 0, 2 * Math.PI);
+        ctx.fill();
       }
     });
   }, []);
 
-  // Draw time series
-  const drawTimeSeries = useCallback(
-    (canvas, ctx) => {
-      const transform = timeSeriesTransformRef.current;
-      if (!transform) return;
+  // Time series of the most recently started trajectory
+  const drawTimeSeries = useCallback(() => {
+    const canvas = timeSeriesCanvasRef.current;
+    const transform = timeSeriesTransformRef.current;
+    if (!canvas || !transform) return;
 
-      const { plotWidth, plotHeight } = transform;
-      const state = animationStateRef.current;
-      ctx.clearRect(0, 0, plotWidth, plotHeight);
+    const { plotWidth, plotHeight } = transform;
+    const { ctx } = setupCanvas(canvas, {
+      width: plotWidth,
+      height: plotHeight,
+    });
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
 
-      if (state.timeSeriesData.length < 2) return;
+    const trajectories = animationStateRef.current.trajectories;
+    const traj = trajectories[trajectories.length - 1];
+    if (!traj || traj.trail.length < 2) return;
 
-      const timeWindow = 20;
-      const currentTime = state.time;
-      const minTime = Math.max(0, currentTime - timeWindow);
-      const maxPop = Math.max(smax, tmax);
-
-      // Helper to convert time series data to pixel coordinates
-      const toPixel = (time, value) => {
-        const x = ((time - minTime) / timeWindow) * plotWidth;
-        const y = plotHeight - (value / maxPop) * plotHeight;
-        return { x, y };
-      };
-
-      // Draw Sharks
-      ctx.strokeStyle = currentTheme === "dark" ? "#60a5fa" : "#3b82f6";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      let firstPoint = true;
-
-      state.timeSeriesData.forEach((point) => {
-        const maxTime = Math.max(timeWindow, currentTime);
-        if (point.time >= minTime && point.time <= maxTime) {
-          const pos = toPixel(point.time, point.sharks);
-          if (firstPoint) {
-            ctx.moveTo(pos.x, pos.y);
-            firstPoint = false;
-          } else {
-            ctx.lineTo(pos.x, pos.y);
-          }
-        }
-      });
-      ctx.stroke();
-
-      // Draw Tuna
-      ctx.strokeStyle = currentTheme === "dark" ? "#f87171" : "#dc2626";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      firstPoint = true;
-
-      state.timeSeriesData.forEach((point) => {
-        const maxTime = Math.max(timeWindow, currentTime);
-        if (point.time >= minTime && point.time <= maxTime) {
-          const pos = toPixel(point.time, point.tuna);
-          if (firstPoint) {
-            ctx.moveTo(pos.x, pos.y);
-            firstPoint = false;
-          } else {
-            ctx.lineTo(pos.x, pos.y);
-          }
-        }
-      });
-      ctx.stroke();
-    },
-    [currentTheme],
-  );
-
-  // Animation loop
-  const animationLoop = useCallback(() => {
-    const state = animationStateRef.current;
-    if (!state.isRunning) return;
-
-    const { alpha, beta, c, h, m, q, speed } = state.params;
-    if (speed === 0) {
-      state.animationId = requestAnimationFrame(animationLoop);
-      return;
-    }
-
-    const dt = 0.05 * speed;
-
-    // Update trajectories
-    state.trajectories = state.trajectories.map((traj) => {
-      if (!traj.isActive) return traj;
-
-      // Holling-Tanner differential equations
-      const computeDerivatives = (s, t) => {
-        const dsdt = alpha * s * (1 - s / (q * t));
-        const dtdt = beta * t * (1 - t / m) - (c * s * t) / (h + t);
-        return [dsdt, dtdt];
-      };
-
-      const [s_curr, t_curr] = [traj.s, traj.t];
-
-      // RK4 integration
-      const k1 = computeDerivatives(s_curr, t_curr);
-      const k2 = computeDerivatives(
-        s_curr + (dt * k1[0]) / 2,
-        t_curr + (dt * k1[1]) / 2,
-      );
-      const k3 = computeDerivatives(
-        s_curr + (dt * k2[0]) / 2,
-        t_curr + (dt * k2[1]) / 2,
-      );
-      const k4 = computeDerivatives(s_curr + dt * k3[0], t_curr + dt * k3[1]);
-
-      let newS = Math.max(
-        0,
-        s_curr + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]),
-      );
-      let newT = Math.max(
-        0,
-        t_curr + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]),
-      );
-
-      const isInBounds = newS <= smax && newT <= tmax;
-      const newTrail = [...traj.trail.slice(-150), { x: newS, y: newT }];
-
-      return {
-        ...traj,
-        s: newS,
-        t: newT,
-        trail: newTrail,
-        isActive: isInBounds,
-      };
+    // Same window as the axes that are currently rendered
+    const [minTime, maxTime] = timeSeriesRangeRef.current;
+    const span = maxTime - minTime;
+    const maxPop = Math.max(SMAX, TMAX);
+    const toPixel = (time, value) => ({
+      x: ((time - minTime) / span) * plotWidth,
+      y: clampPx(plotHeight - (value / maxPop) * plotHeight),
     });
 
-    state.time += dt;
+    const drawSeries = (key, color, dash) => {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash(dash);
+      ctx.beginPath();
+      let first = true;
+      for (const point of traj.trail) {
+        if (point.time < minTime - 1) continue;
+        const pos = toPixel(point.time, point[key]);
+        if (first) {
+          ctx.moveTo(pos.x, pos.y);
+          first = false;
+        } else {
+          ctx.lineTo(pos.x, pos.y);
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+    };
 
-    // Update React time state periodically
-    if (Math.floor(state.time * 10) !== Math.floor((state.time - dt) * 10)) {
+    drawSeries("x", sharkColor, []); // sharks: solid
+    drawSeries("y", tunaColor, [6, 4]); // tuna: dashed
+  }, [sharkColor, tunaColor]);
+
+  // One animation frame: advance every trajectory by real elapsed time
+  const {
+    start: loopStart,
+    stop: loopStop,
+    isRunning: loopRunning,
+  } = useAnimationLoop((dtSeconds, now) => {
+    const state = animationStateRef.current;
+    const { speed } = state.params;
+    const dtModel = dtSeconds * MODEL_TIME_PER_SECOND * speed;
+
+    let anyMoving = false;
+    if (dtModel > 0) {
+      const f = hollingTannerRHS(state.params);
+      const rate = (s, t) => hollingTannerRate(state.params, s, t);
+      const newTime = state.time + dtModel;
+
+      state.trajectories.forEach((traj) => {
+        if (!traj.isActive) return;
+        const next = advanceState(f, rate, traj.s, traj.t, dtModel);
+        traj.s = next.s;
+        traj.t = next.t;
+        traj.trail.push({ x: next.s, y: next.t, time: newTime });
+
+        // Trim by time, not by sample count
+        const cutoff = newTime - TRAIL_WINDOW;
+        let drop = 0;
+        while (drop < traj.trail.length - 2 && traj.trail[drop].time < cutoff)
+          drop++;
+        if (traj.trail.length - drop > MAX_TRAIL_POINTS)
+          drop = traj.trail.length - MAX_TRAIL_POINTS;
+        if (drop > 0) traj.trail.splice(0, drop);
+
+        if (next.blownUp) {
+          traj.isActive = false;
+          return;
+        }
+        const [ds, dt] = f(next.s, next.t);
+        if (Math.hypot(ds, dt) > SETTLED_SPEED) anyMoving = true;
+      });
+      state.time = newTime;
+    }
+
+    drawDynamicElements();
+    drawTimeSeries();
+
+    const keepGoing = dtModel === 0 ? speed > 0 : anyMoving;
+    if (!keepGoing || now - state.lastUiUpdate > 50) {
+      state.lastUiUpdate = now;
       setCurrentTime(state.time);
     }
-
-    // Update time series data
-    const activeTraj = state.trajectories.find((t) => t.isActive);
-    if (activeTraj) {
-      const currentS = activeTraj.s || 0;
-      const currentT = activeTraj.t || 0;
-
-      state.timeSeriesData = [
-        ...state.timeSeriesData.slice(-500),
-        {
-          time: state.time,
-          sharks: currentS,
-          tuna: currentT,
-        },
-      ];
+    if (!keepGoing) {
+      // Nothing left to animate (all trajectories at rest, or speed 0)
+      setIsAnimating(false);
+      return false;
     }
+    return true;
+  });
 
-    // Draw only dynamic elements (efficient!)
-    const dynamicCanvas = dynamicCanvasRef.current;
-    const timeCanvas = timeSeriesCanvasRef.current;
-
-    if (dynamicCanvas) {
-      const ctx = dynamicCanvas.getContext("2d");
-      drawDynamicElements(dynamicCanvas, ctx);
-    }
-
-    if (timeCanvas) {
-      const ctx = timeCanvas.getContext("2d");
-      drawTimeSeries(timeCanvas, ctx);
-    }
-
-    // Continue animation
-    state.animationId = requestAnimationFrame(animationLoop);
-  }, [drawDynamicElements, drawTimeSeries]);
-
-  // Control functions
   const startAnimation = useCallback(() => {
-    if (animationStateRef.current.isRunning) return;
-    animationStateRef.current.isRunning = true;
+    if (!loopRunning()) loopStart();
     setIsAnimating(true);
-    animationLoop();
-  }, [animationLoop]);
+    setIsPaused(false);
+  }, [loopRunning, loopStart]);
 
-  const stopAnimation = useCallback(() => {
-    animationStateRef.current.isRunning = false;
+  const pauseAnimation = useCallback(() => {
+    loopStop();
     setIsAnimating(false);
-    if (animationStateRef.current.animationId) {
-      cancelAnimationFrame(animationStateRef.current.animationId);
-      animationStateRef.current.animationId = null;
+    setIsPaused(true);
+    setCurrentTime(animationStateRef.current.time);
+  }, [loopStop]);
+
+  const togglePause = useCallback(() => {
+    if (loopRunning()) pauseAnimation();
+    else if (animationStateRef.current.trajectories.some((t) => t.isActive))
+      startAnimation();
+  }, [loopRunning, pauseAnimation, startAnimation]);
+
+  // Restart after the speed slider moves off 0 (or a parameter change sets a
+  // settled trajectory moving again)
+  useEffect(() => {
+    if (
+      uiParams.speed > 0 &&
+      !isPaused &&
+      !loopRunning() &&
+      animationStateRef.current.trajectories.some((t) => t.isActive)
+    ) {
+      startAnimation();
     }
-  }, []);
+  }, [uiParams, isPaused, loopRunning, startAnimation]);
 
   // Canvas click handler
   const handleCanvasClick = useCallback(
@@ -511,93 +413,71 @@ const HollingTannerTool = () => {
       // Pointer position in the canvas's own CSS pixels (stays correct when
       // ToolContainer scales the tool down to fit a narrow window)
       const { x, y } = localPointer(event, canvas);
-
       const { plotWidth, plotHeight, pixelToData } = transform;
-
       if (x < 0 || x > plotWidth || y < 0 || y > plotHeight) return;
 
       const data = pixelToData(x, y);
+      if (data.x < 0 || data.y < 0 || data.x > SMAX || data.y > TMAX) return;
 
-      if (data.x < 0 || data.y < 0 || data.x > smax || data.y > tmax) return;
-
-      const colorHues = [120, 240, 60, 300, 180, 0];
-      const hue =
-        colorHues[
-          animationStateRef.current.trajectories.length % colorHues.length
-        ];
-
-      const newTrajectory = {
+      const state = animationStateRef.current;
+      state.trajectories.push({
         id: Date.now() + Math.random(),
         s: data.x,
         t: data.y,
         isActive: true,
-        color: `hsl(${hue}, 70%, 50%)`,
-        trail: [{ x: data.x, y: data.y }],
-      };
-
-      animationStateRef.current.trajectories.push(newTrajectory);
-
-      if (animationStateRef.current.trajectories.length === 1) {
-        animationStateRef.current.time = 0;
-        animationStateRef.current.timeSeriesData = [];
-      }
+        hue: TRAJECTORY_HUES[state.trajectories.length % TRAJECTORY_HUES.length],
+        trail: [{ x: data.x, y: data.y, time: state.time }],
+      });
 
       startAnimation();
     },
     [startAnimation],
   );
 
-  // Reset simulation
+  // Reset: clear trajectories, time, and both dynamic canvases
   const resetSimulation = useCallback(() => {
-    stopAnimation();
-    animationStateRef.current.trajectories = [];
-    animationStateRef.current.time = 0;
-    animationStateRef.current.timeSeriesData = [];
+    loopStop();
+    const state = animationStateRef.current;
+    state.trajectories = [];
+    state.time = 0;
+    timeSeriesRangeRef.current = [0, TIME_SERIES_WINDOW];
+    setIsAnimating(false);
+    setIsPaused(false);
     setCurrentTime(0);
-
-    // Redraw static elements
-    if (staticCanvasRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
-
-    if (timeSeriesCanvasRef.current) {
-      const ctx = timeSeriesCanvasRef.current.getContext("2d");
-      ctx.clearRect(
-        0,
-        0,
-        timeSeriesCanvasRef.current.width,
-        timeSeriesCanvasRef.current.height,
-      );
-    }
-  }, [stopAnimation, drawStaticElements]);
+    setStatusTick((n) => n + 1);
+    drawDynamicElements();
+    drawTimeSeries();
+  }, [loopStop, drawDynamicElements, drawTimeSeries]);
 
   const updateParam = useCallback((param, value) => {
     setUiParams((prev) => ({ ...prev, [param]: value }));
   }, []);
 
-  // Draw static elements when transform becomes available or parameters change
+  // Redraw the static layer when parameters, nullclines or theme change
   useEffect(() => {
-    if (staticCanvasRef.current && phaseTransformRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
+    drawStaticElements();
   }, [drawStaticElements]);
 
-  // Redraw static elements when parameters change
+  // Redraw the dynamic layers after renders that move the time axis or
+  // change the theme (e.g. after the loop stops, or while paused)
   useEffect(() => {
-    if (staticCanvasRef.current && phaseTransformRef.current) {
-      const ctx = staticCanvasRef.current.getContext("2d");
-      drawStaticElements(staticCanvasRef.current, ctx);
-    }
-  }, [uiParams, showNullclines, drawStaticElements]);
+    drawDynamicElements();
+    drawTimeSeries();
+  }, [currentTime, drawDynamicElements, drawTimeSeries]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      stopAnimation();
-    };
-  }, [stopAnimation]);
+  // Time-series window, shared by the axes and the canvas
+  const tsMin = Math.max(0, currentTime - TIME_SERIES_WINDOW);
+  const tsMax = Math.max(TIME_SERIES_WINDOW, currentTime);
+  timeSeriesRangeRef.current = [tsMin, tsMax];
+  const tsTicks = linearTicks(tsMin, tsMax, 5);
+
+  const trajectories = animationStateRef.current.trajectories;
+  const latest = trajectories[trajectories.length - 1];
+  const animationStatus = isAnimating
+    ? "Running"
+    : isPaused
+      ? "Paused"
+      : "Stopped";
 
   return (
     <ToolContainer
@@ -613,8 +493,8 @@ const HollingTannerTool = () => {
         h={5}
         xLabel="Sharks (S)"
         yLabel="Tuna (T)"
-        xRange={[smin, smax]}
-        yRange={[tmin, tmax]}
+        xRange={[SMIN, SMAX]}
+        yRange={[TMIN, TMAX]}
         xTicks={[0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}
         yTicks={[0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}
         theme={theme}
@@ -622,24 +502,20 @@ const HollingTannerTool = () => {
       >
         {(transform) => {
           phaseTransformRef.current = transform;
-          const { plotWidth, plotHeight, plotStyle } = transform;
+          const { plotStyle } = transform;
           return (
             <>
-              {/* Static background layer - vector field, nullclines, equilibrium points */}
+              {/* Static background layer - vector field, nullclines, equilibrium */}
               <canvas
                 ref={staticCanvasRef}
                 className="absolute pointer-events-none"
                 style={plotStyle}
-                width={plotWidth}
-                height={plotHeight}
               />
-              {/* Dynamic foreground layer - trajectories and moving particles */}
+              {/* Dynamic foreground layer - trajectories */}
               <canvas
                 ref={dynamicCanvasRef}
                 className="absolute cursor-crosshair"
                 style={plotStyle}
-                width={plotWidth}
-                height={plotHeight}
                 onClick={handleCanvasClick}
               />
             </>
@@ -655,28 +531,27 @@ const HollingTannerTool = () => {
         h={2}
         xLabel="Time"
         yLabel="Population"
-        xRange={[Math.max(0, currentTime - 20), Math.max(20, currentTime)]}
-        yRange={[0, Math.max(smax, tmax)]}
-        xTicks={[]}
-        yTicks={[0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}
+        xRange={[tsMin, tsMax]}
+        yRange={[0, Math.max(SMAX, TMAX)]}
+        xTicks={tsTicks}
+        yTicks={[0, 2.0, 4.0, 6.0]}
         theme={theme}
-        tooltip="Population dynamics over time"
+        tooltip="Sharks (solid) and tuna (dashed) over time, for the most recent trajectory"
       >
         {(transform) => {
           timeSeriesTransformRef.current = transform;
-          const { plotWidth, plotHeight, plotStyle } = transform;
+          const { plotStyle } = transform;
           return (
             <canvas
               ref={timeSeriesCanvasRef}
+              className="absolute pointer-events-none"
               style={plotStyle}
-              width={plotWidth}
-              height={plotHeight}
             />
           );
         }}
       </GridGraph>
 
-      {/* Parameter Controls - Mix of GridInputs and Sliders */}
+      {/* Parameter Controls */}
       <GridInput
         x={5}
         y={0}
@@ -712,7 +587,7 @@ const HollingTannerTool = () => {
         max={3.0}
         step={0.1}
         variable="c"
-        title="Predation rate"
+        title="Maximum tuna-eating rate per shark"
         theme={theme}
       />
 
@@ -751,7 +626,7 @@ const HollingTannerTool = () => {
         max={5.0}
         step={0.1}
         variable="q"
-        title="Shark carrying capacity"
+        title="Sharks supported per tuna (shark carrying capacity is qT)"
         theme={theme}
       />
 
@@ -799,6 +674,25 @@ const HollingTannerTool = () => {
         theme={theme}
       />
 
+      <GridButton
+        x={8}
+        y={4}
+        w={1}
+        h={1}
+        onPress={togglePause}
+        variant="default"
+        tooltip={
+          isPaused
+            ? "Resume the trajectories"
+            : "Pause the trajectories (click the plot to add more)"
+        }
+        theme={theme}
+      >
+        <div style={{ textAlign: "center", lineHeight: "1.1" }}>
+          <div>{isPaused ? "Resume" : "Pause"}</div>
+        </div>
+      </GridButton>
+
       {/* Equations Display */}
       <GridDisplay
         x={7}
@@ -815,7 +709,7 @@ const HollingTannerTool = () => {
             style={{
               fontWeight: "bold",
               marginBottom: "15px",
-              color: currentTheme === "dark" ? "#60a5fa" : "#3b82f6",
+              color: sharkColor,
               fontSize: "1.1em",
             }}
           >
@@ -843,9 +737,9 @@ const HollingTannerTool = () => {
       >
         <div style={{ textAlign: "center", lineHeight: "1.4" }}>
           <div style={{ fontWeight: "bold", marginBottom: "6px" }}>
-            Equilibrium Points
+            Coexistence Equilibrium
           </div>
-          {equilibria.length > 0 ? (
+          {coexistence ? (
             <>
               <div
                 style={{
@@ -859,7 +753,7 @@ const HollingTannerTool = () => {
                   size="small"
                   style={{ marginRight: "4px" }}
                 />
-                {equilibria[equilibria.length - 1].x.toFixed(2)}
+                {coexistence.x.toFixed(2)}
               </div>
               <div style={{ fontSize: "0.9em", whiteSpace: "nowrap" }}>
                 <Equation
@@ -867,7 +761,18 @@ const HollingTannerTool = () => {
                   size="small"
                   style={{ marginRight: "4px" }}
                 />
-                {equilibria[equilibria.length - 1].y.toFixed(2)}
+                {coexistence.y.toFixed(2)}
+              </div>
+              <div
+                style={{
+                  marginTop: "4px",
+                  fontSize: "0.9em",
+                  fontWeight: "bold",
+                  color: equilibriumColors(coexistence).fill,
+                }}
+              >
+                {capitalize(coexistence.type)}
+                {!coexistenceInWindow && " (outside the plot)"}
               </div>
             </>
           ) : (
@@ -901,48 +806,25 @@ const HollingTannerTool = () => {
               fontSize: "0.85em",
             }}
           >
-            <div>
-              Active Trajectories:{" "}
-              {
-                animationStateRef.current.trajectories.filter((t) => t.isActive)
-                  .length
-              }
-            </div>
+            <div>Trajectories: {trajectories.length}</div>
             <div>Current Time: {currentTime.toFixed(1)}</div>
-            <div>Animation: {isAnimating ? "Running" : "Stopped"}</div>
+            <div>Animation: {animationStatus}</div>
           </div>
-          <div
-            style={{
-              marginTop: "4px",
-              fontSize: "0.85em",
-            }}
-          >
-            <div>
-              Sharks:{" "}
-              {animationStateRef.current.trajectories
-                .find((t) => t.isActive)
-                ?.s?.toFixed(2) || "0.00"}
-            </div>
-            <div>
-              Tuna:{" "}
-              {animationStateRef.current.trajectories
-                .find((t) => t.isActive)
-                ?.t?.toFixed(2) || "0.00"}
-            </div>
+          <div style={{ marginTop: "4px", fontSize: "0.85em" }}>
+            Latest trajectory: Sharks {latest ? latest.s.toFixed(2) : "–"},
+            Tuna {latest ? latest.t.toFixed(2) : "–"}
           </div>
           <div style={{ marginTop: "6px", fontSize: "0.8em", opacity: 0.8 }}>
-            <span
-              style={{ color: currentTheme === "dark" ? "#60a5fa" : "#3b82f6" }}
-            >
-              Blue: Sharks
-            </span>{" "}
-            |{" "}
-            <span
-              style={{ color: currentTheme === "dark" ? "#f87171" : "#dc2626" }}
-            >
-              Red: Tuna
-            </span>
-            {showNullclines && " | Red lines: Nullclines"}
+            Time series: <span style={{ color: sharkColor }}>Sharks (solid)</span>{" "}
+            | <span style={{ color: tunaColor }}>Tuna (dashed)</span>
+            {showNullclines && (
+              <>
+                {" "}
+                | Nullclines (dashed):{" "}
+                <span style={{ color: sharkColor }}>S′ = 0</span>,{" "}
+                <span style={{ color: tunaColor }}>T′ = 0</span>
+              </>
+            )}
           </div>
         </div>
       </GridDisplay>
