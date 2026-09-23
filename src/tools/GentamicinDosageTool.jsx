@@ -8,6 +8,7 @@ import {
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
+import { setupCanvas } from "../utils/canvas";
 
 const GentamicinDosageTool = () => {
   const { theme, currentTheme } = useTheme();
@@ -16,11 +17,11 @@ const GentamicinDosageTool = () => {
   const canvasRef = useRef(null);
   const transformRef = useRef(null);
 
-  // Parameters with defaults at 3/4 up sliders to show problems
-  const [dosage, setDosage] = useState(240); // mg (3/4 up 30-300 range)
-  const [frequency, setFrequency] = useState(18); // hours (3/4 up 4-24 range)
-  const [halfLife, setHalfLife] = useState(3); // hours (center of 1-8 range)
-  const [infusionTime, setInfusionTime] = useState(60); // minutes (center of 15-180 range)
+  // Parameters and defaults (slider positions in parentheses)
+  const [dosage, setDosage] = useState(240); // mg, range 30-300 (78% of the slider)
+  const [frequency, setFrequency] = useState(18); // dosing interval in hours, range 4-24 (70%)
+  const [halfLife, setHalfLife] = useState(3); // hours, range 1-8 (29%); the Lab Manual keeps it at 3 h
+  const [infusionTime, setInfusionTime] = useState(60); // minutes, range 15-180 (27%)
 
   // Calculated values
   const [timeSeriesData, setTimeSeriesData] = useState([]);
@@ -49,7 +50,9 @@ const GentamicinDosageTool = () => {
 
           if (timeAfterDose <= infusionHours) {
             // During infusion: concentration builds up linearly
-            const peakConc = dosage * 0.07; // Rough conversion mg -> mg/L (Vd ≈ 0.25 L/kg, 70kg = 17.5L, simplified to ~14L)
+            // mg -> mg/L: concentration = dose / Vd with Vd = 1 / 0.07 ≈ 14.3 L
+            // (about 0.2 L/kg for a 70 kg adult; 0.25 L/kg would give 17.5 L).
+            const peakConc = dosage * 0.07;
             const currentConc = peakConc * (timeAfterDose / infusionHours);
             totalConcentration += currentConc;
           } else {
@@ -90,10 +93,15 @@ const GentamicinDosageTool = () => {
     const transform = transformRef.current;
     if (!canvas || !transform || timeSeriesData.length === 0) return;
 
-    const ctx = canvas.getContext("2d");
+    const setup = setupCanvas(canvas, {
+      width: transform.plotWidth,
+      height: transform.plotHeight,
+    });
+    if (!setup) return;
+    const { ctx } = setup;
     const { dataToPixel, plotWidth, plotHeight } = transform;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, plotWidth, plotHeight);
 
     // Draw therapeutic range backgrounds
     const therapeuticMin = 4;
@@ -116,6 +124,16 @@ const GentamicinDosageTool = () => {
         : "rgba(239, 68, 68, 0.15)";
     const toxicPos = dataToPixel(0, toxicLevel);
     ctx.fillRect(0, 0, plotWidth, toxicPos.y);
+
+    // Label the bands in text too, so they don't rely on color alone.
+    ctx.font = "11px Arial";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = currentTheme === "dark" ? "#86efac" : "#15803d";
+    ctx.fillText("therapeutic 4–10", plotWidth - 6, thMaxPos.y + 3);
+    ctx.fillStyle = currentTheme === "dark" ? "#fca5a5" : "#b91c1c";
+    ctx.fillText("toxic > 12", plotWidth - 6, 4);
+    ctx.textBaseline = "alphabetic";
 
     // Draw concentration curve
     ctx.strokeStyle = currentTheme === "dark" ? "#3b82f6" : "#2563eb";
@@ -244,8 +262,6 @@ const GentamicinDosageTool = () => {
               ref={canvasRef}
               className="absolute pointer-events-none"
               style={transform.plotStyle}
-              width={transform.plotWidth}
-              height={transform.plotHeight}
             />
           );
         }}
