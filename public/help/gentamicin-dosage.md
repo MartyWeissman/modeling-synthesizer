@@ -2,54 +2,39 @@
 
 ## Overview
 
-This tool models the pharmacokinetics of gentamicin, an aminoglycoside antibiotic used to treat serious bacterial infections. The simulation shows how drug concentration changes over a 48-hour period with repeated dosing, helping visualize the balance between therapeutic efficacy and toxicity risk.
+Gentamicin is an antibiotic given by injection or infusion in hospitals. It is not broken down in the body; the kidneys clear it from the blood. This tool shows the gentamicin concentration in the blood over 48 hours of repeated doses, so you can look for a protocol that keeps the concentration in the therapeutic window and out of the toxic range.
 
-[VERIFY: Gentamicin pharmacokinetic model assumptions and typical clinical parameters]
+The model is simplified. During each infusion, the concentration from that dose rises in a straight line to dose ÷ 14.3 L (a volume of distribution of about 0.2 L/kg for a 70 kg adult). After the infusion ends, it decays exponentially with the chosen half-life. The contributions of all doses are added.
 
 ## Parameters
 
-### Dosage (30-300 mg)
-The amount of gentamicin administered per dose. Higher doses produce higher peak concentrations. Default: 240 mg.
+**Dosage:** slider from 30 to 300 mg, default 240 mg. The amount given in each dose.
 
-### Frequency (4-24 hours)
-The interval between doses. Longer intervals allow drug levels to fall further between doses, affecting both trough levels and accumulation. Default: 18 hours.
+**Frequency:** slider from 4 to 24 hours, default 18 hours. The time between the starts of consecutive doses (the dosing interval). The first dose is at t = 0.
 
-### Infusion Duration (15-180 minutes)
-The time over which each dose is administered intravenously. Longer infusion times produce lower, broader peaks. Default: 60 minutes.
+**Infusion duration:** slider from 15 to 180 minutes, default 60 minutes. How long each dose takes to run in. In this simplified model every dose reaches the same peak however long the infusion lasts; a longer infusion only makes the rise slower and the peak later.
 
-### Half-life (1-8 hours)
-The elimination half-life determines how quickly the drug is cleared from the body. Patients with impaired kidney function have longer half-lives. Default: 3 hours.
-
-[VERIFY: Typical gentamicin half-life range in clinical populations]
+**Half-life:** slider from 1 to 8 hours, default 3 hours. The time for the concentration to fall by half after an infusion. Kidney disease slows clearance and lengthens the half-life (the Lab Manual uses 6 hours for a patient with renal disease).
 
 ## Components
 
-### Concentration Graph
-Displays gentamicin blood concentration (mg/L) over 48 hours.
+**Concentration graph:** gentamicin concentration (mg/L, axis 0–20) over 48 hours.
 
-- **Blue line**: Drug concentration over time
-- **Green shaded region**: Therapeutic range (4-10 mg/L)
-- **Red shaded region**: Toxic range (>12 mg/L)
-- **Yellow vertical lines**: Dose administration times
+- **Blue line:** the concentration.
+- **Green band, labeled "therapeutic 4–10":** the therapeutic window, 4–10 mg/L.
+- **Red band, labeled "toxic > 12":** concentrations above 12 mg/L, where kidney and inner-ear damage are more likely.
+- **Yellow vertical lines:** the start of each dose.
 
-### Information Display
-Shows calculated values:
-- **Peak**: Maximum concentration reached after dosing
-- **Trough**: Minimum concentration before next dose
-- **Ideal**: Target therapeutic range (4-10 mg/L)
-- **Toxic**: Concentration associated with toxicity (>12 mg/L)
+**Information display:**
+
+- **Peak:** the highest concentration in the 48 hours.
+- **Trough:** the lowest concentration from the start of the second dose onward (over the 48 hours shown).
+- **Ideal:** the therapeutic window, 4–10 mg/L.
+- **Toxic:** the toxic threshold, above 12 mg/L.
 
 ## What to Observe
 
-1. **Therapeutic window**: Try to keep peaks below the toxic threshold while maintaining adequate trough levels for efficacy.
-
-2. **Accumulation**: With frequent dosing or long half-life, observe how drug accumulates over multiple doses.
-
-3. **Once-daily vs. traditional dosing**: Compare q24h high-dose regimens with q8h lower-dose regimens.
-
-4. **Renal function effects**: Increase half-life to simulate impaired kidney function and observe drug accumulation.
-
-5. **Infusion rate effects**: Compare rapid vs. slow infusions and their effect on peak concentrations.
-
-## References
-
+1. **Therapeutic window:** adjust dosage, frequency and infusion duration to keep the curve in the green band as long as possible and out of the red band.
+2. **Accumulation:** with frequent doses or a long half-life, a new dose starts before the last one has cleared, and the levels build up.
+3. **Kidney function:** double the half-life from 3 to 6 hours and see how your protocol needs to change.
+4. **Dosing interval:** compare one large dose a day with smaller, more frequent doses.

@@ -6,20 +6,32 @@
   <mi>B</mi>
   <mfrac>
     <mrow>
-      <msubsup>
-        <mi mathvariant="bold-italic">G</mi>
-        <mi>τ</mi>
+      <mi mathvariant="bold-italic">G</mi>
+      <msup>
+        <mrow>
+          <mo stretchy="false">(</mo>
+          <mi>t</mi>
+          <mo>−</mo>
+          <mi>τ</mi>
+          <mo stretchy="false">)</mo>
+        </mrow>
         <mn>2</mn>
-      </msubsup>
+      </msup>
     </mrow>
     <mrow>
       <mn>1</mn>
       <mo>+</mo>
-      <msubsup>
-        <mi mathvariant="bold-italic">G</mi>
-        <mi>τ</mi>
+      <mi mathvariant="bold-italic">G</mi>
+      <msup>
+        <mrow>
+          <mo stretchy="false">(</mo>
+          <mi>t</mi>
+          <mo>−</mo>
+          <mi>τ</mi>
+          <mo stretchy="false">)</mo>
+        </mrow>
         <mn>2</mn>
-      </msubsup>
+      </msup>
     </mrow>
   </mfrac>
   <mo>−</mo>

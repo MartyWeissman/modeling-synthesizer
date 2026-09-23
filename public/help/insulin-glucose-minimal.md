@@ -2,44 +2,50 @@
 
 ## Overview
 
-A stripped-down model of the dynamic interaction between blood glucose and insulin, intended as a first introduction to the system. Uses difference equations (ΔG/Δt and ΔI/Δt) with no liver-production term and no time delays. Simulates baseline conditions, daily meals, meals with sugary snacks, and a glucose challenge test.
+A first model of how blood glucose (G) and insulin (I) regulate each other, with no liver term and no time delays:
+
+- ΔG/Δt = m − s·I·G
+- ΔI/Δt = q·B·G² / (1 + G²) − γ·I
+
+Insulin lowers glucose, and glucose raises insulin production. Parameters are in simplified model units, with time in hours. You can simulate a baseline day, three meals, meals with sugary snacks, or a glucose challenge. The curves are computed with very small time steps, so they follow the change equations accurately.
 
 ## Parameters
 
-**Glucose Production (m):** Input field adjusts between 0 and 10, step 0.1, default 0.5. Represents the baseline rate of glucose entering the bloodstream. [VERIFY: physiological interpretation]
+All five parameters are input fields from 0 to 10 in steps of 0.1.
 
-**Insulin Sensitivity (s):** Input field adjusts between 0 and 10, step 0.1, default 1.0. Represents how effectively insulin removes glucose from the blood. [VERIFY: typical physiological range]
+**Glucose production (m):** default 0.5. The steady rate at which glucose enters the bloodstream (for example from digested food).
 
-**Insulin Production Rate (q):** Input field adjusts between 0 and 10, step 0.1, default 1.0. Represents the rate at which pancreatic beta cells produce insulin in response to glucose. [VERIFY: physiological interpretation]
+**Insulin sensitivity (s):** default 1.0. How strongly insulin makes muscle and fat cells take up glucose. The removal term s·I·G grows with both insulin and glucose.
 
-**Beta Cell Mass (B):** Input field adjusts between 0 and 10, step 0.1, default 1.0. Represents the functional mass of insulin-producing cells in the pancreas. [VERIFY: physiological interpretation]
+**Insulin production rate (q):** default 1.0. How much insulin the beta cells release per unit of beta-cell mass when glucose is high.
 
-**Insulin Degradation Rate (γ):** Input field adjusts between 0 and 10, step 0.1, default 1.0. Represents the rate at which insulin is cleared from the bloodstream. [VERIFY: typical physiological range]
+**Beta cell mass (B):** default 1.0. The total mass of insulin-producing beta cells in the pancreas (called b in the Lab Manual).
+
+**Insulin degradation rate (γ):** default 1.0. The rate at which insulin is cleared from the blood.
 
 ## Components
 
-**Insulin-Glucose Dynamics Graph:** Dual Y-axis graph displaying glucose concentration (mmol/L, left axis 0–12, red line) and insulin concentration (pmol/L, right axis 0–200, blue line) versus time (hours) over a 20-hour period. A green shaded region shows the normal glucose range (3.9–5.5 mmol/L). [VERIFY: normal glucose range]
+**Graph:** glucose (red solid line, left axis, 0–12 mM) and insulin (blue dashed line, right axis, 0–200 pM) over a 20-hour window. Model values are converted with G × 5 = glucose in mM (mmol/L) and I × 100 = insulin in pM (pmol/L). At the default parameters the system starts at its equilibrium, 5 mM glucose and 50 pM insulin, so both lines are flat. The green band marks the healthy fasting glucose range, about 3.9–5.5 mM. If a curve goes above the top of its axis, a small ▲ marks where it leaves the graph and the legend shows its peak value. The legend moves to the corner that covers the least data.
 
-**Insulin-Glucose Model Display:** Info panel showing the difference equations for the glucose dynamics (ΔG/Δt) and insulin dynamics (ΔI/Δt) using MathML equation rendering.
+**Model display:** the two change equations shown above.
 
-**Baseline Button:** Momentary button that runs a baseline simulation with no glucose disturbances.
+**Scenario buttons** (grouped together below the parameters):
 
-**Meals Button:** Momentary button that simulates three daily meals at t=6, t=10, and t=16 hours, each causing a roughly 30-minute glucose surge.
+- **Baseline:** constant glucose production m.
+- **Meals:** three meals at t = 6, 10 and 16 hours. Each adds a glucose pulse lasting 30 minutes. Dashed lines mark the meals.
+- **Meals & Snacks:** the same meals plus three sugary snacks, at t = 8 (mid-morning), 13 (mid-afternoon) and 17 hours (an hour after dinner). Each snack pulse is a little higher and lasts a little longer (about 50 minutes) than a meal pulse. Snacks are marked in amber.
+- **Challenge:** one large glucose pulse centered at t = 5 hours, like drinking a sugary drink in a glucose tolerance test.
 
-**Meals & Snacks Button:** Momentary button that runs the same three meals and adds three sugary snacks between them — mid-morning (t=8), mid-afternoon (t=13), and an hour after dinner (t=17). The snacks are stronger and slightly longer than meals, keeping glucose elevated between meals. Snack times are marked in amber on the graph. [VERIFY: physiological interpretation]
-
-**Challenge Button:** Momentary button that simulates a glucose challenge test with a spike at t=5 hours.
+Changing any parameter re-runs the scenario that is currently shown.
 
 ## What to Observe
 
-- Adjust **Insulin Sensitivity (s)** to observe how the rate of glucose removal changes. Higher values cause faster glucose decline after meals.
-- Adjust **Beta Cell Mass (B)** to observe how the insulin response amplitude changes. Lower values reduce insulin production capacity.
-- Adjust **Insulin Production Rate (q)** to observe how strongly insulin rises in response to elevated glucose.
-- Adjust **Insulin Degradation Rate (γ)** to observe how insulin clearance affects the duration of insulin elevation.
-- Adjust **Glucose Production (m)** to observe how the baseline glucose level shifts.
-- Click **Meals** and observe the glucose and insulin spikes at breakfast (6h), lunch (10h), and dinner (16h).
-- Click **Meals & Snacks** and compare with **Meals**: notice how the between-meal snacks keep glucose from returning to baseline.
-- Click **Challenge** to observe the system's response to a sudden glucose load at t=5 hours.
+- At the defaults, read off the equilibrium glucose and insulin levels (with units).
+- Double **m** from 0.5 to 1 and compare the new equilibrium levels with the old ones.
+- With m = 1, find the beta cell mass **B** that brings glucose back to 5 mM. What happens to insulin?
+- Insulin resistance: try B = 1.5 and lower **s** to 0.2.
+- Click **Meals**, then **Meals & Snacks**: the snacks keep glucose from returning to baseline between meals.
+- Click **Challenge** to see how the system returns to equilibrium after a large glucose load.
 
 ## References
 

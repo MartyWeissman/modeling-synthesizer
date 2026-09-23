@@ -2,43 +2,34 @@
 
 ## Overview
 
-This tool models caffeine concentration in the bloodstream over a 72-hour (3-day) period. It simulates up to three daily doses with exponential decay kinetics. [VERIFY: first-order exponential decay is the standard pharmacokinetic model for caffeine]
+This tool models the amount of caffeine in the body over 72 hours (3 days). You choose up to three daily doses; the same schedule repeats every day. The body removes caffeine at a rate proportional to the amount present (first-order elimination, the standard simple model for caffeine), so the change equation is
+
+C′ = Intake − μC,
+
+where C is the amount of caffeine (mg) and μ is the metabolic rate (per hour). Each dose is taken all at once, and then decays exponentially: a dose D taken at time t₀ contributes D·e^(−μ(t − t₀)).
 
 ## Parameters
 
-**Dose 1 Time:** Time picker selects the hour for the first daily dose. Default: 7:00 AM.
+**Dose 1, 2, 3 time:** Time pickers, in 15-minute steps. Defaults: 7:00 AM, 12:00 PM and 4:00 PM.
 
-**Dose 1 Amount:** Staircase selector with levels: 0mg, 40mg, 80mg, 120mg, 160mg, 200mg. Default: 120mg (level 3).
+**Dose 1, 2, 3 amount:** Staircase selectors with levels 0, 40, 80, 120, 160 and 200 mg. Defaults: 120 mg, 80 mg and 40 mg. (A cup of brewed coffee has roughly 80–100 mg of caffeine.)
 
-**Dose 2 Time:** Time picker selects the hour for the second daily dose. Default: 12:00 PM.
-
-**Dose 2 Amount:** Staircase selector with levels: 0mg, 40mg, 80mg, 120mg, 160mg, 200mg. Default: 80mg (level 2).
-
-**Dose 3 Time:** Time picker selects the hour for the third daily dose. Default: 4:00 PM.
-
-**Dose 3 Amount:** Staircase selector with levels: 0mg, 40mg, 80mg, 120mg, 160mg, 200mg. Default: 40mg (level 1).
-
-**Metabolic Rate (μ):** Horizontal slider adjusts between 0.0 and 0.5 hr⁻¹, default 0.2 hr⁻¹. Controls how quickly caffeine is eliminated from the bloodstream. [VERIFY: typical adult caffeine half-life range corresponds to μ values in this range]
+**Metabolic rate (μ):** Slider from 0.01 to 0.50 per hour, default 0.20. The label also shows the half-life t½ = ln 2 / μ, the time for the amount of caffeine to fall by half. The default μ = 0.20 gives t½ ≈ 3.5 hours. In healthy adults the half-life is typically about 3–7 hours, around 5 hours on average (μ ≈ 0.1–0.23); it is longer during pregnancy and with some medications, and shorter in smokers.
 
 ## Components
 
-**Caffeine Graph:** Displays caffeine concentration (mg) vs time (hours) over a 72-hour period (x-axis: 0-72 hours, y-axis: 0-320 mg). A blue curve shows the caffeine level rising after each dose and decaying exponentially between doses. The same dose schedule repeats each of the three days.
+**Caffeine graph:** The amount of caffeine in the body (mg) versus time (hours, 0–72; midnight of day 1 is t = 0). The curve jumps up at each dose and decays exponentially in between. The vertical axis runs from 0 to 320 mg and extends automatically when the curve goes higher.
 
-**Daily Caffeine Display:** Shows the total daily caffeine intake in mg, calculated as the sum of all three dose amounts.
+**Daily caffeine display:** The total caffeine taken each day (the sum of the three doses).
 
-**Equation Display:** Shows the differential equation governing caffeine metabolism (dC/dt = -μC).
+**Equation display:** The change equation C′ = Intake − μC.
 
-**Dose Labels:** Three labels ("Dose 1", "Dose 2", "Dose 3") identify each row of time and amount controls.
+**Dose labels:** "Dose 1", "Dose 2" and "Dose 3" label each row of controls.
 
 ## What to Observe
 
-- Adjust the **metabolic rate slider** to see how faster elimination (higher μ) causes steeper decay curves and lower trough levels between doses.
-- Set a **dose amount to 0mg** to simulate skipping that dose and observe how the curve changes.
-- Move **dose times closer together** to see how caffeine accumulates when doses overlap before the previous dose has cleared.
-- Compare **morning vs afternoon dosing** by changing dose times - notice how late doses may still have significant levels at typical bedtime hours.
-- Watch the **72-hour pattern** to see how the same daily schedule produces consistent peak and trough levels by day 2-3.
-- Increase the **daily total** (shown in the status display) by using higher dose amounts and observe higher peak concentrations.
-
-## References
-
-[To be added]
+- Move the **metabolic rate** slider: a larger μ (shorter half-life) gives steeper decay and lower levels between doses.
+- Set a dose to **0 mg** to skip it.
+- Move **dose times closer together** to see caffeine build up when a new dose arrives before the last one has cleared.
+- Move a dose later in the day and look at how much caffeine is left at bedtime.
+- Compare the three days. With a short half-life each day looks the same; with a long half-life (small μ) caffeine carries over from one day to the next and the levels creep upward.

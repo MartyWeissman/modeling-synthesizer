@@ -2,52 +2,61 @@
 
 ## Overview
 
-Models the dynamic interaction between blood glucose and insulin levels using differential equations with time delays. Simulates baseline conditions, daily meals, and glucose challenge tests.
+Models how blood glucose (G) and insulin (I) regulate each other, including glucose release by the liver and two time delays. It extends the minimal model from Lab 1:
+
+- G′ = m + α / (1 + e^(k·I(t − σ) − c)) − s·I·G
+- I′ = q·B·G(t − τ)² / (1 + G(t − τ)²) − γ·I
+
+Here G(t − τ) means the glucose level τ minutes earlier, and I(t − σ) the insulin level σ minutes earlier. Parameters are in simplified model units, with time in hours. You can simulate a baseline day, three meals, or a glucose challenge.
 
 ## Parameters
 
-**Glucose Production (m):** Input field adjusts between 0 and 10, step 0.1, default 0.5. Represents the baseline rate of glucose entering the bloodstream. [VERIFY: physiological interpretation]
+All eight parameters are input fields from 0 to 10 in steps of 0.1.
 
-**Insulin Sensitivity (s):** Input field adjusts between 0 and 10, step 0.1, default 1.0. Represents how effectively insulin removes glucose from the blood. [VERIFY: typical physiological range]
+**Glucose production (m):** default 0.5. The steady rate at which glucose enters the bloodstream (for example from digested food).
 
-**Insulin Production Rate (q):** Input field adjusts between 0 and 10, step 0.1, default 1.0. Represents the rate at which pancreatic beta cells produce insulin in response to glucose. [VERIFY: physiological interpretation]
+**Insulin sensitivity (s):** default 1.0. How strongly insulin makes muscle and fat cells take up glucose. The removal term s·I·G grows with both insulin and glucose.
 
-**Beta Cell Mass (B):** Input field adjusts between 0 and 10, step 0.1, default 1.0. Represents the functional mass of insulin-producing cells in the pancreas. [VERIFY: physiological interpretation]
+**Insulin production rate (q):** default 1.0. How much insulin the beta cells release per unit of beta-cell mass when glucose is high.
 
-**Insulin Degradation Rate (γ):** Input field adjusts between 0 and 10, step 0.1, default 1.0. Represents the rate at which insulin is cleared from the bloodstream. [VERIFY: typical physiological range]
+**Beta cell mass (B):** default 1.0. The total mass of insulin-producing beta cells in the pancreas (called b in the Lab Manual).
 
-**Liver Production Amplitude (α):** Input field adjusts between 0 and 10, step 0.1, default 0.0. Represents the maximum rate of glucose production by the liver. [VERIFY: physiological interpretation]
+**Insulin degradation rate (γ):** default 1.0. The rate at which insulin is cleared from the blood.
 
-**Insulin Sensitivity of Liver (k):** Input field adjusts between 0 and 10, step 0.1, default 1.0. Represents how strongly insulin suppresses liver glucose production. [VERIFY: physiological interpretation]
+**Liver production amplitude (α):** default 0.0. The largest rate at which the liver releases glucose. When insulin is low, the alpha cells release glucagon, which tells the liver to release glucose. With α = 0 the liver term is switched off and the model is the minimal model.
 
-**Threshold Parameter (c):** Input field adjusts between 0 and 10, step 0.1, default 1.0. Represents the insulin level at which liver glucose production is half-maximally suppressed. [VERIFY: physiological interpretation]
+**Insulin sensitivity of liver (k):** default 1.0. How sharply the liver's glucose release shuts off as insulin rises. Larger k gives a steeper switch.
 
-**G → I Delay (τ):** Horizontal slider adjusts between 0 and 60 minutes, default 0. Represents the time delay between glucose changes and the pancreatic insulin response. [VERIFY: physiological significance of delay]
+**Threshold parameter (c):** default 1.0. Together with k, it sets where the switch happens: liver production is half of its maximum α/2 when k·I = c, that is at I = c/k (in model units; on the graph that is 100·c/k pM).
 
-**I → G Delay (σ):** Horizontal slider adjusts between 0 and 60 minutes, default 0. Represents the time delay between insulin changes and liver glucose production response. [VERIFY: physiological significance of delay]
+**G → I delay (τ):** slider from 0 to 60 minutes, default 0. The time it takes for a change in glucose to change insulin production.
+
+**I → G delay (σ):** slider from 0 to 60 minutes, default 0. The time it takes for a change in insulin to change the liver's glucose release. σ acts only through the liver term, so it has **no effect when α = 0**. The slider is dimmed and labeled "no effect: α = 0" until you set α above 0.
+
+The simulator works in 6-minute time steps, so each delay is rounded to the nearest 6 minutes.
 
 ## Components
 
-**Insulin-Glucose Dynamics Graph:** Dual Y-axis graph displaying glucose concentration (mmol/L, left axis, red line) and insulin concentration (pmol/L, right axis, blue line) versus time (hours) over a 20-hour period. Green shaded region shows normal glucose range (3.9-5.5 mmol/L). [VERIFY: normal glucose range]
+**Graph:** glucose (red solid line, left axis, 0–12 mM) and insulin (blue dashed line, right axis, 0–200 pM) over a 20-hour window. Model values are converted with G × 5 = glucose in mM (mmol/L) and I × 100 = insulin in pM (pmol/L). At the default parameters the system starts at its steady state, 5 mM glucose and 50 pM insulin, so both lines are flat. The green band marks the healthy fasting glucose range, about 3.9–5.5 mM. If a curve goes above the top of its axis, a small ▲ marks where it leaves the graph and the legend shows its peak value. The legend moves to the corner that covers the least data.
 
-**Insulin-Glucose Model Display:** Info panel showing the differential equations for the glucose dynamics (G') and insulin dynamics (I') using MathML equation rendering.
+**Model display:** the two change equations shown above.
 
-**Baseline Button:** Momentary button that runs a baseline simulation with no glucose disturbances.
+**Baseline:** runs the model with constant glucose production m.
 
-**Meals Button:** Momentary button that simulates three daily meals at t=6, t=10, and t=16 hours, each causing a 30-minute glucose surge.
+**Meals:** adds three meals at t = 6, 10 and 16 hours. Each adds a glucose pulse lasting 30 minutes. Dashed lines mark the meals.
 
-**Challenge Button:** Momentary button that simulates a glucose challenge test with a spike at t=5 hours.
+**Challenge:** adds one large glucose pulse centered at t = 5 hours, like drinking a sugary drink in a glucose tolerance test. A dashed line marks it.
+
+Changing any parameter re-runs the scenario that is currently shown.
 
 ## What to Observe
 
-- Adjust **Insulin Sensitivity (s)** to observe how the rate of glucose removal changes. Higher values cause faster glucose decline after meals.
-- Adjust **Beta Cell Mass (B)** to observe how the insulin response amplitude changes. Lower values reduce insulin production capacity.
-- Set **Liver Production Amplitude (α)** to non-zero values (e.g., 2.0) to observe liver glucose production effects between meals.
-- Adjust **G → I Delay (τ)** to observe how delayed pancreatic response affects glucose regulation after the Challenge test.
-- Click **Meals** button and observe the glucose and insulin spikes at breakfast (6h), lunch (10h), and dinner (16h).
-- Click **Challenge** button to observe the system's response to a sudden glucose load at t=5 hours.
-- Adjust **Insulin Degradation Rate (γ)** to observe how insulin clearance affects the duration of insulin elevation.
+- Start from the Lab Manual values m = 2, s = 7, q = 3, B = 2, γ = 5, α = 1, k = 2, c = 2. Then change m (for example m = 0 for sleeping, m = 3 for high intake) and α, and watch whether glucose stays in the green band.
+- Click **Challenge** and increase the G → I delay τ. How do glucose and insulin return to equilibrium? How does the timing of any oscillation depend on τ?
+- Compare τ with σ (set α > 0 first). Which delay matters more for producing oscillations?
+- Click **Meals** and watch glucose and insulin rise after each meal and fall back.
+- Lower **s** (insulin resistance) or **B** and see how high glucose climbs.
 
 ## References
 
-[To be added]
+- J. Sturis, K. S. Polonsky, E. Mosekilde, E. Van Cauter, "Computer model for mechanisms underlying ultradian oscillations of insulin and glucose," *American Journal of Physiology – Endocrinology and Metabolism* 260 (1991), E801–E809. (Used in the Lab Manual's ultradian-oscillation exercise.)
