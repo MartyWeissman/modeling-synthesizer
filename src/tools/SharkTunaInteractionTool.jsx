@@ -1,12 +1,11 @@
 // src/tools/SharkTunaInteractionTool.jsx
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   GridWindow,
   GridSliderHorizontal,
   GridButton,
   GridDisplay,
-  GridLabel,
 } from "../components/grid";
 import ToolContainer from "../components/ui/ToolContainer";
 import { useTheme } from "../hooks/useTheme";
@@ -24,6 +23,10 @@ const SharkTunaInteractionTool = () => {
   const [tuna, setTuna] = useState([]);
   const [eatenTuna, setEatenTuna] = useState([]);
   const [showEatenMarkers, setShowEatenMarkers] = useState(false);
+  const markerTimeoutRef = useRef(null);
+
+  // Cancel a pending "show eaten markers" timer on unmount
+  useEffect(() => () => clearTimeout(markerTimeoutRef.current), []);
 
   // Grid dimensions for the 4x4 window
   const GRID_SIZE = 20; // 20x20 grid within the window
@@ -95,8 +98,10 @@ const SharkTunaInteractionTool = () => {
     setEatenTuna(eatenTunaPositions);
     setShowEatenMarkers(false);
 
-    // Show eaten markers after 1 second delay
-    setTimeout(() => {
+    // Show eaten markers after 1 second delay (cancel the timer from any
+    // earlier placement so it cannot reveal this placement's markers early)
+    clearTimeout(markerTimeoutRef.current);
+    markerTimeoutRef.current = setTimeout(() => {
       setShowEatenMarkers(true);
     }, 1000);
   }, [numSharks, numTuna]);
@@ -112,7 +117,7 @@ const SharkTunaInteractionTool = () => {
 
   return (
     <ToolContainer
-      title="Shark and Tuna Interaction Counter"
+      title="Shark-Tuna Interactions"
       canvasWidth={7}
       canvasHeight={4}
     >
@@ -132,8 +137,8 @@ const SharkTunaInteractionTool = () => {
               key={`shark-${shark.id}`}
               style={{
                 position: "absolute",
-                left: `${(shark.x / GRID_SIZE) * 100}%`,
-                top: `${(shark.y / GRID_SIZE) * 100}%`,
+                left: `${((shark.x + 0.5) / GRID_SIZE) * 100}%`,
+                top: `${((shark.y + 0.5) / GRID_SIZE) * 100}%`,
                 fontSize: "24px",
                 transform: "translate(-50%, -50%)",
               }}
@@ -148,8 +153,8 @@ const SharkTunaInteractionTool = () => {
               key={`tuna-${tunaFish.id}`}
               style={{
                 position: "absolute",
-                left: `${(tunaFish.x / GRID_SIZE) * 100}%`,
-                top: `${(tunaFish.y / GRID_SIZE) * 100}%`,
+                left: `${((tunaFish.x + 0.5) / GRID_SIZE) * 100}%`,
+                top: `${((tunaFish.y + 0.5) / GRID_SIZE) * 100}%`,
                 fontSize: "21px",
                 transform: "translate(-50%, -50%)",
               }}
@@ -165,8 +170,8 @@ const SharkTunaInteractionTool = () => {
                 key={`eaten-${deadTuna.id}`}
                 style={{
                   position: "absolute",
-                  left: `${(deadTuna.x / GRID_SIZE) * 100}%`,
-                  top: `${(deadTuna.y / GRID_SIZE) * 100}%`,
+                  left: `${((deadTuna.x + 0.5) / GRID_SIZE) * 100}%`,
+                  top: `${((deadTuna.y + 0.5) / GRID_SIZE) * 100}%`,
                   fontSize: "20px",
                   color: "red",
                   fontWeight: "bold",
@@ -236,7 +241,7 @@ const SharkTunaInteractionTool = () => {
         variant="status"
         align="center"
         fontSize="medium"
-        tooltip={`${tunaEaten} tuna were eaten by sharks, ${tuna.length} survived`}
+        tooltip={`${tunaEaten} tuna were eaten by sharks, ${tuna.length - tunaEaten} survived`}
         theme={theme}
       />
     </ToolContainer>
