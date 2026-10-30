@@ -8,8 +8,9 @@
 //   - a vertical shift doesn't change the derivative,
 //   - a vertical scaling scales the derivative,
 //   - the power rule,
-//   - d/dt b^t = ln(b) b^t, d/dt e^t = e^t, d/dt sin t = cos t,
-//     d/dt cos t = -sin t.
+//   - the derivatives of b^t, e^t, sin t and cos t are ln(b) b^t, e^t,
+//     cos t and -sin t.
+// (Students write dP/dt but not "d/dt", so methods state rules in words.)
 // No chain rule and no product rule.
 //
 // Expressions are small structures (a list of terms, each term a
@@ -217,7 +218,7 @@ const T = mi("t");
 /** Wrap MathML content in a <math> element. */
 export const wrapMath = (x) =>
   `<math xmlns="http://www.w3.org/1998/Math/MathML">${x}</math>`;
-// Full-size fraction (for dP/dt and d/dt); other fractions stay compact.
+// Full-size fraction (for dP/dt); other fractions stay compact.
 const bigFrac = (a, b) => `<mstyle displaystyle="true">${mfrac(a, b)}</mstyle>`;
 
 const ratAbsML = (r) =>
@@ -305,8 +306,6 @@ const exprML = (terms, styles = []) => {
   );
 };
 
-const ddtML = (inner) =>
-  mrow(bigFrac(mi("d", "normal"), mrow(mi("d", "normal"), T)), paren(inner));
 
 // ---------------------------------------------------------------------------
 // Problem generation
@@ -326,7 +325,7 @@ const DEP_LETTERS = [
   "P", "F", "G", "H", "Z", "Q", "N", "M", "R", "W",
   "Y", "X", "A", "B", "C", "L", "S", "V", "K", "J", "U",
 ];
-// Constants. Never e, t, d, i, l, o, s or p (they collide with e, t, d/dt,
+// Constants. Never e, t, d, i, l, o, s or p (they collide with e, t, the d of dP/dt,
 // sin, ln, pi...).
 const COEF_POOL = ["k", "c", "a", "b", "r", "m", "q"];
 const SHIFT_POOL = ["c", "b", "a", "h", "k"];
@@ -551,18 +550,25 @@ export const makeProblem = (options = DEFAULT_OPTIONS, rng = Math.random) => {
         ],
       });
     }
+    // (Students write dP/dt, but not d/dt, so the rules are stated in words.)
+    const mainML = exprML([main]);
+    const baseML0 = exprML([baseTerm]);
+    const dBaseML = exprML([dBase]);
+    const scaled = !isOneCoef(scale);
     if (shift) {
       steps.push({
         label: "Vertical shift",
         segs: [
           "The constant ",
           ml(shiftML),
-          " shifts the graph up or down. It doesn't change the derivative: ",
-          ml(eq(dDep, ddtML(exprML([main])))),
+          " shifts the graph up or down. It doesn't change the derivative, so ",
+          ml(dDep),
+          " is the derivative of ",
+          ml(mainML),
+          ".",
         ],
       });
     }
-    const scaled = !isOneCoef(scale);
     if (scaled) {
       steps.push({
         label: "Vertical scaling",
@@ -571,18 +577,16 @@ export const makeProblem = (options = DEFAULT_OPTIONS, rng = Math.random) => {
           ml(scaleML),
           " multiplies the derivative by ",
           ml(scaleML),
-          ": ",
-          ml(
-            eq(
-              shift ? ddtML(exprML([main])) : dDep,
-              mrow(scaleML, mo(DOT), ddtML(exprML([baseTerm]))),
-            ),
-          ),
+          ", so ",
+          ...(shift ? ["the derivative of ", ml(mainML)] : [ml(dDep)]),
+          " is ",
+          ml(scaleML),
+          " times the derivative of ",
+          ml(baseML0),
+          ".",
         ],
       });
     }
-    const baseML0 = exprML([baseTerm]);
-    const dBaseML = exprML([dBase]);
     if (kind === "power" && basis.exp.param) {
       const n = basis.exp.param;
       steps.push({
@@ -590,24 +594,29 @@ export const makeProblem = (options = DEFAULT_OPTIONS, rng = Math.random) => {
         segs: [
           "The power rule works for any constant exponent ",
           ml(mi(n)),
-          ": ",
-          ml(eq(ddtML(baseML0), dBaseML)),
+          ": the derivative of ",
+          ml(baseML0),
+          " is ",
+          ml(dBaseML),
+          ".",
         ],
       });
     } else if (kind === "power") {
       const r = basis.exp.r;
-      const generic = eq(
-        ddtML(msup(T, mi("n"))),
-        mrow(mi("n"), msup(T, mrow(mi("n"), mo(MINUS), mn(1)))),
-      );
       steps.push({
         label: "Power rule",
         segs: [
-          ml(generic),
-          ", so ",
+          "The derivative of ",
+          ml(msup(T, mi("n"))),
+          " is ",
+          ml(mrow(mi("n"), msup(T, mrow(mi("n"), mo(MINUS), mn(1))))),
+          ". Here the exponent is ",
+          ml(signedRatML(r)),
+          ", so the derivative of ",
+          ml(baseML0),
+          " is ",
           ml(
             eq(
-              ddtML(baseML0),
               mrow(
                 signedRatML(r),
                 ...(r.q === 1 && Math.abs(r.p) === 1 ? [mo(DOT)] : []),
@@ -616,6 +625,7 @@ export const makeProblem = (options = DEFAULT_OPTIONS, rng = Math.random) => {
               dBaseML,
             ),
           ),
+          ".",
         ],
       });
     } else if (kind === "exponential" && basis.base.type === "e") {
@@ -624,32 +634,36 @@ export const makeProblem = (options = DEFAULT_OPTIONS, rng = Math.random) => {
         segs: [
           "The function ",
           ml(msup(mi("e"), T)),
-          " is its own derivative: ",
-          ml(eq(ddtML(baseML0), dBaseML)),
+          " is its own derivative: the derivative of ",
+          ml(baseML0),
+          " is ",
+          ml(dBaseML),
+          ".",
         ],
       });
     } else if (kind === "exponential") {
       const g = ["b", "a", "r"].find((x) => !used.has(x)) || "b";
       const gb = mi(g);
-      const generic = eq(
-        ddtML(msup(gb, T)),
-        mrow(mi("ln"), mo(APPLY), paren(gb), mo(DOT), msup(gb, T)),
-      );
       steps.push({
         label: "Exponential",
         segs: [
           "For a positive base ",
           ml(gb),
-          ": ",
-          ml(generic),
-          ", so ",
-          ml(eq(ddtML(baseML0), dBaseML)),
+          ", the derivative of ",
+          ml(msup(gb, T)),
+          " is ",
+          ml(mrow(mi("ln"), mo(APPLY), paren(gb), mo(DOT), msup(gb, T))),
+          ". So the derivative of ",
+          ml(baseML0),
+          " is ",
+          ml(dBaseML),
+          ".",
         ],
       });
     } else {
       steps.push({
         label: basis.type === "sin" ? "Sine" : "Cosine",
-        segs: [ml(eq(ddtML(baseML0), dBaseML))],
+        segs: ["The derivative of ", ml(baseML0), " is ", ml(dBaseML), "."],
       });
     }
     if (scaled) {

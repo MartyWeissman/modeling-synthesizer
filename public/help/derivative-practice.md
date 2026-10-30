@@ -9,9 +9,9 @@ Every problem can be solved with just these rules (no chain rule and no product 
 - **Lines:** the derivative of a linear function is its slope.
 - **Vertical shifts:** adding a constant doesn't change the derivative.
 - **Vertical scaling:** multiplying by a constant multiplies the derivative by the same constant.
-- **Power rule:** d/dt (tⁿ) = n tⁿ⁻¹, for any constant exponent n.
-- **Exponentials:** d/dt (eᵗ) = eᵗ, and d/dt (bᵗ) = ln(b)·bᵗ for any positive base b.
-- **Sine and cosine:** d/dt sin(t) = cos(t) and d/dt cos(t) = −sin(t).
+- **Power rule:** the derivative of tⁿ is n tⁿ⁻¹, for any constant exponent n.
+- **Exponentials:** the derivative of eᵗ is eᵗ, and the derivative of bᵗ is ln(b)·bᵗ for any positive base b.
+- **Sine and cosine:** the derivative of sin(t) is cos(t), and the derivative of cos(t) is −sin(t).
 
 ## Choosing What to Practice
 
@@ -48,7 +48,7 @@ The function is called by a capital letter (P, F, G, H, Z, …), the variable is
 **Your answer:** Type the derivative here, then press Enter or click **Check**. The feedback box next to it says whether you're right:
 
 - **✓ Correct!** Any equivalent form counts: 4t, 4*t and 2*2t are all correct.
-- **✗ Not quite.** If your answer matches a common mistake (keeping the constant term, forgetting the scaling factor, a sign error, lowering the exponent but not multiplying by it, forgetting ln(b), leaving out the parentheses around an exponent like t^(n-1), and so on), the feedback names it.
+- **✗ Not quite.** If your answer matches a common mistake (keeping the constant term, forgetting the scaling factor, a sign error, lowering the exponent but not multiplying by it, forgetting ln(b), and so on), the feedback names it.
 - **≈ Very close:** your answer is right except for rounded decimals, such as 0.693 instead of ln(2). Give the exact answer.
 - **Read as:** shows how your typing was understood, so you can spot typos.
 
