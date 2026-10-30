@@ -21,6 +21,9 @@ const GridEquationInput = React.memo(
     tooltip,
     theme,
     fontSize = "sm",
+    onSubmit, // Optional: called with the value when Enter is pressed
+    validate, // Optional: (value) => boolean, replaces the default character check
+    ariaLabel, // Optional accessible name for the input
   }) => {
     const [isFocused, setIsFocused] = useState(false);
     const [hasError, setHasError] = useState(false);
@@ -55,7 +58,9 @@ const GridEquationInput = React.memo(
 
     const handleChange = (e) => {
       const newValue = e.target.value;
-      const isValid = validateEquation(newValue);
+      const isValid = validate
+        ? validate(newValue)
+        : validateEquation(newValue);
 
       setHasError(!isValid);
       onChange(newValue);
@@ -235,6 +240,15 @@ const GridEquationInput = React.memo(
                   onChange={handleChange}
                   onFocus={() => setIsFocused(true)}
                   onBlur={() => setIsFocused(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && onSubmit) {
+                      e.preventDefault();
+                      onSubmit(e.currentTarget.value);
+                    }
+                  }}
+                  aria-label={ariaLabel || label || variable || undefined}
+                  autoComplete="off"
+                  spellCheck={false}
                   placeholder={placeholder}
                   className={`w-full h-full px-2 py-1 bg-transparent border-none outline-none ${colors.textColor}`}
                   style={{

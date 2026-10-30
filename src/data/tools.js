@@ -23,6 +23,7 @@ const VisualToolBuilder = lazy(() => import("../tools/VisualToolBuilder.jsx"));
 const LinearRegressionLogScalingTool = lazy(() => import("../tools/LinearRegressionLogScalingTool.jsx"));
 const DiscreteModelingPracticeTool = lazy(() => import("../tools/DiscreteModelingPracticeTool.jsx"));
 const TrajectoryTimeSeriesPracticeTool = lazy(() => import("../tools/TrajectoryTimeSeriesPracticeTool.jsx"));
+const DerivativePracticeTool = lazy(() => import("../tools/DerivativePracticeTool.jsx"));
 const SelfInteractionSimulatorTool = lazy(() => import("../tools/SelfInteractionSimulatorTool.jsx"));
 const LogisticGrowthExplorerTool = lazy(() => import("../tools/LogisticGrowthExplorerTool.jsx"));
 const GeneralizedLotkaVolterraTool = lazy(() => import("../tools/GeneralizedLotkaVolterraTool.jsx"));
@@ -235,6 +236,19 @@ export const toolDefinitions = {
     description:
       "Interactive study aide for understanding the relationship between trajectory plots and time series plots in population dynamics.",
     component: TrajectoryTimeSeriesPracticeTool,
+    categories: {
+      topics: [],
+      toolType: "study",
+      lab: null,
+    },
+    visibility: "student",
+  },
+
+  "derivative-practice": {
+    name: "Derivative Practice",
+    description:
+      "Study aide for practicing derivatives of lines, power laws, exponentials, sine and cosine, with vertical scaling, shifts and constants. Check your answer, or reveal the answer and the method.",
+    component: DerivativePracticeTool,
     categories: {
       topics: [],
       toolType: "study",
