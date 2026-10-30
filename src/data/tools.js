@@ -24,6 +24,7 @@ const LinearRegressionLogScalingTool = lazy(() => import("../tools/LinearRegress
 const DiscreteModelingPracticeTool = lazy(() => import("../tools/DiscreteModelingPracticeTool.jsx"));
 const TrajectoryTimeSeriesPracticeTool = lazy(() => import("../tools/TrajectoryTimeSeriesPracticeTool.jsx"));
 const DerivativePracticeTool = lazy(() => import("../tools/DerivativePracticeTool.jsx"));
+const LogarithmPracticeTool = lazy(() => import("../tools/LogarithmPracticeTool.jsx"));
 const SelfInteractionSimulatorTool = lazy(() => import("../tools/SelfInteractionSimulatorTool.jsx"));
 const LogisticGrowthExplorerTool = lazy(() => import("../tools/LogisticGrowthExplorerTool.jsx"));
 const GeneralizedLotkaVolterraTool = lazy(() => import("../tools/GeneralizedLotkaVolterraTool.jsx"));
@@ -249,6 +250,19 @@ export const toolDefinitions = {
     description:
       "Study aide for practicing derivatives of lines, power laws, exponentials, sine and cosine, with vertical scaling, shifts and constants. Check your answer, or reveal the answer and the method.",
     component: DerivativePracticeTool,
+    categories: {
+      topics: [],
+      toolType: "study",
+      lab: null,
+    },
+    visibility: "student",
+  },
+
+  "logarithm-practice": {
+    name: "Logarithm Practice",
+    description:
+      "Study aide for practicing logarithms in base 10, base 2 and base e: evaluate logs of numbers like 0.01, 1/8 and √e, and use the rules of logarithms on expressions. Check your answer, or reveal the answer and the method.",
+    component: LogarithmPracticeTool,
     categories: {
       topics: [],
       toolType: "study",
